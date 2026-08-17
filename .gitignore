@@ -1,0 +1,15 @@
+# 验证临时日志（TeamFlow 流水线 agent 重定向输出）
+log-*.txt
+*.log
+
+# 临时/工作目录
+.tmp-*/
+.tmp-qa-logs/
+.workbuddy/
+
+# Node（本产品零依赖，防御性）
+node_modules/
+
+# OS
+Thumbs.db
+.DS_Store

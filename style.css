@@ -1,0 +1,775 @@
+/*!
+ * tetris/style.css — 科技玻璃风样式全套（深色渐变背景 + 毛玻璃 + 霓虹光效 + 布局）
+ * ============================================================================
+ * 依据：DESIGN §3.1（三列布局）、§5.1（token）、§5.2（方块色）、§5.3（组件）、
+ *       §5.4（分辨率适配）、§5.5（降级链）、§4.3（动效清单）、§6（可访问性）
+ *
+ * 降级链（E13 / DESIGN §5.5）：色值先写 hex/rgba 兜底，再以 @supports 覆盖
+ * OKLCH / color-mix；backdrop-filter 不支持时玻璃面板退化为近实底半透明。
+ *
+ * 性能红线（DESIGN §4.3）：辉光动效一律走「伪元素 + opacity 过渡」；
+ * 禁止逐帧动画 box-shadow / backdrop-filter / filter。
+ * ============================================================================
+ */
+
+/* ── DOM 契约（与 ui.js 一致；遮罩/反馈必须是 #board-frame 子节点才能实现
+      「覆盖游戏板区域（非全页）」定位，DESIGN §3.2） ──
+   body
+   ├─ #page-bg                       背景层（玻璃折射源）
+   ├─ #header > #title + #status(#status-dot + #status-text)
+   ├─ #main（grid 240|340|240，gap 24px）
+   │   ├─ #panel-left.panel
+   │   │   ├─ #stat-score.stat  > .stat__label + .stat__value.stat__value--score
+   │   │   ├─ #stat-level.stat  > .stat__label + .stat__value.stat__value--num
+   │   │   ├─ #stat-lines.stat  > .stat__label + .stat__value.stat__value--num
+   │   │   └─ .next-well > .stat__label + #next-well（4×2 迷你 Canvas，琥珀金描边）
+   │   ├─ #board-col > #board-frame（position:relative；tabindex="-1"）
+   │   │       ├─ #board（10×20 主 Canvas）
+   │   │       ├─ #overlay[hidden] > #overlay-card > #overlay-title / #overlay-sub / #overlay-btn
+   │   │       └─ #feedback-toast[hidden]
+   │   └─ #panel-right.panel > #key-hints + #controls(#btn-start / #btn-pause / #btn-restart)
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* ═══════════════ 1. 设计 Token（DESIGN §5.1） ═══════════════ */
+
+:root {
+  /* 中性色：近纯黑底 + 靛紫极淡冷调（亮度 ≈ 9% ≤ 15%，AC-07.1） */
+  --bg:            #171717;                  /* oklch(0.09 0.000 0) */
+  --bg-deep:       #0c0c0c;                  /* oklch(0.05 0.000 0) */
+  --surface:       #23232d;                  /* oklch(0.16 0.012 270) */
+  --surface-2:     #2d2d39;                  /* oklch(0.20 0.014 270) */
+  --ink:           #ececf2;                  /* oklch(0.93 0.005 270) */
+  --muted:         #9a9aac;                  /* oklch(0.66 0.020 270) */
+  --line:          rgba(94, 90, 110, 0.55);  /* oklch(0.30 0.015 270 / 0.55) */
+  --grid-line:     rgba(242, 242, 242, 0.06);
+  --board-bg:      rgba(15, 14, 22, 0.92);
+
+  /* 品牌色：靛紫主色 + 琥珀金强调 */
+  --primary:       #8b7cf6;                  /* oklch(0.70 0.170 270) */
+  --primary-hi:    #a294ff;                  /* oklch(0.76 0.180 270) */
+  --primary-glow:  rgba(139, 124, 246, 0.45);
+  --accent:        #ffd95c;                  /* oklch(0.78 0.130 85) */
+  --accent-hi:     #ffe98a;
+  --danger:        #ff5a5a;                  /* oklch(0.66 0.210 25) */
+  --success:       #46e08a;                  /* oklch(0.75 0.150 150) */
+
+  /* 玻璃面板底（color-mix 渐进增强，hex 兜底） */
+  --glass-bg:      rgba(35, 35, 45, 0.72);
+
+  /* 静态辉光（box-shadow 值；辉光动效走伪元素 opacity） */
+  --glow-primary:  0 0 12px rgba(139, 124, 246, 0.45), 0 0 32px rgba(139, 124, 246, 0.27);
+  --glow-accent:   0 0 10px rgba(255, 217, 92, 0.40), 0 0 24px rgba(255, 217, 92, 0.22);
+  --glow-danger:   0 0 10px rgba(255, 90, 90, 0.45), 0 0 24px rgba(255, 90, 90, 0.28);
+  --glow-success:  0 0 8px rgba(70, 224, 138, 0.50);
+
+  /* 字体（系统栈，零外部依赖，AC-08） */
+  --font-ui:  system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, Menlo, monospace;
+
+  /* 字号（固定 rem 阶梯，ratio 1.2） */
+  --fs-xs: 0.75rem;    /* 12px */
+  --fs-sm: 0.8125rem;  /* 13px */
+  --fs-md: 0.9375rem;  /* 15px */
+  --fs-lg: 1.125rem;   /* 18px */
+  --fs-xl: 1.5rem;     /* 24px */
+  --fs-2xl: 2rem;      /* 32px */
+  --fs-title: 2.25rem; /* 36px */
+
+  /* 间距（4px 基准） */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-7: 32px; --sp-8: 40px;
+
+  /* 圆角 / z-index */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --z-bg: 0;
+  --z-board: 1;
+  --z-panel: 2;
+  --z-overlay-bg: 10;
+  --z-overlay-card: 11;
+  --z-toast: 20;
+}
+
+/* OKLCH 覆盖（现代浏览器） */
+@supports (color: oklch(0 0 0)) {
+  :root {
+    --bg:            oklch(0.09 0.000 0);
+    --bg-deep:       oklch(0.05 0.000 0);
+    --surface:       oklch(0.16 0.012 270);
+    --surface-2:     oklch(0.20 0.014 270);
+    --ink:           oklch(0.93 0.005 270);
+    --muted:         oklch(0.66 0.020 270);
+    --line:          oklch(0.30 0.015 270 / 0.55);
+    --grid-line:     oklch(0.95 0.000 0 / 0.06);
+    --board-bg:      oklch(0.07 0.005 270 / 0.92);
+    --primary:       oklch(0.70 0.170 270);
+    --primary-hi:    oklch(0.76 0.180 270);
+    --primary-glow:  oklch(0.70 0.170 270 / 0.45);
+    --accent:        oklch(0.78 0.130 85);
+    --accent-hi:     oklch(0.84 0.130 85);
+    --danger:        oklch(0.66 0.210 25);
+    --success:       oklch(0.75 0.150 150);
+  }
+}
+
+/* color-mix 覆盖（玻璃底 / 双层辉光） */
+@supports (background: color-mix(in oklch, red 50%, blue)) {
+  :root {
+    --glass-bg: color-mix(in oklch, var(--surface) 72%, transparent);
+    --glow-primary: 0 0 12px var(--primary-glow), 0 0 32px color-mix(in oklch, var(--primary-glow) 60%, transparent);
+    --glow-accent: 0 0 10px oklch(0.78 0.130 85 / 0.40), 0 0 24px oklch(0.78 0.130 85 / 0.22);
+  }
+}
+
+/* ═══════════════ 2. 基础：深色渐变背景 + 网格纹理 + 页头 ═══════════════ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(1200px 800px at 50% -12%, rgba(139, 124, 246, 0.16), transparent 62%),
+    radial-gradient(900px 620px at 86% 112%, rgba(255, 217, 92, 0.07), transparent 55%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* 背景层：极淡网格纹理（玻璃折射源，静态） */
+#page-bg {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-bg);
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(0deg, var(--grid-line) 0 1px, transparent 1px 48px),
+    repeating-linear-gradient(90deg, var(--grid-line) 0 1px, transparent 1px 48px);
+}
+
+#header {
+  position: relative;
+  z-index: var(--z-panel);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-6);
+  padding: var(--sp-4) var(--sp-5) var(--sp-2);
+}
+
+#title {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 800;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em;
+  color: var(--ink);
+  text-shadow:
+    0 0 8px var(--primary-glow),
+    0 0 24px var(--primary-glow),
+    0 0 48px rgba(139, 124, 246, 0.25);
+}
+
+#status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+
+/* 状态灯：READY 灰 / PLAYING 绿 / PAUSED 金 / GAME OVER 红（DESIGN §2.3） */
+#status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition:
+    background-color 120ms linear,
+    box-shadow 120ms linear;
+}
+
+#status-dot[data-status='playing'] {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--glow-success), 0 0 16px rgba(70, 224, 138, 0.30);
+}
+
+#status-dot[data-status='paused'] {
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(255, 217, 92, 0.45), 0 0 16px rgba(255, 217, 92, 0.25);
+}
+
+#status-dot[data-status='gameover'] {
+  background: var(--danger);
+  box-shadow: 0 0 8px rgba(255, 90, 90, 0.50), 0 0 16px rgba(255, 90, 90, 0.30);
+}
+
+#status-text {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+canvas {
+  display: block;
+}
+
+/* ═══════════════ 3. 布局：三列 Grid（DESIGN §3.1 / §5.4） ═══════════════ */
+
+#main {
+  position: relative;
+  z-index: var(--z-panel);
+  display: grid;
+  grid-template-columns: 240px 340px 240px;
+  gap: var(--sp-6);
+  justify-content: center;
+  align-items: start;
+  padding: var(--sp-5) var(--sp-6) var(--sp-7);
+}
+
+#board-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* 板框：10×20 Canvas（280×560）+ 内边距 16×2 = 312×592；position:relative 是
+   遮罩/toast 的包含块；tabindex="-1" 供遮罩关闭后焦点归还 */
+#board-frame {
+  position: relative;
+  z-index: var(--z-board);
+  padding: var(--sp-4);
+  background: rgba(10, 10, 15, 0.82);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 0 24px rgba(0, 0, 0, 0.45),
+    0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: border-color 160ms linear;
+}
+
+#board-frame:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* GAME OVER：板框红光描边（ui.js 在 phase=OVER 时增删 .is-gameover，DESIGN §4.2） */
+#board-frame.is-gameover {
+  border-color: var(--danger);
+  box-shadow:
+    inset 0 0 24px rgba(0, 0, 0, 0.45),
+    var(--glow-danger);
+}
+
+#panel-left,
+#panel-right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* 响应式：≤1100px 右面板折叠到板下方（单列堆叠，面板保持同宽；非验收范围） */
+@media (max-width: 1100px) {
+  #main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+/* ═══════════════ 4. 组件：玻璃面板 / 统计块 / 按钮 / kbd / 遮罩 / toast ═══════════════ */
+
+/* 玻璃面板（DESIGN §5.3）：backdrop-filter blur + 半透明 */
+.panel {
+  position: relative;
+  z-index: var(--z-panel);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5);
+}
+
+/* backdrop-filter 降级（E13）：近实底半透明 */
+@supports not (backdrop-filter: blur(1px)) {
+  .panel {
+    background: rgba(16, 15, 22, 0.96);
+  }
+}
+
+/* ── 统计块（DESIGN §3.5 / §5.3） ── */
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.stat__label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stat__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums; /* E11：防数字宽度抖动 */
+  color: var(--ink);
+  line-height: 1.1;
+}
+
+.stat__value--score {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(139, 124, 246, 0.18);
+}
+
+.stat__value--num {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+}
+
+/* 数值变化高亮 120ms（DESIGN §4.3：scale 1→1.06 + 金光） */
+.stat.is-flashing .stat__value {
+  animation: stat-flash 120ms ease-out;
+}
+
+@keyframes stat-flash {
+  0% {
+    transform: scale(1);
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    transform: scale(1.06);
+    text-shadow:
+      0 0 12px var(--accent-hi),
+      0 0 28px rgba(255, 217, 92, 0.35);
+  }
+  100% {
+    transform: scale(1);
+    text-shadow: 0 0 0 transparent;
+  }
+}
+
+/* ── 下一个方块预览（DESIGN §3.5：迷你 4×2、12px、琥珀金描边） ── */
+
+.next-well {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+#next-well {
+  align-self: flex-start;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--board-bg);
+  box-shadow: 0 0 8px rgba(255, 217, 92, 0.18);
+}
+
+/* ── 音量/静音控件区（v2.0，AC-10：复用 §5.1/§5.3 token，240px 面板内不溢出） ── */
+
+.audio-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line); /* 与上方统计块区隔，保持面板纵向流 */
+}
+
+.audio-controls__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* 紧凑按钮变体（同一 .btn token：描边/圆角/辉光/焦点环不变，仅高度与内边距） */
+.btn--audio {
+  height: 32px;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+#btn-mute {
+  width: 100%;
+  white-space: nowrap;
+}
+
+#btn-vol-down,
+#btn-vol-up {
+  flex: 0 0 40px;
+  padding: 0;
+}
+
+.audio-controls__value {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums; /* E11：防数字宽度抖动 */
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
+
+/* 静音态：文案/图标形态变化 + aria-pressed 双信号（AC-10.6，非仅颜色） */
+#btn-mute.is-muted {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+#btn-mute.is-muted::before {
+  opacity: 0; /* 弱化辉光（静态态） */
+}
+
+/* ── 按钮（DESIGN §5.3） ── */
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 var(--sp-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease-out,
+    color 150ms ease-out,
+    transform 60ms ease-out;
+}
+
+/* 辉光走伪元素 opacity（不动画 box-shadow，DESIGN §4.3） */
+.btn::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--glow-primary);
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+  pointer-events: none;
+}
+
+.btn:hover::before,
+.btn:focus-visible::before {
+  opacity: 1;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn:disabled::before {
+  opacity: 0;
+}
+
+.btn--primary {
+  border-color: var(--primary);
+  text-shadow: 0 0 8px rgba(139, 124, 246, 0.35);
+}
+
+.btn--primary:hover {
+  border-color: var(--primary-hi);
+}
+
+.btn--secondary {
+  color: var(--muted);
+}
+
+.btn--secondary:hover {
+  border-color: var(--muted);
+  color: var(--ink);
+}
+
+#controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* ── kbd 键帽（DESIGN §3.5 / §5.3） ── */
+
+kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px var(--sp-2);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  text-align: center;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.key-hints {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.key-hints__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+/* ── 遮罩（三态复用，覆盖游戏板区域，DESIGN §3.2/3.3/3.4） ── */
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: rgba(5, 5, 8, 0.62);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 160ms ease-out; /* DESIGN §4.3：遮罩 160ms */
+}
+
+#overlay[hidden] {
+  display: none; /* 覆盖 UA hidden 默认样式（display:flex 优先级更高） */
+}
+
+#overlay.is-open {
+  opacity: 1;
+}
+
+#overlay-card {
+  z-index: var(--z-overlay-card);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 200px;
+  text-align: center;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6) var(--sp-7);
+}
+
+#overlay.is-open #overlay-card {
+  animation: overlay-in 160ms ease-out;
+}
+
+@keyframes overlay-in {
+  0% {
+    transform: scale(0.98);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 三态辉光：READY/PAUSED 靛紫，GAME OVER 红光（ui.js 设置 data-state） */
+#overlay[data-state='ready'] #overlay-card,
+#overlay[data-state='paused'] #overlay-card {
+  border-color: var(--primary);
+  box-shadow: var(--glow-primary);
+}
+
+#overlay[data-state='gameover'] #overlay-card {
+  border-color: var(--danger);
+  box-shadow: var(--glow-danger);
+}
+
+#overlay-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+
+#overlay[data-state='gameover'] #overlay-title {
+  color: var(--danger);
+  text-shadow: 0 0 12px rgba(255, 90, 90, 0.50);
+}
+
+#overlay-sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+/* GAME OVER 最终分数：大号霓虹数字（DESIGN §3.4） */
+#overlay[data-state='gameover'] #overlay-sub {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  text-shadow: 0 0 12px rgba(255, 217, 92, 0.40);
+}
+
+#overlay[data-state='gameover'] .btn--primary {
+  border-color: var(--danger);
+}
+
+#overlay[data-state='gameover'] .btn--primary::before {
+  box-shadow: var(--glow-danger);
+}
+
+/* ── LEVEL UP toast（DESIGN §3.5 / §4.3：800ms ± 200ms，AC-06.4） ── */
+
+#feedback-toast {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: 999px;
+  background: var(--accent);
+  color: rgba(16, 15, 22, 0.92); /* 琥珀金底深色文字（对比 ≈ 12:1） */
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  box-shadow: var(--glow-accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+#feedback-toast[hidden] {
+  display: none;
+}
+
+#feedback-toast.is-showing {
+  animation: toast-in-out 800ms ease-out;
+}
+
+@keyframes toast-in-out {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px);
+  }
+  12% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  82% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px);
+  }
+}
+
+/* LEVEL UP 板框辉光脉冲（ui.js 增删 .is-pulsing；伪元素 opacity，DESIGN §4.3） */
+#board-frame.is-pulsing::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 24px rgba(255, 217, 92, 0.45),
+    0 0 48px rgba(255, 217, 92, 0.25);
+  opacity: 0;
+  animation: frame-pulse 800ms ease-out;
+  pointer-events: none;
+}
+
+@keyframes frame-pulse {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ═══════════════ 5. 可访问性与降级（DESIGN §6 / §4.3） ═══════════════ */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#board:focus-visible,
+#next-well:focus-visible {
+  outline-offset: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 瞬时切换：数值直接更新，无缩放/金光 */
+  .stat.is-flashing .stat__value {
+    animation: none;
+  }
+
+  /* toast 仅显示文字（停留 800ms 由 ui.js 控制），无出入动画 */
+  #feedback-toast.is-showing {
+    opacity: 1;
+  }
+
+  /* 板框辉光脉冲关闭 */
+  #board-frame.is-pulsing::after {
+    display: none;
+  }
+}
