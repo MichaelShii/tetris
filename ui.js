@@ -404,7 +404,7 @@
         ctx.stroke()
       }
 
-      /** render(type | null)：READY 态传 null（空预览）；旋转态 0、水平居中、底部对齐 */
+      /** render(type | null)：READY 态传 null（空预览）；旋转态 0、水平居中、垂直居中 */
       function render(type) {
         if (disposed) return
         ctx.clearRect(0, 0, WELL_COLS * WELL_CELL, WELL_ROWS * WELL_CELL)
@@ -427,16 +427,28 @@
 
         if (!type || !TetrisGame.SHAPES[type]) return
         const shape = TetrisGame.SHAPES[type][0]
-        const w = shape[0].length
-        const h = shape.length
-        const ox = Math.floor((WELL_COLS - w) / 2)
-        const oy = WELL_ROWS - h
+        // 计算实际非零区域边界（避免矩阵空行导致偏移量为负、方块被裁剪）
+        let minR = shape.length, maxR = -1, minC = shape[0].length, maxC = -1
+        for (let r = 0; r < shape.length; r++) {
+          for (let c = 0; c < shape[r].length; c++) {
+            if (shape[r][c]) {
+              if (r < minR) minR = r
+              if (r > maxR) maxR = r
+              if (c < minC) minC = c
+              if (c > maxC) maxC = c
+            }
+          }
+        }
+        const actualW = maxC - minC + 1
+        const actualH = maxR - minR + 1
+        const ox = Math.floor((WELL_COLS - actualW) / 2)
+        const oy = Math.floor((WELL_ROWS - actualH) / 2)
         const fill = TetrisGame.COLORS[type].fill
-        for (let r = 0; r < h; r++) {
+        for (let r = minR; r <= maxR; r++) {
           const row = shape[r]
-          for (let c = 0; c < w; c++) {
+          for (let c = minC; c <= maxC; c++) {
             if (!row[c]) continue
-            drawMiniCell(fill, (ox + c) * WELL_CELL, (oy + r) * WELL_CELL)
+            drawMiniCell(fill, (ox + c - minC) * WELL_CELL, (oy + r - minR) * WELL_CELL)
           }
         }
       }
