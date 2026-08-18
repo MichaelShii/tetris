@@ -19,14 +19,14 @@
 
 | 职责 | 位置 | 说明 |
 |---|---|---|
-| **摘要索引** | `docs/SUMMARY.md` | **先读**：每文档用途/关键章节/读取指引（token 预算） |
+| **摘要索引** | `docs/teamflow/SUMMARY.md` | **先读**：每文档用途/关键章节/读取指引（token 预算） |
 | 产品入口 | `README.md` | 玩法、操作、运行方式、验收速览 |
-| 需求（PRD） | `docs/prd/PRD.md` | **验收唯一依据**：AC-01~11 + §5 数值规格（计分/等级/速度表/音效规格） |
-| 设计 | `docs/design/DESIGN.md` | 视觉 token / 交互 / 动效 / 可访问性规范 |
-| 架构 | `docs/architecture/ARCHITECTURE.md` | 工程方案；注意：TS+Vite 为**可选升级路径**，实际交付为扁平纯 JS |
-| 技术方案 | `docs/technical/TECHNICAL.md` | 模块接口契约（UMD 对齐）与任务拆分参考 |
-| QA | `docs/qa/QA-REPORT.md` | 测试报告 + 人工补测清单（v2.1 章 §6；v2.0 历史章 §6.2） |
-| 历史归档 | `docs/history/<版本>/` | 已发布版本的文档快照（日常不读，仅供追溯） |
+| 需求（PRD） | `docs/teamflow/prd/PRD.md` | **验收唯一依据**：AC-01~11 + §5 数值规格（计分/等级/速度表/音效规格） |
+| 设计 | `docs/teamflow/design/DESIGN.md` | 视觉 token / 交互 / 动效 / 可访问性规范 |
+| 架构 | `docs/teamflow/architecture/ARCHITECTURE.md` | 工程方案；注意：TS+Vite 为**可选升级路径**，实际交付为扁平纯 JS |
+| 技术方案 | `docs/teamflow/technical/TECHNICAL.md` | 模块接口契约（UMD 对齐）与任务拆分参考 |
+| QA | `docs/teamflow/qa/QA-REPORT.md` | 测试报告 + 人工补测清单（v2.1 章 §6；v2.0 历史章 §6.2） |
+| 历史归档 | `docs/teamflow/history/<版本>/` | 已发布版本的文档快照（日常不读，仅供追溯） |
 | 待办 | 本文件 §6 | 下一批需求与遗留事项 |
 
 ## 3. 团队角色与标准流程
@@ -36,15 +36,15 @@
 **标准流程**（TeamFlow 流水线）：
 `需求 → PRD（产品经理）→（UI 改造时）UI/UX 设计 →（新项目时）架构规划 → 技术方案（高级全栈）→ 并行开发 → QA 功能测试 → 产品验收（产品经理）`
 
-**产出物落盘约定**（新迭代必须遵守）：
+**产出物落盘约定**（新迭代必须遵守，全部收口到 `docs/teamflow/`）：
 | 环节 | 落盘位置 |
 |---|---|
-| PRD | `docs/prd/PRD.md`（迭代时升级版本号 + 修订记录） |
-| 设计 | `docs/design/DESIGN.md` |
-| 架构 | `docs/architecture/ARCHITECTURE.md` |
-| 技术方案 | `docs/technical/TECHNICAL.md` |
-| QA 报告 | `docs/qa/QA-REPORT.md` |
-| 产品现状 | 更新本文件 §1/§5/§6 |
+| PRD | `docs/teamflow/prd/PRD.md`（迭代时升级版本号 + 修订记录） |
+| 设计 | `docs/teamflow/design/DESIGN.md` |
+| 架构 | `docs/teamflow/architecture/ARCHITECTURE.md` |
+| 技术方案 | `docs/teamflow/technical/TECHNICAL.md` |
+| QA 报告 | `docs/teamflow/qa/QA-REPORT.md` |
+| 产品记忆 | `docs/teamflow/memory.md` |
 
 **完成度自查**：每个环节交付前必须对照自身职责清单自查，**未完成不得流转到下一环节**；
 架构师对新项目还必须**实际初始化脚手架文件**（目录树、package.json 等）与 AGENTS.md 草稿，而不只是输出方案文档。
@@ -113,4 +113,5 @@
 - 2026-08-16：v2.1 QA 测试（QA）：五套验证全绿（47/19/6/装配/164）+ 独立对抗抽查 22/22；AC-11 七条可自动化项 100% 通过、AC-01~10 回归全绿；无 P0/P1/P2/P3 缺陷；OBS-11-1（D-01 甲）/OBS-11-2（文档待 PM 同步）/OBS-11-3（VERSION 可选）登记；报告落盘 `docs/qa/QA-REPORT.md`。
 - 2026-08-16：v2.1 产品验收（产品经理）：独立复跑五套验证全绿 + keyAction 矩阵 14 例抽查全过；AC-01~11 可自动化项 100% 通过、无 P0/P1/P2 缺陷 → ⚠️ 有条件通过（条件 = §6 人工补测清单）；确认 D-01 方案甲（OVER 空格=重开，与 PRD §4/AC-11.6/README 三方一致），OBS-11-1 关闭；§1/§2/§4/§5/§6/§7 同步，SUMMARY.md 同步。
 - 2026-08-16：卫生项处理（OBS-11-3 关闭）：`game.js`/`ui.js`/`audio.js` 头部 `VERSION` 常量 2.0.0→2.1.0 统一升级（TECHNICAL §2.2 标注可选、无断言依赖）；四套核心验证复跑全绿 + E2E 复跑，零行为改动；§6 卫生项条目标记完成。
-- 2026-08-16：AGENTS.md 同步 v2.2（高级全栈工程师）：v2.2 幽灵块已交付；§1 当前版本/进行中/游戏闭环升 v2.2；§5 新增 v2.2 行；§6 幽灵块从 P2 待办划掉 + 交付记录 + v2.2 人工补测清单 + OBS-12-1 登记；§7 补记；`game.js`/`ui.js`/`audio.js` 头部 `VERSION` 统一为 `'2.2.0'`（TECHNICAL §2.2 已同步，无断言依赖，零行为改动）。
+- 2026-08-18：AGENTS.md 同步 v2.2（高级全栈工程师）：v2.2 幽灵块已交付；§1 当前版本/进行中/游戏闭环升 v2.2；§5 新增 v2.2 行；§6 幽灵块从 P2 待办划掉 + 交付记录 + v2.2 人工补测清单 + OBS-12-1 登记；§7 补记；`game.js`/`ui.js`/`audio.js` 头部 `VERSION` 统一为 `'2.2.0'`（TECHNICAL §2.2 已同步，无断言依赖，零行为改动）。
+- 2026-08-18：v0.9 迁移：文档收口到 `docs/teamflow/`（PRD/设计/架构/技术方案/QA/记忆/历史全部迁移至 `docs/teamflow/<职责>/`）；旧 backlog（多角色任务卡模型 9 req + 36 task）清空归档到 `$DSH_HOME/teamflow/products/tetris/backlog/archived-v0.8/`；项目根散落的 `log-*.txt` 清理；§2 文档索引 / §3 落盘约定同步指向新路径。
