@@ -159,6 +159,19 @@
       c.closePath()
     }
 
+    /** hex 颜色 → rgba 字符串（追加目标 alpha）。接受 #rgb / #rrggbb；
+     *  返回原样（若 hex 非法），供 Canvas 辉光等需要透明度的场景使用。 */
+    function hexToRgba(hex, alpha) {
+      if (typeof hex !== 'string') return hex
+      const h = hex.replace('#', '')
+      if (h.length !== 3 && h.length !== 6) return hex
+      const full = h.length === 3 ? h.split('').map(function (c) { return c + c }).join('') : h
+      const r = parseInt(full.slice(0, 2), 16)
+      const g = parseInt(full.slice(2, 4), 16)
+      const b = parseInt(full.slice(4, 6), 16)
+      return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')'
+    }
+
     /**
      * createBoardRenderer(canvas, opts?) → { render(s, fx?), resize, dispose }
      * 唯一逐帧重绘层：井底 + 网格线 + 已固定块 + 活动块 + 消行闪白叠加（140ms）。
@@ -193,8 +206,10 @@
 
         const color = TetrisGame.COLORS[type]
         // 辉光烘焙一次（shadowBlur 一次性成本；此后逐帧仅 drawImage）
-        sctx.shadowColor = color.glow
-        sctx.shadowBlur = 10
+        // v2.3.1（视觉收敛）：shadowBlur 10→5、光晕降 ~55% 浓度，保留霓虹质感但更清晰
+        //（用户反馈 10px 满浓度辉光偏糊、如近视眼观感；AC-07「霓虹元 ≥1 种」仍满足）
+        sctx.shadowColor = hexToRgba(color.glow, 0.55)
+        sctx.shadowBlur = 5
         roundRectPath(sctx, GLOW_PAD, GLOW_PAD, CELL, CELL, 3)
         sctx.fillStyle = color.fill
         sctx.fill()
