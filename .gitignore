@@ -1,6 +1,10 @@
 # 验证临时日志（TeamFlow 流水线 agent 重定向输出）
 log-*.txt
 *.log
+assembly-check-*.txt
+
+# TeamFlow 运行时产物（验收报告等；持久化镜像在 $DSH_HOME/teamflow）
+docs/acceptance/
 
 # 临时/工作目录
 .tmp-*/
