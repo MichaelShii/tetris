@@ -54,6 +54,12 @@
                   aria-label="提高音量 10%">+</button>
         </div>
       </div>
+      <!-- 幽灵块辅助开关（v2.3，AC-13：科技玻璃风按钮开关，受样式 .ghost-control 约束） -->
+      <div id="ghost-control" class="ghost-control" role="group" aria-label="幽灵块开关">
+        <span class="stat__label">幽灵块</span>
+        <button type="button" id="btn-ghost" class="btn btn--secondary btn--audio"
+                aria-pressed="true" aria-label="幽灵块辅助：开启">👻 幽灵块：开</button>
+      </div>
     </section>
 
     <!-- 游戏板列：唯一逐帧重绘 Canvas；遮罩/toast 为 #board-frame 子节点（覆盖板面，非全页） -->

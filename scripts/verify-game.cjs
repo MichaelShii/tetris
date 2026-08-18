@@ -105,10 +105,7 @@ test('scoreForLines: 1/2/3/4 行 × 多等级', () => {
   assert.equal(T.scoreForLines(4, 5), 4000)
 })
 
-test('dropBonus / levelForLines', () => {
-  assert.equal(T.dropBonus(0), 0)
-  assert.equal(T.dropBonus(5), 5)
-  assert.equal(T.dropBonus(18), 18)
+test('levelForLines: 升级阈值（AC-06.2）', () => {
   assert.equal(T.levelForLines(0), 1)
   assert.equal(T.levelForLines(9), 1)
   assert.equal(T.levelForLines(10), 2) // AC-06.2
@@ -415,7 +412,7 @@ test('softDrop: 下落 1 格；触底立即锁定（AC-02.2、AC-03.5）', () =>
   assert.equal(s.board[18][4], 'T', 'T 已固定')
 })
 
-test('hardDrop: 立即落底 + 每格 +1 分（E5，PRD §5）', () => {
+test('hardDrop: 立即落底固定 + 不加分（AC-14，v2.3 移除 dropBonus）', () => {
   const { g } = freshGame()
   g.start()
   g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 0 })
@@ -424,7 +421,7 @@ test('hardDrop: 立即落底 + 每格 +1 分（E5，PRD §5）', () => {
   assert.equal(r.locked, true)
   assert.equal(r.gameOver, false)
   const s = g.getSnapshot()
-  assert.equal(s.score, 18, 'T 落底 18 格 × 1 分')
+  assert.equal(s.score, 0, '硬降空降 18 格不再加分（AC-14 硬降前后分数差 = 0）')
   assert.equal(s.board[19][3], 'T')
   assert.equal(s.board[19][4], 'T')
   assert.ok(s.piece, '下一块已出生')

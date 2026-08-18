@@ -435,6 +435,30 @@ canvas {
   color: var(--ink);
 }
 
+/* ── 幽灵块辅助开关（v2.3，AC-13：与音量区同布局 token，无 border-top 区隔线） ── */
+
+.ghost-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* 幽灵块开关（复用 .btn--audio）：开启态按钮描边微金，关闭态与 .btn--secondary 一致 */
+#btn-ghost {
+  width: 100%;
+  white-space: nowrap;
+}
+
+#btn-ghost[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+
+#btn-ghost[aria-pressed='false'] {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
 /* 静音态：文案/图标形态变化 + aria-pressed 双信号（AC-10.6，非仅颜色） */
 #btn-mute.is-muted {
   border-color: var(--muted);

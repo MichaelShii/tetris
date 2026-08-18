@@ -7,7 +7,7 @@ const bad = (m) => { console.log('  ✗ ' + m); fail++ }
 
 console.log('== 1. game.js 导出面（ui.js 依赖的 API） ==')
 const T = require(path.join(root, 'game.js'))
-const needApi = ['createGame','createBoard','createQueue','transition','merge','clearLines','SHAPES','COLORS','PHASE_ALIAS','COLS','ROWS','scoreForLines','dropBonus','levelForLines','gravityMs','spawn','rotated','collides','pieceCells','ghostY','SFX_EVENTS','keyAction']
+const needApi = ['createGame','createBoard','createQueue','transition','merge','clearLines','SHAPES','COLORS','PHASE_ALIAS','COLS','ROWS','scoreForLines','levelForLines','gravityMs','spawn','rotated','collides','pieceCells','ghostY','SFX_EVENTS','keyAction']
 for (const k of needApi) { if (k in T) ok(`TetrisGame.${k}`); else bad(`MISSING TetrisGame.${k}`) }
 
 console.log('== 1b. audio.js 导出面（v2.0） ==')
@@ -33,7 +33,8 @@ const sel = ['#board','#next-well','#board-frame','#overlay','#feedback-toast',
   '#stat-score .stat__value','#stat-level .stat__value','#stat-lines .stat__value',
   '#status-dot','#status-text','#btn-start','#btn-pause','#btn-restart',
   '#overlay-title','#overlay-sub','#overlay-btn',
-  '#audio-controls','#btn-mute','#btn-vol-down','#btn-vol-up','#vol-value']
+  '#audio-controls','#btn-mute','#btn-vol-down','#btn-vol-up','#vol-value',
+  '#ghost-control','#btn-ghost'] // v2.3：幽灵块辅助开关（AC-13）
 for (const s of sel) {
   if (s.includes(' ')) {
     const [pid, cls] = s.split(' ')

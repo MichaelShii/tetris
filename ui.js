@@ -61,7 +61,7 @@
      * 1. 常量（与 game.js 对齐；视觉数值以 DESIGN §3.1/§4.3 为准）
      * ==================================================================== */
 
-    const VERSION = '2.2.0'
+    const VERSION = '2.3.0'
 
     // 主棋盘：10×20、格 28px（DESIGN §3.1）
     const COLS = 10
@@ -301,12 +301,19 @@
         ctx.stroke()
       }
 
-      /** render(s, fx?)：s 为只读快照；fx.flashLines 触发 140ms 消行闪白叠加层 */
-      function render(s, fx) {
+      /**
+       * render(s, fx?, ghostEnabled?)：s 为只读快照；fx.flashLines 触发 140ms 消行闪白叠加层；
+       * ghostEnabled 为幽灵块辅助开关（v2.3，AC-13）：false 时不渲染幽灵轮廓，其余值（含缺省）开启。
+       */
+      function render(s, fx, ghostEnabled) {
         if (disposed) return
         if (fx && fx.flashLines && fx.flashLines.length > 0) {
           flash = { lines: fx.flashLines, until: performance.now() + FLASH_MS }
         }
+
+        // 防御：渲染开头重置透明度与变换，不依赖上次 drawGhost 的 ctx 残留
+        //（v2.3：幽灵开关关闭/开启态叠加渲染必须互不污染，AC-13.2）
+        ctx.globalAlpha = 1
 
         ctx.clearRect(0, 0, COLS * CELL, ROWS * CELL)
         ctx.fillStyle = BOARD_BG
@@ -324,7 +331,8 @@
         // 「已固定块」与「当前实体块」之间（AC-12.8 实体永不被遮挡）。落点由引擎
         // 纯函数 ghostY 即时重算（纯显示派生，不进快照，AC-12.6）；PAUSED 快照
         // 不变即冻结、READY/OVER 无 piece 即不绘（AC-12.9）。
-        if (s.phase === 'RUNNING' && s.piece) {
+        // v2.3（AC-13）：幽灵辅助开关关闭（ghostEnabled === false）时不渲染。
+        if (ghostEnabled !== false && s.phase === 'RUNNING' && s.piece) {
           const gy = TetrisGame.ghostY(s.board, s.piece)
           drawGhost({ type: s.piece.type, rot: s.piece.rot, x: s.piece.x, y: gy }, s.piece.type)
         }
@@ -837,6 +845,28 @@
         audioListenersBound = true
       }
 
+      /* ---- 幽灵块辅助开关（v2.3，AC-13） ----
+         纯显示控制：仅决定渲染层是否绘制幽灵轮廓，不触引擎/数值/音效；
+         会话内保持（结束 → 重开不重置）、刷新恢复默认（开启），AC-13.4。 ---- */
+      const ghostBtn = must('#btn-ghost')
+      let ghostEnabled = true
+
+      // 唯一 DOM 镜像：aria-pressed + aria-label + 文案形态三信号（AC-13.5，非仅颜色）
+      function syncGhostBtn() {
+        ghostBtn.setAttribute('aria-pressed', ghostEnabled ? 'true' : 'false')
+        ghostBtn.setAttribute('aria-label', '幽灵块辅助：' + (ghostEnabled ? '开启' : '关闭'))
+        ghostBtn.textContent = ghostEnabled ? '👻 幽灵块：开' : '👻 幽灵块：关'
+      }
+      syncGhostBtn()
+
+      function onGhostToggle() {
+        ghostEnabled = !ghostEnabled
+        syncGhostBtn()
+        blurElement(this)
+        // AC-13.3：回合中切换即时生效——立即以当前快照重绘，不依赖下一次按键/重力步
+        renderAll(game.getSnapshot())
+      }
+
       /* ---- 消行闪白行索引（best-effort 精确）：
          game.js 快照不含被消行索引；用上一快照的 board+piece 经其导出的纯函数
          merge/clearLines 反推（锁定前最后一次 emit 的 piece 通常即锁定块）---- */
@@ -856,7 +886,7 @@
 
       function renderAll(s) {
         const fx = flashIndicesFor(s)
-        boardRenderer.render(s, fx ? { flashLines: fx } : undefined)
+        boardRenderer.render(s, fx ? { flashLines: fx } : undefined, ghostEnabled)
         nextWell.render(s.phase === 'READY' ? null : s.next)
         hud.update(s)
         if (s.phase === 'RUNNING') overlay.hide()
@@ -921,9 +951,10 @@
       hudEls.btnPause.addEventListener('click', onPause)
       hudEls.btnRestart.addEventListener('click', onRestart)
       overlayEls.btn.addEventListener('click', onOverlayBtn)
+      ghostBtn.addEventListener('click', onGhostToggle)
 
       // E9：鼠标点击按钮不落焦点（防空格/回车二次触发按钮）
-      const btnList = [hudEls.btnStart, hudEls.btnPause, hudEls.btnRestart, overlayEls.btn]
+      const btnList = [hudEls.btnStart, hudEls.btnPause, hudEls.btnRestart, overlayEls.btn, ghostBtn]
       const mousedownGuards = btnList.map(function (btn) {
         const guard = function (e) {
           e.preventDefault()
@@ -953,6 +984,7 @@
         hudEls.btnPause.removeEventListener('click', onPause)
         hudEls.btnRestart.removeEventListener('click', onRestart)
         overlayEls.btn.removeEventListener('click', onOverlayBtn)
+        ghostBtn.removeEventListener('click', onGhostToggle)
         mousedownGuards.forEach(function (entry) {
           entry.btn.removeEventListener('mousedown', entry.guard)
         })

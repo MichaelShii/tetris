@@ -509,11 +509,11 @@ async function main() {
     check('自然结束时遮罩显示 GAME OVER', !$('#overlay').hidden && $('#overlay-title').textContent === 'GAME OVER')
     game.restart()
 
-    // 硬降计分（空格）：I 从顶部落底，每格 +1（rot0 横条在 row1，落至 row19 → d=18）
+    // 硬降（空格）不再加分（v2.3，AC-14）：I 从顶部落底（rot0 横条在 row1，落至 row19），分数保持 0
     key(' ')
     s = snap()
     check('空格硬降立即落底固定（新块已出生）', s.piece !== null && s.piece.y === 0, '新块 y=' + s.piece.y)
-    check('硬降加分 = 下落格数（PRD §5：每格 +1）', s.score === 18, 'score=' + s.score + '（预期 18）')
+    check('AC-14 硬降不加分（空降 18 格分数仍 0）', s.score === 0, 'score=' + s.score)
     game.restart()
   }
 
@@ -538,9 +538,17 @@ async function main() {
     // AC-11.3：暂停态连续空格 ≥3 次 → 第 1 次恢复，第 2/3 次回到硬降语义（无错乱）
     const q1 = spy.plays.length
     const score0 = snap().score
+    const lines0 = snap().lines
+    const level0 = snap().level
     key(' ')
     check('AC-11.3 连续空格第 2 次 = 硬降（play hardDrop）', spy.plays.length === q1 + 1 && spy.plays[q1] === 'hardDrop', JSON.stringify(spy.plays.slice(q1)))
-    check('AC-11.3 硬降加分（score 增加）', snap().score > score0)
+    {
+      // AC-14：硬降本身不加分——分数差只能来自本次硬降实际消行（[100,300,500,800]×level）
+      const hard = snap()
+      const linesDelta = hard.lines - lines0
+      const gain = linesDelta === 0 ? 0 : [100, 300, 500, 800][linesDelta - 1] * level0
+      check('AC-14 硬降本身不加分（score 差 = 仅消行计分）', hard.score === score0 + gain, 'score ' + score0 + '→' + hard.score + ' lines+' + linesDelta)
+    }
     key(' ')
     check('AC-11.3 连续空格第 3 次 = 硬降（无状态错乱）', spy.plays.length === q1 + 2 && spy.plays[q1 + 1] === 'hardDrop')
     check('AC-11.3 连续空格后仍 RUNNING', snap().phase === 'RUNNING')
@@ -649,6 +657,48 @@ async function main() {
       // READY 态（初始环境 AC-01 段已覆盖）：README/OVER 无 piece → 不绘，见 AC-01 初始渲染
       game.restart() // 恢复干净 RUNNING，供后续 AC-09/10 段使用
     }
+  }
+
+  /* ---------- AC-13 幽灵块辅助开关（v2.3，TECHNICAL §7.4） ---------- */
+  console.log('\n-- AC-13 幽灵块辅助开关 --')
+  {
+    // AC-13.1/13.5：开关默认开启（三信号：aria-pressed + 文案 + aria-label）
+    game.restart()
+    check('AC-13.1 幽灵开关默认开启（aria-pressed=true）', $('#btn-ghost').getAttribute('aria-pressed') === 'true')
+    check('AC-13.1 幽灵开关样式挂钩就位（btn--audio 复用）', $('#btn-ghost').className.indexOf('btn') !== -1 && $('#ghost-control') !== null)
+    check('AC-13.5 开启态文案「开」+ aria-label 含「开启」', $('#btn-ghost').textContent.indexOf('开') !== -1 && $('#btn-ghost').getAttribute('aria-label').indexOf('开启') !== -1)
+
+    // AC-13.2：开关打开时幽灵渲染（ghostAlpha 记录 0.75 描边）
+    ctxLog.ghostAlpha.length = 0
+    key('ArrowRight') // 移动 → emit → renderAll → 幽灵绘制
+    check('AC-13.2 开关打开时幽灵渲染（ghostAlpha 含 0.75）', ctxLog.ghostAlpha.indexOf(0.75) !== -1, JSON.stringify(ctxLog.ghostAlpha))
+
+    // AC-13.3/13.2：点击关闭 → 即时生效（这一次点击即重绘，幽灵不渲染）
+    ctxLog.ghostAlpha.length = 0
+    $('#btn-ghost').click()
+    check('AC-13.5 关闭后 aria-pressed=false / 文案「关」', $('#btn-ghost').getAttribute('aria-pressed') === 'false' && $('#btn-ghost').textContent.indexOf('关') !== -1)
+    // 主棋盘网格 stroke 也会记录 globalAlpha=1；幽灵特征 alpha 为 0.75（描边）/0.16（填充），
+    // 关闭态渲染不应出现二者（AC-13.2/13.3，render 开头已重置 globalAlpha=1 隔离幽灵污染）
+    check('AC-13.3 切换即时生效（点击后立即重绘，幽灵不渲染）', ctxLog.ghostAlpha.indexOf(0.75) === -1 && ctxLog.ghostAlpha.indexOf(0.16) === -1, JSON.stringify(ctxLog.ghostAlpha))
+
+    // AC-13.2：关闭后继续移动/游玩，棋盘逻辑不变、幽灵始终不渲染
+    key('ArrowLeft')
+    check('AC-13.2 关闭后移动重绘仍不渲染幽灵', ctxLog.ghostAlpha.indexOf(0.75) === -1 && ctxLog.ghostAlpha.indexOf(0.16) === -1, JSON.stringify(ctxLog.ghostAlpha))
+    check('AC-13.2 关闭不影响游玩（活动块仍在）', !!snap().piece && snap().phase === 'RUNNING')
+
+    // AC-13.4：会话内保持——结束 → 重开后开关仍关闭、状态不重置
+    game.lose()
+    game.restart()
+    check('AC-13.4 结束→重开后开关仍关闭（会话保持）', $('#btn-ghost').getAttribute('aria-pressed') === 'false')
+
+    // 重新开启 → 幽灵恢复渲染
+    ctxLog.ghostAlpha.length = 0
+    $('#btn-ghost').click()
+    check('AC-13.5 重新开启后 aria-pressed=true', $('#btn-ghost').getAttribute('aria-pressed') === 'true')
+    key('ArrowRight')
+    check('AC-13.2 重新开启后幽灵恢复渲染', ctxLog.ghostAlpha.indexOf(0.75) !== -1, JSON.stringify(ctxLog.ghostAlpha))
+
+    game.restart() // 恢复干净 RUNNING，供后续 AC-09/10 段使用
   }
 
   /* ---------- AC-09/AC-10 音效与音量控制（v2.0：真实 audio.js + 假 AudioContext） ---------- */

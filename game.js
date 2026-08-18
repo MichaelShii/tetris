@@ -43,7 +43,7 @@
      * 1. 常量（数值单一事实来源，PRD §5）
      * ==================================================================== */
 
-    const VERSION = '2.2.0'
+    const VERSION = '2.3.0'
     const COLS = 10 // 棋盘 10 列
     const ROWS = 20 // 棋盘 20 行（row 0 = 顶）
     const TYPES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L']
@@ -250,14 +250,10 @@
       return { board: next, cleared: indices.length, indices: indices }
     }
 
-    /** 计分：单次消 n 行 = [100,300,500,800][n−1] × level（AC-06.5，PRD §5 唯一实现） */
+    /** 计分：单次消 n 行 = [100,300,500,800][n−1] × level（AC-06.5/AC-14，PRD §5 唯一实现）。
+     *  v2.3 起计分仅来源于消行：硬降/软降/自然落地均不加分（AC-14，去除 dropBonus 每格 +1）。 */
     function scoreForLines(n, level) {
       return (LINE_SCORES[n - 1] || 0) * level
-    }
-
-    /** 硬降加分：每下落 1 格 +1（PRD §5，E5） */
-    function dropBonus(d) {
-      return d
     }
 
     /** 等级：累计消行每满 10 行升 1 级，level = ⌊lines/10⌋ + 1（AC-06.2） */
@@ -601,7 +597,7 @@
         while (!collides(state.board, { type: state.piece.type, rot: state.piece.rot, x: state.piece.x, y: state.piece.y + d + 1 })) {
           d++
         }
-        state.score += dropBonus(d) // 硬降加分：每格 +1（E5）
+        // v2.3（AC-14）：硬降落地不加分（移除 dropBonus 每格 +1）；仅锁定的消行在 lockFlow 计分
         state.piece = { type: state.piece.type, rot: state.piece.rot, x: state.piece.x, y: state.piece.y + d }
         sfx('hardDrop') // 每次硬降恰好 1 次（落点计算后、lockFlow 前，E-SFX-04 顺序首项）
         return lockFlow() // 硬降立即固定，不走缓冲
@@ -896,7 +892,6 @@
       merge: merge,
       clearLines: clearLines,
       scoreForLines: scoreForLines,
-      dropBonus: dropBonus,
       levelForLines: levelForLines,
       gravityMs: gravityMs,
       createQueue: createQueue,
