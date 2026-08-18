@@ -1,10 +1,10 @@
 # 俄罗斯方块（Tetris）简化版 — 技术方案（TECHNICAL）
 
-- 版本：v2.2（v2.1 → v2.2 增量：幽灵块落点预览；不改数值/状态机/keyAction/音效；UI 仅新增 Canvas 内半透明叠加渲染）
+- 版本：v2.3（v2.2 → v2.3 增量：幽灵块辅助开关 + 修正硬降计分；不改状态机/keyAction/音效；UI 仅新增信息面板开关控件 + 渲染条件）
 - 角色：高级全栈工程师 · 技术方案
-- 关联文档：`products/tetris/docs/prd/PRD.md`（v2.2，**验收唯一依据**，AC-01~12）、`products/tetris/docs/design/DESIGN.md`（v2.2，§3.6 幽灵块线框 / §4.4 刷新时机 / §5.1 `--ghost-*` token / §5.6 幽灵块视觉规范）、`products/tetris/docs/architecture/ARCHITECTURE.md`（工程方案，实际交付为扁平纯 JS）、`products/tetris/AGENTS.md`（§4 工程约定）、`products/tetris/scripts/*`（可执行契约）
-- 定位：将 PRD v2.2 增量（AC-12 幽灵块落点预览：引擎纯函数 `ghostY` + UI 半透明轮廓渲染）落实为**与流水线派发任务对齐**的接口契约、实现要点、测试策略与任务拆分。v2.1 已交付的玩法/计分/音效/音量/快捷键契约**全部沿用不变**（AC-01 ~ AC-11 为本版回归底线）。
-- 交付物：`products/tetris/game.js`（新增导出纯函数 `ghostY`）+ `scripts/verify-game.cjs`（单测增量）+ `products/tetris/ui.js`（渲染层幽灵块叠加绘制 + 导出 `GHOST` 参数表）+ `scripts/qa-e2e-jsdom.cjs`（E2E 增量）+ `scripts/assembly-check.cjs`（导出面增量）+ `scripts/verify-ui.cjs`（`GHOST`/`ghostY` 契约增量）+ `README.md`（操作说明同步）。**`audio.js` / `index.html` DOM 结构 / `style.css` / 状态机 / 数值 / `keyAction` 零改动**（AC-12.7 硬约束；幽灵块仅 Canvas 内绘制，新增 `--ghost-*` token 为规范记录、非既有值覆盖）。
+- 关联文档：`products/tetris/docs/prd/PRD.md`（v2.3，**验收唯一依据**，AC-01~14）、`products/tetris/docs/design/DESIGN.md`（v2.3，§3.6 幽灵块线框 / §3.7 开关交互 / §4.4 刷新时机 / §5.6 幽灵块视觉规范 / §5.7 开关视觉 / §6 可访问性）、`products/tetris/docs/architecture/ARCHITECTURE.md`（工程方案，实际交付为扁平纯 JS）、`products/tetris/AGENTS.md`（§4 工程约定）、`products/tetris/scripts/*`（可执行契约）
+- 定位：将 PRD v2.3 增量（AC-13 幽灵块辅助开关 + AC-14 修正硬降计分）落实为**与流水线派发任务对齐**的接口契约、实现要点、测试策略与任务拆分。v2.1/v2.2 已交付的玩法/计分/音效/音量/快捷键/幽灵块渲染契约**沿用不变**（AC-01 ~ AC-12 为本版回归底线，除 AC-14 明确改变的硬降加分断言）。
+- 交付物：`products/tetris/index.html`（新增 `#ghost-control` 幽灵开关 DOM）+ `style.css`（新增 `.ghost-control` / `#btn-ghost` 钩子）+ `ui.js`（渲染 `ghostEnabled` 条件 + 开关绑定 + `render` 透明度防御）+ `game.js`（hardDrop 移除 dropBonus 调用/导出）+ `scripts/verify-game.cjs` / `qa-e2e-jsdom.cjs`（AC-13/AC-14 用例）+ `assembly-check.cjs`（导出面减 dropBonus、DOM 增 #btn-ghost）+ 文档同步（README/DESIGN/TECHNICAL/ARCHITECTURE/memory/AGENTS/changes.md）。**`audio.js` / 状态机 / 数值公式 / `keyAction` 零改动**（AC-13.6/AC-14.3 硬约束）。
 
 ### 修订记录
 
@@ -15,6 +15,7 @@
 | v2.1 | 2026-08-16 | 暂停/继续快捷键（AC-11）：`keyAction` 键盘映射单一来源表 + 空格 PAUSED 继续 / OVER 重开【D-01 甲】；状态机/数值/UI DOM/CSS/audio.js 零改动 |
 | v2.2 | 2026-08-16 | **本次变更**：幽灵块（落点预览，AC-12）——引擎新增纯函数 `ghostY`（复用 `collides` 语义、垂直直线、无踢墙）+ UI 半透明轮廓渲染（同色系空心描边 + 极淡填充，DESIGN §5.6）+ 单测/E2E/装配审计增量；**数值/状态机/keyAction/音效/既有 DOM-CSS 零改动**（回归底线 AC-01~11） |
 | v2.2-tc | 2026-08-16 | **技术变更单**（tech，无功能变化）：新增工程自检脚本 `scripts/verify-constants.cjs`，断言 `game.js`/`ui.js`/`audio.js` 头部 `VERSION` 均 === `'2.2.0'` 且与 §2.2 记录一致；不改任何既有代码/行为/UI/AC。详见 `docs/technical/changes.md`。 |
+| v2.3 | 2026-08-18 | **本次变更**：1) **幽灵块辅助开关**（AC-13）——`index.html` 新增 `#ghost-control`（`.ghost-control` + `#btn-ghost` 复用 `.btn--audio` token）；`ui.js` `createBoardRenderer.render` 增加 `ghostEnabled` 参数（默认开启，关闭不绘幽灵）+ `createUI` 开关绑定（aria-pressed/文案/aria-label 三信号 + 点击即时重绘 + 会话内保持、刷新默认开）+ render 开头 `globalAlpha=1` 防御（AC-13.2/13.3/13.4/13.5）。2) **修正硬降计分**（AC-14）——移除 `hardDrop` 的 `dropBonus`（每格 +1）调用与导出（game.js），仅消行计分。**状态机/keyAction/音效/数值公式零改动**（回归底线 AC-01~12，除 AC-14 硬降加分断言）；`VERSION` 升 `'2.3.0'`（§2.2，无断言依赖）。 |
 
 > **实际交付形态（沿用）**：`index.html + 本地 css/js`，脚本顺序 `audio.js → game.js → ui.js → 内联装配`；UMD 契约 `window.TetrisGame / window.TetrisAudio / window.TetrisUI`。v2.1 快照（PRD/TECHNICAL）已归档至 `docs/history/v2.1/`（本轮开始前 v2.1 PRD 已归档；TECHNICAL v2.1 快照随本轮补归档）。
 
@@ -47,7 +48,18 @@
    - `game.js`：新增导出纯函数 `ghostY(board, piece)`（**复用 `collides`**，自 `piece.y` 起 y+1 循环至碰撞、返回最后非碰撞 y；垂直直线、无踢墙）。不改 `collides`/`keyAction`/任何既有函数签名语义。
    - `ui.js` `createBoardRenderer`：新增幽灵块绘制——`render` 绘制序列在「已固定块之后、活动块之前」插入；仅 PLAYING 态绘制（快照 `s.piece` 存在且 `s.phase==='RUNNING'` 即隐含 PLAYING 可见，PAUSED 冻结 = 快照不再变化因而不重绘、READY/OVER 无 piece 则不绘制，AC-12.9）。
 3. **测试/文档增量**：`verify-game.cjs`（`ghostY` 纯函数用例 + 与 `hardDrop` 落点偏差 0 断言）、`verify-ui.cjs`（`GHOST` 参数表 + `ghostY` 导出断言）、`qa-e2e-jsdom.cjs`（AC-12 断言块含幽灵绘制调用的 `stroke/fill/globalAlpha` 断言 + 既有用例回归保护）、`assembly-check.cjs`（`ghostY`/`GHOST` 导出面）、`README.md`（操作说明补幽灵块一句）。`DESIGN.md` 已由设计角色升级 v2.2，仅核对一致。
-4. **`VERSION` 常量**（`game.js`/`ui.js`/`audio.js` 头部）：已同步为 **`'2.2.0'`**（无任何测试断言依赖，零行为影响；沿用 v2.1 OBS-11-3 卫生项处理模式）。
+4. **`VERSION` 常量**（`game.js`/`ui.js`/`audio.js` 头部）：已同步为 **`'2.3.0'`**（无任何测试断言依赖，零行为影响；沿用 v2.1 OBS-11-3 卫生项处理模式；`verify-constants.cjs` 期望值同步升至 `'2.3.0'`，且其 TECHNICAL 路径修正为 `docs/teamflow/technical/TECHNICAL.md`）。
+
+### 0.3 v2.3 增量（AC-13 幽灵块开关 + AC-14 修正计分，只改已声明面）
+
+1. **AC-13 幽灵块辅助开关**（纯显示控制，`ui.js`/`index.html`/`style.css` 增量）：
+   - `index.html` 信息面板「音量控件」下方新增 `#ghost-control`（`.ghost-control`）+ `#btn-ghost`（复用 `.btn--audio`），默认 `aria-pressed="true"`。
+   - `ui.js` `createBoardRenderer.render(s, fx, ghostEnabled?)`：第三参 `ghostEnabled === false` 时跳过幽灵绘制（缺省/true 开启，兼容既有调用）；`createUI` 持 `ghostEnabled` 会话状态（默认开、结束→重开保持、刷新恢复默认），点击 `#btn-ghost` → 翻转 + `syncGhostBtn()`（`aria-pressed`/`aria-label`/文案三信号，AC-13.5）+ 立即 `renderAll(game.getSnapshot())`（回合中即时生效 ≤100ms，AC-13.3）；`render` 开头 `ctx.globalAlpha = 1` 防御（开关态叠加渲染互不污染）。
+   - `style.css` 新增 `.ghost-control` 布局 + `#btn-ghost[aria-pressed]` 形态（开启微金 / 关闭弱化，非仅颜色）。
+   - E2E：AC-13 断言块（默认开启/开关联动/即时生效/会话保持/可访问性三信号）。
+2. **AC-14 修正硬降计分**（`game.js` 增量）：`hardDrop` 删除 `state.score += dropBonus(d)` 调用并移除 `dropBonus` 定义与导出（`assembly-check` `needApi` 同步移除）；落点循环 `while(!collides(...y+d+1)) d++` **保持不变**（幽灵块/硬降落点一致性 AC-12.1 不受影响）；仅消行计分（`scoreForLines`，AC-06.5）不变。
+3. **不改**：状态机、`keyAction`、音效（`audio.js`）、计分/升级/速度公式、幽灵块渲染规范本身（§3.6/§5.6）；`audio.js` `VERSION` 仅文本同步。
+4. **测试/文档增量**：`verify-game.cjs`（hardDrop 不加分断言 + 移除 dropBonus 用例）、`qa-e2e-jsdom.cjs`（AC-13 开关块 + AC-14 硬降计分断言 + AC-11.3 硬降分数差=仅消行修正）、`assembly-check.cjs`（导出面减 `dropBonus`、DOM 增 `#btn-ghost`）、`README.md`/`DESIGN.md`/`ARCHITECTURE.md`/`memory.md`/`AGENTS.md`/`changes.md` 同步。
 
 ---
 
@@ -102,9 +114,9 @@ function ghostY(board, piece) {
 
 ### 2.2 存储与版本
 
-- **无任何新增持久化**（PRD §3.2，沿用；音量/静音/最高分 localStorage 均为 P2 未做）。
-- **无新增运行时状态字段**：幽灵块为渲染期派生，`state.board`/`state.piece` 即唯一数据源。
-- **VERSION 常量**：`game.js`/`ui.js`/`audio.js` 头部已统一为 **`'2.2.0'`**（§0.2 第 4 点卫生同步，无断言依赖、零行为影响）。
+- **无任何新增持久化**（PRD §3.2，沿用；音量/静音/最高分/幽灵开关 localStorage 均为 P2 未做，幽灵开关刷新恢复默认开启）。
+- **无新增运行时状态字段**：幽灵块为渲染期派生，`state.board`/`state.piece` 即唯一数据源；幽灵开关状态为 `ui.js` 渲染层局部变量（会话内保持，不进引擎快照）。
+- **VERSION 常量**：`game.js`/`ui.js`/`audio.js` 头部已统一为 **`'2.3.0'`**（§0.3 卫生同步，无断言依赖、零行为影响；`verify-constants.cjs` 固化为三模块一致 + §2.2 一致断言）。
 
 ---
 

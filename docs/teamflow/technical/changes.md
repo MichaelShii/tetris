@@ -62,4 +62,18 @@
 
 - [ ] 仅新增 `scripts/verify-constants.cjs`；`game.js`/`ui.js`/`audio.js`/`index.html`/`style.css` **零改动**（可用 `git diff` 核验为单文件纯新增）。
 - [ ] 五套既有验证 + 新脚本全部全绿（§5 表）。
+
+---
+
+## 8. 后续维护记录（v2.3，脚本随版本升级同步更新）
+
+> 本节记录 `verify-constants.cjs` 在 v2.3 迭代中的同步维护，非新变更单；脚本本身仍为工程自检工具，无用户可见行为变化。
+
+| 日期 | 变更 | 说明 |
+|---|---|---|
+| 2026-08-18（v2.3） | `EXPECTED_VERSION` **'2.2.0' → '2.3.0'** | 三模块 VERSION 随 v2.3 升版（AC-13/AC-14），脚本目标值同步，防漂移防线继续生效 |
+| 2026-08-18（v0.9 迁移） | `TECH_FILE` 路径 **`docs/technical/TECHNICAL.md` → `docs/teamflow/technical/TECHNICAL.md`** | 文档收口到 `docs/teamflow/` 后，§2.2 断言需指向新路径；本次一并修正（否则脚本对迁移后文档断言失败） |
+| 2026-08-18（v2.3） | 回归计数口径同步 | AGENTS.md §4 更新为 51/19/7/装配/188（E2E 主 178 + file:// 10），关闭 OBS-TC-1 遗留的旧计数表述 |
+
+- **运行验证（v2.3 复跑）**：`node scripts/verify-constants.cjs` 2/2 绿 + 全套回归（51/19/7/装配/188）全绿。
 - [ ] QA 登记回归结论，产品负责人确认后关闭本单，并同步 `memory.md`。

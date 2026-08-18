@@ -111,7 +111,7 @@ tetris/
 | `types.ts` | 共享类型：`Cell` / `TetrominoType` / `RotationState` / `Board` / `GameSnapshot` 等 | — | — |
 | `tetromino.ts` | 7 方块形状矩阵（4 旋转态**预计算**）、出生位置（顶部居中、完全可见）、DESIGN §5.2 配色 | `SHAPES`、`spawn(type)`、`rotated(type, r)` | AC-02.3/4、AC-07.5 |
 | `board.ts` | 10×20 网格；碰撞 / 合并 / 消行（一次最多 4 行）/ 出生碰撞（游戏结束判定） | `createBoard()`、`collides()`、`merge()`、`clearLines() → {board, cleared}` | AC-03.2/3、AC-05.1 |
-| `scoring.ts` | **PRD §5 单一事实来源**：`scoreForLines(n,L)=[100,300,500,800][n−1]×L`；硬降 `dropBonus(d)=d`；`levelForLines(lines)=⌊lines/10⌋+1`；`gravityMs(L)=max(100, 1000×0.85^(L−1))` | `scoreForLines`、`dropBonus`、`levelForLines`、`gravityMs` | AC-06.3/5（公式 100% 钉死） |
+| `scoring.ts` | **PRD §5 单一事实来源**：`scoreForLines(n,L)=[100,300,500,800][n−1]×L`；`levelForLines(lines)=⌊lines/10⌋+1`；`gravityMs(L)=max(100, 1000×0.85^(L−1))`。**v2.3 移除硬降加分** `dropBonus`（硬降/软降/自然落地均不加分，仅消行计分，AC-14） | `scoreForLines`、`levelForLines`、`gravityMs` | AC-06.3/5、AC-14（公式 100% 钉死） |
 | `queue.ts` | 下一个方块；**均匀随机**（PRD §3.2 明确非目标：不做 7-bag）；可注入 RNG 便于测试 | `createQueue(rng)`、`next()` | AC-06.1（预览） |
 
 ### 4.2 状态层 `state/`
@@ -119,7 +119,7 @@ tetris/
 | 文件 | 职责 | 要点 |
 |---|---|---|
 | `machine.ts` | 四态状态机，纯函数 `transition(state, event) → state`；事件 `start/pause/resume/restart/lose`；按键合法性按 DESIGN §2.3 矩阵过滤 | READY：回车/空格=开始；PLAYING：全操作键；PAUSED：仅 P/Esc/R；GAME_OVER：仅 R/回车 → AC-04/05 |
-| `game.ts` | 会话聚合：board + 当前块 + next + 分数 + 等级 + 行数 + 锁定逻辑；动作 `move/rotate/softDrop/hardDrop/tick/lock`；触底锁定延迟 ≤ 500ms（AC-03.5）；硬降逐格 +1 分；重开全量重置（AC-05.4） | 单一时钟内完成「移动→碰撞→固定」原子处理（PRD §7.2） |
+| `game.ts` | 会话聚合：board + 当前块 + next + 分数 + 等级 + 行数 + 锁定逻辑；动作 `move/rotate/softDrop/hardDrop/tick/lock`；触底锁定延迟 ≤ 500ms（AC-03.5）；**v2.3 硬降不加分**（仅消行计分，AC-14）；重开全量重置（AC-05.4） | 单一时钟内完成「移动→碰撞→固定」原子处理（PRD §7.2） |
 | `loop.ts` | rAF + `performance.now()` 差值累加器驱动下落（非 setInterval 堆叠）；`visibilitychange`/`window blur` → 自动暂停，恢复焦点**不**自动继续（AC-04.4）；暂停期间不累积计时，恢复后按差值续跑 | 支撑 AC-03.1 实测误差 ≤ 50ms |
 
 ### 4.3 输入层 `input/`
