@@ -204,17 +204,27 @@
     }
 
     /**
-     * 幽灵块（落点预览）垂直落点计算（AC-12.1；v2.2 新增，复用 collides，不改其实现）
+     * 幽灵块（落点预览）垂直落点计算（AC-12.1/12.12；v2.2 新增，复用 collides，不改其实现）
      * 从 piece.y 起逐步 y+1 直至 collides 为真，返回最后一个非碰撞 y。
      * 语义与 hardDrop 的落点循环逐格一致 → 幽灵块位置 = 硬降实际固定位置，偏差 0 格。
      * 垂直直线、无踢墙（仅迭代 y，不产生任何侧向偏移，AC-12.5）。
+     * v2.4 入参防御（E-12-08，AC-12.12，关闭 OBS-12-1）：非法/越界入参不抛错、返回类型安全值——
+     *   - rot 用 %4 归一并负数归一到 0–3（等价 ((v%4)+4)%4）；
+     *   - 未知 type 回退原样（无对应形状→落点即当前位置 y，不抛错）；
+     *   - piece === null 防御返回安全默认哨兵 -1（类型安全 number，不抛错）。
+     *   合法性路径零行为变化（唯一调用方 ui.js 已守卫合法 piece）。
      * @param {Array<Array<string|null>>} board  不可变棋盘（20×10）
-     * @param {{type:string,rot:number,x:number,y:number}} piece
-     * @returns {number} 垂直落点 y（≥ piece.y；若 piece 当前即碰撞则返回 piece.y）
+     * @param {{type:string,rot:number,x:number,y:number} | null} piece
+     * @returns {number} 垂直落点 y（≥ piece.y；若 piece 当前即碰撞则返回 piece.y）；
+     *                   piece 为 null 时返回 -1
      */
     function ghostY(board, piece) {
+      if (piece === null || piece === undefined) return -1 // E-12-08：null 防御，返回安全默认 number
+      const type = piece.type
+      if (!SHAPES[type]) return piece.y // E-12-08：未知 type 回退原样（不抛错）
+      const rot = ((piece.rot % 4) + 4) % 4 // E-12-08：rot%4 归一，负数归 0–3
       let y = piece.y
-      while (!collides(board, { type: piece.type, rot: piece.rot, x: piece.x, y: y + 1 })) y++
+      while (!collides(board, { type: type, rot: rot, x: piece.x, y: y + 1 })) y++
       return y
     }
 

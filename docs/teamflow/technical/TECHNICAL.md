@@ -243,7 +243,7 @@ if (s.phase === 'RUNNING' && s.piece) {
 | E-12-05 | READY / GAME_OVER 态幽灵块 | `s.piece === null` → 不绘制（AC-12.9）；E2E 断言 READY/OVER 下 `ctx` 无幽灵 stroke/fill 段 |
 | E-12-06 | PAUSED 态幽灵块冻结 | `togglePause` 后快照不再变 → `ghostY` 结果不变 → 幽灵块原地静止；恢复后随移动/下落继续刷新（AC-12.9） |
 | E-12-07 | 触底/锁定瞬间幽灵块消失 | 锁定时 `piece=null` → 幽灵块不绘；下一块出生即按其重算新幽灵块（AC-12.6） |
-| E-12-08 | `ghostY` 入参异常（未知 type / rot 越界 / piece null） | 防御：`rot` 用 `%4` 归一、`type` 未知回退原样（不抛错）；调用方仅在 `piece` 非空时调用 |
+| E-12-08 | `ghostY` 入参异常（未知 type / rot 越界 / piece null） | **已实现（v2.4，AC-12.12，OBS-12-1 关闭）**：防御 `rot` 用 `%4` 归一并负数归一到 0–3（等价 `((v%4)+4)%4`）、未知 `type` 回退原样（返回 `piece.y`，不抛错）、`piece === null` 返回安全默认 `-1`（类型安全 number，不抛错）；调用方仅在 `piece` 非空时调用 |
 | E-12-09 | 幽灵块绘制污染后续 drawCell | `drawGhost` 用 `ctx.save()/restore()` 包裹（或绘制后复位 `globalAlpha=1`/`lineWidth`），避免影响实体块渲染 |
 | E-12-10 | 幽灵块与实体块重叠（极低 y） | 绘制顺序「固定块→幽灵块→实体块」保证实体块在最上层、永不被遮挡（AC-12.8）；视觉边界可辨识归人工补测（AC-12.11） |
 

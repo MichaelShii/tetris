@@ -928,3 +928,25 @@ test('ghostY: 移动/软降同步（落点差不变）与无副作用（AC-12.2/
   assert.deepEqual(events.sfx, [], 'ghostY 不触发任何 onSfx 事件')
 })
 
+test('ghostY: 非法入参防御不抛错、返回类型安全值（v2.4 E-12-08，AC-12.12）', () => {
+  // 已知用例：rot = -1 / 4 / 5 / 100、未知 type、piece === null，均不抛错且落点正确
+  const board = T.createBoard()
+  // rot%4 归一（负数归 0–3）：同一合法 type 下，归一的 rot 与越界 rot 落点一致
+  for (const t of T.TYPES) {
+    assert.equal(T.ghostY(board, { type: t, rot: -1, x: 3, y: 0 }), T.ghostY(board, { type: t, rot: 3, x: 3, y: 0 }), t + ' rot=-1 归一为 3，落点一致')
+    assert.equal(T.ghostY(board, { type: t, rot: 4, x: 3, y: 0 }), T.ghostY(board, { type: t, rot: 0, x: 3, y: 0 }), t + ' rot=4 归一为 0，落点一致')
+    assert.equal(T.ghostY(board, { type: t, rot: 5, x: 3, y: 0 }), T.ghostY(board, { type: t, rot: 1, x: 3, y: 0 }), t + ' rot=5 归一为 1，落点一致')
+    assert.equal(T.ghostY(board, { type: t, rot: 100, x: 3, y: 0 }), T.ghostY(board, { type: t, rot: 0, x: 3, y: 0 }), t + ' rot=100 归一为 0，落点一致')
+  }
+  // 未知 type 回退原样：不抛错、返回类型安全 number，落点 = 当前位置 y（无对应形状）
+  const gUnknown = T.ghostY(board, { type: 'X', rot: 0, x: 3, y: 7 })
+  assert.equal(typeof gUnknown, 'number', '未知 type 返回 number')
+  assert.equal(gUnknown, 7, '未知 type 回退原样：落点 = piece.y')
+  assert.equal(T.ghostY(board, { type: 'ZOMBIE', rot: 99, x: 1, y: 5 }), 5, '未知 type + 越界 rot 也回退原样不抛错')
+  // piece === null 防御：不抛错、返回类型安全 number（哨兵 -1）
+  assert.equal(T.ghostY(board, null), -1, 'piece=null 返回哨兵 -1（类型安全）')
+  assert.equal(T.ghostY(board, undefined), -1, 'piece=undefined 同样防御返回 -1')
+  // boxed null 防御不抛错
+  assert.equal(typeof T.ghostY(board, null), 'number', 'piece=null 返回类型为 number')
+})
+
