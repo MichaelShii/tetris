@@ -10,9 +10,9 @@ const T = require(path.join(root, 'game.js'))
 const needApi = ['createGame','createBoard','createQueue','transition','merge','clearLines','SHAPES','COLORS','PHASE_ALIAS','COLS','ROWS','scoreForLines','levelForLines','gravityMs','spawn','rotated','collides','pieceCells','ghostY','SFX_EVENTS','keyAction']
 for (const k of needApi) { if (k in T) ok(`TetrisGame.${k}`); else bad(`MISSING TetrisGame.${k}`) }
 
-console.log('== 1b. audio.js 导出面（v2.0） ==')
+console.log('== 1b. audio.js 导出面（v2.0 + v2.5 BGM） ==')
 const A = require(path.join(root, 'audio.js'))
-const needAudio = ['createSfxEngine','SFX_DEFS','DEFAULT_VOLUME','VOLUME_STEP','MAX_VOICES']
+const needAudio = ['createSfxEngine','SFX_DEFS','BGM_DEFS','DEFAULT_VOLUME','VOLUME_STEP','MAX_VOICES']
 for (const k of needAudio) { if (k in A) ok(`TetrisAudio.${k}`); else bad(`MISSING TetrisAudio.${k}`) }
 // SFX_DEFS 键与 game.js SFX_EVENTS 集合一致（AC-09 事件契约单一事实来源）
 {
@@ -34,7 +34,8 @@ const sel = ['#board','#next-well','#board-frame','#overlay','#feedback-toast',
   '#status-dot','#status-text','#btn-start','#btn-pause','#btn-restart',
   '#overlay-title','#overlay-sub','#overlay-btn',
   '#audio-controls','#btn-mute','#btn-vol-down','#btn-vol-up','#vol-value',
-  '#ghost-control','#btn-ghost'] // v2.3：幽灵块辅助开关（AC-13）
+  '#ghost-control','#btn-ghost', // v2.3：幽灵块辅助开关（AC-13）
+  '#bgm-control','#btn-bgm'] // v2.5：背景音乐 BGM 开关（AC-15）
 for (const s of sel) {
   if (s.includes(' ')) {
     const [pid, cls] = s.split(' ')

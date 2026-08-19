@@ -78,6 +78,32 @@
       gameOver: { waveform: 'sawtooth', freq: 380, freqEnd: 190, duration: 0.52, attack: 0.02, decay: 0.5, peak: VOICE_PEAK },
     }
 
+    /** BGM 定义（v2.4：信息面板 BGM 开关）。独立于 SFX_DEFS（SFX 是离散事件、受
+     *  assembly-check 7 事件集约束）；BGM 是连续循环旋律。八音盒式低频方波短音，低增益，
+     *  经 masterGain 汇入主链路 → 音量/静音控件天然作用其上，互不影响开关状态。
+     *  bpm 节拍 | notes 音符序列（freq 频率 / beats 拍数）| waveform | peak 单音峰值 */
+    const BGM_DEFS = {
+      bpm: 96,
+      waveform: 'triangle',
+      peak: 0.16,
+      notes: [
+        { freq: 262, beats: 1 }, // C4
+        { freq: 330, beats: 1 }, // E4
+        { freq: 392, beats: 1 }, // G4
+        { freq: 523, beats: 1 }, // C5
+        { freq: 392, beats: 1 }, // G4
+        { freq: 330, beats: 1 }, // E4
+        { freq: 262, beats: 2 }, // C4（长音作小节谷）
+        { freq: 220, beats: 1 }, // A3
+        { freq: 262, beats: 1 }, // C4
+        { freq: 330, beats: 1 }, // E4
+        { freq: 392, beats: 1 }, // G4
+        { freq: 330, beats: 1 }, // E4
+        { freq: 294, beats: 1 }, // D4
+        { freq: 220, beats: 2 }, // A3
+      ],
+    }
+
     /* ======================================================================
      * 2. AudioContext 工厂（惰性创建；Safari webkitAudioContext 兜底；可注入测试）
      * ==================================================================== */
@@ -109,6 +135,9 @@
       let unlocked = false
       let disposed = false
       const active = new Set() // 活动 voice（{ osc, gain }），onended/dispose 清理（AC-09.8）
+      let bgmPlaying = false // BGM 开关态（默认关，AC-14.1：未经交互不出声）
+      let bgmInterval = null // BGM 循环调度句柄（setInterval）
+      const bgmVoices = new Set() // BGM 专属 voice（独立于 SFX 并发上限，低音量常驻）
 
       /* ---- 主增益链路：voice 包络 Gain → masterGain → ctx.destination ---- */
 
@@ -218,6 +247,90 @@
         return true
       }
 
+      /* ---- BGM（v2.4：连续合成背景乐） ----
+         与 SFX voice 独立：不争抢 MAX_VOICES 并发位（常驻低音量，AC-14.2 不挤占音效）；
+         经 BGM gain → masterGain 汇入主链路，故音量/静音控件作用其上，
+         但开关态与 mute/volume 互不影响（AC-14.3）。仅解锁/可用时真正发声（AC-14.1）。
+         用 setInterval 按节拍逐音调度一次 loop，环绕循环，stop 时拆线。 ---- */
+
+      /** 调度 BGM 的一个音符 voice（独立于 SFX 并发上限；失败静默 no-op） */
+      function scheduleBgmNote(freq, peak, attack, dur, t0) {
+        if (!ctx || !masterGain) return
+        try {
+          const osc = ctx.createOscillator()
+          const gain = ctx.createGain()
+          osc.type = BGM_DEFS.waveform
+          osc.frequency.setValueAtTime(freq, t0)
+          gain.gain.setValueAtTime(0, t0)
+          gain.gain.linearRampToValueAtTime(peak, t0 + attack)
+          gain.gain.exponentialRampToValueAtTime(ENV_FLOOR, t0 + dur)
+          osc.connect(gain)
+          gain.connect(masterGain)
+          const entry = { osc: osc, gain: gain }
+          bgmVoices.add(entry)
+          function cleanup() {
+            if (!bgmVoices.has(entry)) return
+            bgmVoices.delete(entry)
+            try { gain.disconnect() } catch (err) { /* 吞错 */ }
+            try { osc.disconnect() } catch (err) { /* 吞错 */ }
+          }
+          try { osc.onended = cleanup } catch (err) { /* 只读假对象则依赖 stopBgm/dispose 兜底 */ }
+          osc.start(t0)
+          osc.stop(t0 + dur + STOP_TAIL_S)
+        } catch (err) {
+          // 调度失败 → 本轮音符静默跳过（0 报错降级）
+        }
+      }
+
+      /** 调度整个 BGM loop（按 BGM_DEFS 节拍铺满一条旋律，音间留微小静音谷） */
+      function scheduleBgmLoop() {
+        if (!ctx || disposed || !bgmPlaying) return
+        const beat = 60 / BGM_DEFS.bpm
+        let t = Math.max(ctx.currentTime, 0)
+        for (const note of BGM_DEFS.notes) {
+          const dur = note.beats * beat
+          const attack = Math.min(0.02, dur * 0.25)
+          scheduleBgmNote(note.freq, BGM_DEFS.peak, attack, dur - 0.02, t)
+          t += dur
+        }
+      }
+
+      /** 开启 BGM：确保已解锁/建图（幂等），随后按节拍循环调度；重复调用 no-op
+          不可用（降级）→ 静默 no-op 不置开（AC-09.7/14.1 0 报错） */
+      function startBgm() {
+        if (disposed || bgmPlaying) return
+        if (!unlocked) unlock() // 用户交互后已解锁即直接可用；未解锁则惰性解锁
+        if (!ctx || !masterGain) return // 无声降级：不凭空调度、不置开
+        bgmPlaying = true
+        scheduleBgmLoop()
+        const loopMs = BGM_DEFS.notes.reduce(function (a, n) { return a + n.beats }, 0) * (60 / BGM_DEFS.bpm) * 1000
+        // 浏览器定时器（ui.js/game.js 既有惯例）；Node 测试环境缺省工厂无声，仅状态切换
+        if (typeof setInterval === 'function') {
+          bgmInterval = setInterval(scheduleBgmLoop, loopMs)
+        } else {
+          bgmInterval = null
+        }
+      }
+
+      /** 停止 BGM：清调度、停掉所有 BG voice 并拆线；可重复调用 */
+      function stopBgm() {
+        bgmPlaying = false
+        if (bgmInterval !== null && typeof clearInterval === 'function') {
+          clearInterval(bgmInterval)
+        }
+        bgmInterval = null
+        for (const entry of bgmVoices) {
+          try { entry.osc.stop() } catch (err) { /* 已停止 */ }
+          try { entry.osc.disconnect() } catch (err) { /* 吞错 */ }
+          try { entry.gain.disconnect() } catch (err) { /* 吞错 */ }
+        }
+        bgmVoices.clear()
+      }
+
+      function isBgmPlaying() {
+        return bgmPlaying
+      }
+
       /* ---- 公开 API ---- */
 
       /** 首次用户交互调用：创建并 resume AudioContext（懒创建，幂等；失败 → 永久无声降级） */
@@ -273,6 +386,7 @@
       function dispose() {
         if (disposed) return
         disposed = true
+        stopBgm() // BGM 清调度 + 停 voice（幂等）
         for (const entry of active) {
           try { entry.osc.stop() } catch (err) { /* 已停止 */ }
           try { entry.osc.disconnect() } catch (err) { /* 吞错 */ }
@@ -297,6 +411,9 @@
         setMuted: setMuted,
         isMuted: isMuted,
         isAvailable: isAvailable,
+        startBgm: startBgm, // v2.4：信息面板 BGM 开关
+        stopBgm: stopBgm,
+        isBgmPlaying: isBgmPlaying,
         dispose: dispose,
       }
     }
@@ -307,6 +424,7 @@
     return {
       VERSION: VERSION,
       SFX_DEFS: SFX_DEFS,
+      BGM_DEFS: BGM_DEFS, // v2.4：BGM 定义（信息面板开关）
       DEFAULT_VOLUME: DEFAULT_VOLUME,
       VOLUME_STEP: VOLUME_STEP,
       MAX_VOICES: MAX_VOICES,

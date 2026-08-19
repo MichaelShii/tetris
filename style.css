@@ -449,6 +449,22 @@ canvas {
   white-space: nowrap;
 }
 
+/* BGM 开关（v2.4，AC-14：复用 #btn-ghost 同款科技玻璃按钮风格与 open 态描边） */
+#btn-bgm {
+  width: 100%;
+  white-space: nowrap;
+}
+
+#btn-bgm[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+
+#btn-bgm[aria-pressed='false'] {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
 #btn-ghost[aria-pressed='true'] {
   border-color: var(--accent);
   color: var(--accent-hi);

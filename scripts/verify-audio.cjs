@@ -13,6 +13,9 @@
  *   6. unlock 语义（AC-09.6）：解锁前不建 ctx、play 无副作用；解锁后创建并 resume；幂等
  *   7. 降级（AC-09.7）：createContext 抛错/返回 null/缺 createGain → isAvailable=false，全 no-op 0 报错
  *   8. dispose：活动 voice 全部 stop、ctx.close、幂等
+ *   9. BGM（v2.5，AC-15）：BGM_DEFS 结构 + startBgm/stopBgm/isBgmPlaying 接口；默认关不发声；
+ *      启动合成 non-silent、可启动/停止（stop 停全部 voice、幂等、可重开）；并发（独立 voice 池不争抢
+ *      SFX MAX_VOICES）；降级（startBgm/stopBgm/dispose 0 报错无声）；dispose 清理无泄漏
  * 使用注入的假 AudioContext（opts.createContext），无需真实 Web Audio。
  */
 const test = require('node:test')
@@ -376,4 +379,78 @@ test('onended 驱动清理: voice 结束后计数递减，可继续调度', () =
   engine.play('move')
   assert.equal(fake.stats.oscillators, 5, '结束后的 voice 释放并发位')
   assert.equal(fake.liveOscillators.length, 1)
+})
+
+/* ---------- 9. BGM（v2.5，AC-15） ---------- */
+
+test('BGM: 默认关闭；startBgm 置开并调度、stopBgm 置关并 stop 全部 voice；dispose 兜底', () => {
+  const { engine, fake } = makeEngine(makeFakeContext())
+  assert.equal(engine.isBgmPlaying(), false, '默认关（AC-15.2）')
+  const oscBefore = fake.stats.oscillators
+  engine.startBgm()
+  assert.equal(engine.isBgmPlaying(), true, 'startBgm 置开')
+  assert.ok(fake.stats.oscillators > oscBefore, 'BGM 已实际调度音符 voice（合成 non-silent，AC-15.3）')
+  const scheduledVoices = A.BGM_DEFS.notes.length // startBgm 首个 loop 铺满 N 个音符 voice
+  const stopsBefore = fake.stats.stops
+  engine.startBgm() // 重复调用 no-op（幂等）
+  assert.equal(engine.isBgmPlaying(), true)
+  engine.stopBgm()
+  assert.equal(engine.isBgmPlaying(), false, 'stopBgm 置关')
+  assert.ok(fake.stats.stops - stopsBefore >= scheduledVoices, 'stopBgm 对全部 BGM voice 调用 stop')
+  // 停止后可重新启动（AC-15.4：关→开可反复）
+  engine.startBgm()
+  assert.equal(engine.isBgmPlaying(), true, 'stop 后可重开')
+  engine.stopBgm()
+  assert.equal(engine.isBgmPlaying(), false)
+  // dispose 兜底：未 stop 直接 dispose 也停（节点释放）
+  const { engine: e2, fake: f2 } = makeEngine(makeFakeContext())
+  e2.startBgm()
+  assert.equal(e2.isBgmPlaying(), true)
+  const stopsBefore2 = f2.stats.stops
+  e2.dispose()
+  assert.equal(e2.isBgmPlaying(), false, 'dispose 兜底停 BGM')
+  assert.ok(f2.stats.stops - stopsBefore2 >= scheduledVoices, 'dispose 停掉全部 BGM voice')
+  const oscAfter = f2.stats.oscillators
+  e2.startBgm() // dispose 后 startBgm no-op
+  assert.equal(f2.stats.oscillators, oscAfter, 'dispose 后不新建任何 BGM 节点（无泄漏，AC-15.12）')
+  assert.doesNotThrow(() => e2.dispose(), 'dispose 幂等')
+})
+
+test('BGM: 并发——独立 voice 池，不争抢 SFX MAX_VOICES 并发位（AC-15.12）', () => {
+  const { engine, fake } = makeEngine(makeFakeContext())
+  engine.unlock()
+  // 用满 SFX 并发上限 4（AC-09.8）
+  for (let i = 0; i < 4; i++) engine.play('move')
+  assert.equal(fake.stats.oscillators, 4, 'SFX 并发 4 已占满')
+  engine.startBgm() // BGM 应仍能调度（走独立 bgmVoices 池）
+  assert.equal(
+    fake.stats.oscillators,
+    4 + A.BGM_DEFS.notes.length,
+    'BGM 不挤占/不受 SFX 并发上限约束，独立 voice 池'
+  )
+  engine.stopBgm()
+})
+
+test('BGM: 未解锁/降级时不报错（0 报错降级，AC-15.10/15.11）', () => {
+  const engine = A.createSfxEngine({
+    createContext: function () { throw new Error('no web audio') },
+  })
+  assert.doesNotThrow(() => engine.startBgm())
+  assert.doesNotThrow(() => engine.stopBgm())
+  assert.equal(engine.isBgmPlaying(), false, '降级时 startBgm 不凭空调度、不置开')
+  assert.equal(engine.isAvailable(), false)
+})
+
+test('BGM_DEFS: 导出合法（bpm/波形/节拍序列有效）', () => {
+  assert.equal(typeof A.BGM_DEFS, 'object')
+  assert.ok(A.BGM_DEFS.bpm > 0, 'bpm 合法')
+  assert.ok(['sine', 'square', 'triangle', 'sawtooth'].includes(A.BGM_DEFS.waveform), '波形合法')
+  assert.ok(Array.isArray(A.BGM_DEFS.notes) && A.BGM_DEFS.notes.length > 0, '有音符序列')
+  assert.ok(A.BGM_DEFS.peak > 0 && A.BGM_DEFS.peak <= 1, '峰值增益 (0,1]')
+  for (const n of A.BGM_DEFS.notes) {
+    assert.ok(n.freq > 0 && n.freq < 20000, '音符基频合法')
+    assert.ok(n.beats > 0, '音符拍数合法')
+  }
+  // BGM 独立于 SFX_DEFS：不进 7 事件集（assembly-check 约束）
+  assert.equal(Object.keys(A.SFX_DEFS).length, 7)
 })

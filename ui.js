@@ -882,6 +882,30 @@
         renderAll(game.getSnapshot())
       }
 
+      /* ---- BGM 开关（v2.4，AC-14） ----
+         合成背景乐，仅 ui.js 接线 → audio.js startBgm/stopBgm（发声职责唯一在 audio.js）；
+         默认关（AC-14.1 未经交互不出声，首次 unlock 后可用）；状态本轮内保持、
+         刷新恢复默认（AC-14.4）；与音量/静音控件独立（AC-14.3，仅 M 键/按钮管 mute）。
+         三信号 = aria-pressed + aria-label + 文案形态（AC-14.5，非仅颜色）。 ---- */
+      const bgmBtn = must('#btn-bgm')
+      let bgmEnabled = false // 默认关（AC-14.1）
+
+      function syncBgmBtn() {
+        bgmBtn.setAttribute('aria-pressed', bgmEnabled ? 'true' : 'false')
+        bgmBtn.setAttribute('aria-label', '背景音乐：' + (bgmEnabled ? '开启' : '关闭'))
+        bgmBtn.textContent = bgmEnabled ? '🎵 BGM：开' : '🎵 BGM：关'
+      }
+      syncBgmBtn()
+
+      function onBgmToggle() {
+        bgmEnabled = !bgmEnabled
+        if (bgmEnabled) sfx.startBgm()
+        else sfx.stopBgm()
+        syncBgmBtn()
+        blurElement(this)
+      }
+      bgmBtn.addEventListener('click', onBgmToggle)
+
       /* ---- 消行闪白行索引（best-effort 精确）：
          game.js 快照不含被消行索引；用上一快照的 board+piece 经其导出的纯函数
          merge/clearLines 反推（锁定前最后一次 emit 的 piece 通常即锁定块）---- */
@@ -969,7 +993,7 @@
       ghostBtn.addEventListener('click', onGhostToggle)
 
       // E9：鼠标点击按钮不落焦点（防空格/回车二次触发按钮）
-      const btnList = [hudEls.btnStart, hudEls.btnPause, hudEls.btnRestart, overlayEls.btn, ghostBtn]
+      const btnList = [hudEls.btnStart, hudEls.btnPause, hudEls.btnRestart, overlayEls.btn, ghostBtn, bgmBtn]
       const mousedownGuards = btnList.map(function (btn) {
         const guard = function (e) {
           e.preventDefault()
@@ -1000,6 +1024,7 @@
         hudEls.btnRestart.removeEventListener('click', onRestart)
         overlayEls.btn.removeEventListener('click', onOverlayBtn)
         ghostBtn.removeEventListener('click', onGhostToggle)
+        bgmBtn.removeEventListener('click', onBgmToggle)
         mousedownGuards.forEach(function (entry) {
           entry.btn.removeEventListener('mousedown', entry.guard)
         })
