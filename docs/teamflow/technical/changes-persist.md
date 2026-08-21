@@ -1,7 +1,7 @@
 # 技术变更单（v2.6 持久化层 · 应用层态从零实现）— products/tetris
 
 - 变更单版本：v2.6-tc-1
-- 状态：**进行中（tech 段，对照实验分支 `feat/persistence-localStorage2`）**；交付后由 QA 复跑 §5 全表、产品负责人按 §4/§5 关闭并同步 memory。
+- 状态：**✅ 已交付并验收通过（2026-08-18）**；QA 独立复跑 §5 全表全绿，P1 缺陷 BUG-P1-1（`toStorageAdapter` 归一化修复，commit `f508f2e`）已关闭，产品负责人已按 §4/§5 关闭并同步 memory（req-4/task-4 均 accepted）。
 - 变更单位置：`docs/teamflow/technical/changes-persist.md`（本文件）；实现契约见下方 §3。
 - 关联文档：`PRD.md`（v2.6 增量，AC-16 最高分持久化 + AC-10.5 音量/静音持久化，本单为技术驱动改造、**不新增/不修改 PRD 功能 AC 文本**）、`TECHNICAL.md`（§3 模块契约 UMD 对齐）、`AGENTS.md`（§4 工程约定）。
 - 性质：**技术驱动改造（tech）**，新增**应用层持久化基础设施**（localStorage + 内存降级），仅带来极少量用户可见的"刷新后状态恢复"行为（详见 §4）。
