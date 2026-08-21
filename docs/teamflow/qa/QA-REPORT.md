@@ -1,77 +1,72 @@
-# 俄罗斯方块（Tetris）简化版 — QA 测试报告（v2.5 · 背景音乐 BGM · AC-15）
+# 俄罗斯方块（Tetris）简化版 — QA 测试报告（v2.6 · 应用层持久化 · 技术驱动改造）
 
-- **被测交付**：`products/tetris/` v2.5（背景音乐 BGM：Web Audio 实时合成循环旋律 + 信息面板开关，AC-15，P0 本次交付项）
-- **测试执行**：2026-08-18，QA 独立复核（run `tf-mszkunr9-qs3o6u`）
-- **验收唯一依据**：PRD v2.5 §2（AC-01 ~ AC-15）、§5.4 BGM 规格、§9 验收总则
-- **上一版**：v2.4（已归档 `docs/teamflow/history/v2.4/QA-REPORT.md`）
+- **被测交付**：`products/tetris/` v2.6（本地持久化层，分支 `feat/persistence-localStorage2`，对照实验）
+- **测试执行**：QA 独立复核（run `tf-mt317a5e-0iwvuy`）
+- **规格依据**：技术变更单 `docs/teamflow/technical/changes-persist.md`（v2.6-tc-1）§3/§5 + PRD v2.6 增量（AC-16 最高分 / AC-10.5 设置持久化）
+- **上一版**：v2.5（已归档 `docs/teamflow/history/v2.5/QA-REPORT.md`）
 
 ---
 
 ## 0. 结论（先行）
 
-**✅ 达到可验收标准（QA 侧判定）**：v2.5 BGM（AC-15）实现与 PRD §5.4 逐条吻合，六套验证全绿（**52 / 23 / 7 / 2 / 装配ALL / 188**），回归底线 AC-01~14 不加后门全绿。QA 独立对抗抽查 **11/11**（BGM 静音/音量联动经 masterGain 链路、stopBgm 无残留、dispose 后 startBgm no-op）。AC-09.5 零音频文件审计、AC-08 自包含审计保持全绿。**无 P0/P1/P2 缺陷**；登记 1 项 P3 观察项 **OBS-BGM-1**（BGM 开关 UI 交互未在 E2E/verify-ui 层直接断言，非阻断，装配钩子与 audio 层已覆盖）+ **OBS-BGM-2**（模块 VERSION 未升 2.3.0，行为新增是否升版由产品验收裁定，非功能缺陷）。
+**❌ 未达到可验收标准 —— 发现 1 项 P1 功能缺陷（核心交付功能在真实浏览器环境静默失效）。**
+
+六套既有验证 + verify-persist 本身全部通过（52/23/7/2/装配ALL/188 + 10/10），但这些脚本**均未走真实 localStorage 适配路径**：verify-persist 注入的是带 `get/set/remove` 方法的自定义 backing，与生产适配器实际调用 API 不一致，导致单元测试全绿而真实浏览器表现完全失效。QA 独立对抗复现确认（见 §3 缺陷表）。
 
 ---
 
 ## 1. 测试范围与环境
 
-- **范围**：本次变更 = `audio.js`（BGM 合成引擎 `BGM_DEFS`/`startBgm`/`stopBgm`/`isBgmPlaying`，独立 `bgmVoices` 池 + masterGain 汇入）+ `ui.js`（`#btn-bgm` 开关接线 + dispose 解绑 + E9 防抢焦点）+ `index.html`（`#bgm-control`/`#btn-bgm` 装配）+ `style.css`（`#btn-bgm` 科技玻璃样式）+ `verify-audio.cjs`（补 4 条 BGM 契约）+ `assembly-check.cjs`（BGM 装配钩子）+ `README.md`（关闭 P2 BGM 项）。不改骨架状态机/`keyAction`/计分/数值/SFX 语义。回归 = AC-01~14 全量底线。
-- **环境**：Node v22.22.3，Windows。沙箱**禁止启动带 CDP 的真实浏览器**（Playwright/Puppeteer/chromedriver 一律策略拒绝）→ 听感/像素/真实时序/真实多浏览器/读屏不可自动实测，按产品约定走 jsdom DOM E2E + 静态/单元/对抗验证路径；此类项列入 §4 人工补测，**不判失败**。
+- **环境限制**：沙箱禁止启动带 CDP 的真实 Chrome/Edge（Playwright/Puppeteer/chromedriver），真实浏览器听感/像素/真机 file:// 刷新不可行 —— 此限制不阻断本缺陷判定（本缺陷可用 Node 模拟真实 localStorage API 完整复现）。
+- **已执行**：六套既有验证（`verify-game/audio/ui/constants/assembly-check/qa-e2e-jsdom`）+ 新增 `verify-persist` + QA 独立对抗探针（生产路径模拟）。
+- **代码审查**：`persist.js`（359 行核心新增）、`ui.js` 持久化接入块、`index.html` 装配/脚本序、`assembly-check.cjs` 审计增量。
+- 所有命令输出落盘 `logs/teamflow/tf-mt317a5e-0iwvuy/qa/`。
 
 ## 2. 用例与结果
 
-| 用例组 | 结果 | 说明 |
-|---|---|---|
-| verify-game（52）| ✅ 52/52 | 引擎回归，AC-01~14 底线 |
-| verify-audio（23）| ✅ 23/23 | 音效 19 + **BGM 契约 4 条**（默认关/启停+重开/dispose 无泄漏、独立 voice 池不受 SFX 并发上限、未解锁降级 0 报错、BGM_DEFS 合法）|
-| verify-ui（7）| ✅ 7/7 | UI 契约回归 |
-| verify-constants（2）| ✅ 2/2 | 三模块 VERSION `'2.3.0'` 一致（未强制升版，行为新增由验收裁定）|
-| assembly-check | ✅ ALL PASSED | 含 **#bgm-control/#btn-bgm 装配钩子**、audio 导出面 `BGM_DEFS`、AC-08 自包含、**AC-09.5 音频审计 0 文件 / 无 `<audio>`** |
-| qa-e2e-jsdom（188）| ✅ 188/188 + file:// | DOM E2E + file:// 管线；页面加载（含 BGM 开关 DOM）无全局 error |
-| **QA 独立对抗 BGM** | ✅ 11/11 | 见 §2.1 |
-| **AC-01~14 回归底线** | ✅ 全绿 | 不加后门，verify-game/E2E 覆盖 |
+| 套件 | 预期 | 实际 | 状态 |
+|---|---|---|---|
+| verify-game | 52 | 52 | ✅ PASS |
+| verify-audio | 23 | 23 | ✅ PASS |
+| verify-ui | 7 | 7 | ✅ PASS |
+| verify-constants | 2 | 2 | ✅ PASS |
+| assembly-check | ALL PASSED | ALL PASSED | ✅ PASS |
+| qa-e2e-jsdom（含 file:// 管线） | 188 | 188 | ✅ PASS |
+| **verify-persist（新增）** | 全绿 | 10/10 | ✅ PASS（但见 §3，未覆盖真实适配） |
+| QA 对抗·生产路径（真实 localStorage API） | — | **复现 P1** | ❌ FAIL |
 
-### 2.1 QA 独立对抗抽查（`qa-adversarial-bgm.cjs`，11/11）
+> ⚠️ 说明：v2.5 基线为空口径 188（本 tech 分支 E2E 未扩展持久化断言，符合变更单「不新增 PRD AC + 以 verify-persist 为持久化锚点」既定取舍）。注入上下文中的「211/211（含 AC-16 用例）」为对照分支 `feat/persistence-localStorage1` 口径，非本分支。
 
-验证测试套件未直接覆盖的链路：
-- **静音联动（AC-15.9）**：`setMuted(true)` → masterGain.gain.value=0（BGM 随主链路静音）；取消 → 恢复 0.8 默认，无需重新 unlock。
-- **音量联动（AC-15.8）**：`setVolume(0)` → BGM 无声；`setVolume(0.8)` → 恢复。
-- **集成**：BGM 首个 loop 每音符 voice（osc+gain）实际创建并连 masterGain（合成 non-silent）。
-- **停止无残留（AC-15.4）**：`stopBgm` 对全部 BGM voice 调 `stop`+disconnect。
-- **dispose 后 startBgm** no-op、不抛错（无泄漏）。
-
-## 3. 发现的缺陷
+## 3. 缺陷清单
 
 | 编号 | 严重级 | 功能模块 | 复现步骤 | 期望行为 | 实际行为 | 关联验收项 |
 |---|---|---|---|---|---|---|
-| OBS-BGM-1 | P3（观察项，非阻断）| 测试覆盖 | BGM 开关 UI 交互（点击 `#btn-bgm` 触发 `startBgm/stopBgm`、aria 三信号同步）未在 verify-ui / qa-e2e-jsdom 层直接断言 | E2E 层补一条「点击开关 → audio 层调用」的定位断言 | 当前仅 assembly（DOM 选择器存在）+ verify-audio（audio 层契约）+ 代码审计（ui.js 接线正确）覆盖 | AC-15.3/15.14（建议后续 E2E 增强）|
-| OBS-BGM-2 | P3（观察项，非阻断）| 版本 | 模块 `VERSION` 未升级（仍 `'2.3.0'`）| BGM 为行为新增，是否应升版（如 2.5.0）由产品验收裁定 | verify-constants 基线保持三模块一致 | 版本约定 |
+| BUG-P1-1 | **P1** | 持久化层 `persist.js` `createStorage` 适配器 | 构造真实浏览器 `localStorage`（`setItem/getItem/removeItem` 三方法，无 `set/get/remove`）作为 `window.localStorage`；`createStorage().available` 为 true，但 `set/get` 静默失效：`saveHighScore(150)` 后底层无任何写入，重新实例 `load().highScore` 仍为 0 | 可用 localStorage 时应真实读写、跨刷新恢复最高分与四设置（AC-16/AC-10.5） | `createStorage()` 探测用 `setItem/getItem/removeItem`，返回适配器内部却调用 `store.set/store.get/store.remove`（内存 Map 风格 API，**原生 localStorage 不存在**）→ 每次调用抛 `TypeError` 被 try/catch 静默吞掉；`available` 因探针成功为 true 故**不降级内存**，最终「探针显示可用 + 实际全空」——真实浏览器中持久化完全静默失效，`reload` 最高分/设置全部丢失 | AC-16 / AC-10.5 / 变更单 §3「读写包 try/catch、可用则真实持久化」 |
+| 无 | — | — | — | — | — | — |
 
-> **除上述 2 项 P3 观察项外：未发现 P0/P1/P2 缺陷。** 两项均**不阻断验收**——AC-15 全部功能点均已实现并经代码审计 + 自动化验证 + 对抗抽查确认正确。
+> **根因**：`createStorage` 的能力探测键与适配器方法名不一致——探测用浏览器原生 API（`setItem/getItem/removeItem`），读写却调用 Map 风格的 `set/get/remove`。verify-persist.cjs 注入的 backing 恰好实现了 `get/set/remove`，故单测全绿而真实适配断裂。唯一受影响方为**应用层持久化**；引擎 game/audio、UI 布局、玩法零影响。
 
-## 4. 人工补测清单（环境限制，非交付缺陷）
+## 4. M3 轻量架构核验
 
-以下项涉及听感/像素/真实时序/真实多浏览器/读屏，当前沙箱禁用 CDP 真实浏览器**无法自动实测**，不判失败，供人工复核：
+- **蓝图对齐**：分层（storage 适配 → 持久化门面 → sanitize 纯函数）与变更单 §3 一致；`ui.js` 仅消费 `load/save*` 不散落 setItem ✓；装配序 persist→audio→game→ui ✓；可选依赖缺失即旧版 ✓；dispose 链 `persist.dispose()` ✓。
+- **重复实现**：无（sanitize/storage/persist 均单处）。
+- **该抽象未抽象**：无。
+- **架构缺陷（P1）**：`createStorage` 适配器内部 API 与其声明契约不一致（探测/读写方法名漂移），属「实现与契约偏离」——直接导致 §3 BUG-P1-1。属交付质量门禁拦截项。
 
-| # | 验收标准 | 验证方法 | 工具 | 说明 |
-|---|---|---|---|---|
-| B1 | BGM 开启 ≤500ms 可闻旋律（AC-15.3）| 首次交互后开 BGM，听歌词/节拍启动延迟 | 真机 Chrome 听测 | 新增（v2.5）|
-| B2 | BGM 循环连续 ≥60s 无卡顿/无声空窗（AC-15.5）| 开 BGM 播放 60s，听循环连续性 | 真机 | 新增 |
-| B3 | BGM 关闭 ≤300ms 停止无拖尾（AC-15.4 听感）| 关 BGM 听是否干净停止 | 真机 | 新增 |
-| B4 | 音量/静音联动听测（AC-15.8/15.9）| 主音量 0%/静音 M 键/面板静音即时静 BGM、取消恢复 | 真机 | 新增 |
-| B5 | 自动播放合规（AC-15.10）| 首次交互前开 BGM 不发声、DevTools Console 0 报错 | DevTools | 新增 |
-| B6 | 双分辨率无错位（AC-15.1）| 1920×1080 / 1366×768 开关控件无遮挡 | DevTools 设备模拟 | 新增 |
-| B7 | 开关可访问性（AC-15.14）| Tab 聚焦、:focus-visible、读屏可读 aria 状态 | NVDA/VoiceOver | 新增 |
-| B8 | 状态保持（AC-15.13）| 结束→重开保持、刷新重置默认关闭 | 真机 | 新增 |
-| B9 | 性能（AC-15.12）| BGM+高频操作 60s FPS≥55 | Performance 采样 | 新增 |
+## 5. 人工补测清单（环境限制，非交付缺陷）
 
-> 沿袭项（幽灵块可辨识/落点/计分规则等 v2.2~v2.4 清单）不减，属回归底线，见 history/v2.4 QA-REPORT §6。
+| 项 | 验收标准 | 验证方法 | 工具 |
+|---|---|---|---|
+| 真机 file:// 刷新恢复最高分/设置 | 刷新后 HUD 最高分与四设置恢复 | 双击 index.html 玩局→刷新→断言恢复 | 真实浏览器（人工） |
+| 最高分视觉呈现 AC-16.9 | HUD 最高分显示正确、样式清晰 | 目测 | 真实浏览器 |
+| 隐私模式降级 | 无存储时行为等同旧版、无报错 | 隐私/无痕窗口观察 | 真实浏览器 |
+| 读屏可访问 | 最高分/恢复不破坏 a11y | 读屏 | 屏幕阅读器 |
+| 双分辨率 | 新增 `#stat-hi` 在不同分辨率不破版 | 目测 1920×1080 / 1366×768 | 真实浏览器 |
 
-## 5. 测试产物
+## 6. 建议（开发修复方向，供参考）
 
-- `scripts/` 六套验证全部 exit 0；QA 独立对抗脚本 `logs/teamflow/tf-mszkunr9-qs3o6u/qa-adversarial-bgm.cjs`（11/11）。
-- 日志：`logs/teamflow/tf-mszkunr9-qs3o6u/qa-verify-{game,audio,ui,constants}.log`、`qa-assembly.log`、`qa-e2e.log`、`qa-adversarial-bgm.log`。
+`createStorage` 返回值应统一为真实 Storage 的调用面（`setItem/getItem/removeItem`），或把内存 Map 适配为其同构子集后**由同一薄层把 `set/get/remove` 映射到 `setItem/getItem/removeItem`**；并补一条走真实 localStorage API 形状（无 `set/get/remove`）的对抗用例到 verify-persist，防止此类契约漂移再逃逸。修复后需复跑 §2 全表 + 本报告 §3 复现用例转绿。
 
 ---
 
-*QA 测试工程师独立复核记录（v2.5）。上一版 QA 报告归档至 `docs/teamflow/history/v2.4/QA-REPORT.md`。*
+*本报告由 QA 独立复核生成；缺陷待开发修复后复验，未达可验收标准。*

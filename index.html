@@ -29,6 +29,10 @@
         <span class="stat__label">分数</span>
         <output id="score" class="stat__value stat__value--score" aria-live="polite">0</output>
       </div>
+      <div id="stat-hi" class="stat">
+        <span class="stat__label">最高分</span>
+        <output id="hi-score" class="stat__value stat__value--score stat__value--hi" aria-live="polite">0</output>
+      </div>
       <div id="stat-level" class="stat">
         <span class="stat__label">等级</span>
         <output id="level" class="stat__value stat__value--num" aria-live="polite">1</output>
@@ -105,16 +109,22 @@
     </section>
   </main>
 
-  <!-- 本地脚本（顺序：音效引擎 → 核心逻辑 → UI 层 → 装配根；经典脚本，file:// 安全，AC-08） -->
+  <!-- 本地脚本（顺序：持久化层 → 音效引擎 → 核心逻辑 → UI 层 → 装配根；经典脚本，file:// 安全，AC-08；
+       persist.js 为可选依赖，缺席即等效旧版，createUI 不启用持久化，见 TECHNICAL §2.5/v2.6 修订） -->
+  <script src="./persist.js"></script>
   <script src="./audio.js"></script>
   <script src="./game.js"></script>
   <script src="./ui.js"></script>
   <script>
     // 装配根（等价 TECHNICAL §3.6 main.ts）：创建游戏与 UI，驱动完整游玩闭环
+    // persist 为可选依赖：window.TetrisPersist 缺失（未加载 persist.js）时不传，createUI 内部不启用持久化（向后兼容）
     ;(function () {
       'use strict'
       try {
-        window.TetrisUI.createUI()
+        var persistHandle = (typeof window !== 'undefined' && window.TetrisPersist)
+          ? window.TetrisPersist.createPersistence()
+          : undefined
+        window.TetrisUI.createUI({ persist: persistHandle })
       } catch (err) {
         console.error('[tetris] 装配失败：', err)
       }

@@ -695,13 +695,15 @@
     }
 
     /**
-     * createAudioPanel(els, engine) → { sync(), dispose }（v2.0，AC-10）
+     * createAudioPanel(els, engine, onChange?) → { sync(), dispose }（v2.0，AC-10）
      * 音量/静音控件：M 键与按钮双入口 → engine setter → sync() 唯一 DOM 镜像点
      * （单一写入口，双入口状态天然一致，AC-10.2）。
      * els: { mute, volDown, volUp, volValue }（index.html #audio-controls，DESIGN token）。
      * 按钮点击后 blur 归还焦点（E9/E-SFX-12，防空格二次触发）。
+     * onChange?（v2.6 可选）：真实变更点（onMute/onVolDown/onVolUp）触发一次，用于持久化
+     * 旁观写回；初始 sync() 不触发（避免装配即多写一次默认值）。
      */
-    function createAudioPanel(els, engine) {
+    function createAudioPanel(els, engine, onChange) {
       let disposed = false
       const step = (typeof TetrisAudio !== 'undefined' && TetrisAudio.VOLUME_STEP) || 0.1
 
@@ -719,19 +721,26 @@
         els.volValue.textContent = fmt(engine.getVolume())
       }
 
+      function notify() {
+        if (typeof onChange === 'function') onChange()
+      }
+
       function onMute() {
         engine.setMuted(!engine.isMuted())
         sync()
+        notify()
         blurElement(els.mute)
       }
       function onVolDown() {
         engine.setVolume(engine.getVolume() - step) // clamp 在 engine 内
         sync()
+        notify()
         blurElement(els.volDown)
       }
       function onVolUp() {
         engine.setVolume(engine.getVolume() + step)
         sync()
+        notify()
         blurElement(els.volUp)
       }
 
@@ -770,6 +779,9 @@
      *   el?           查询根（默认 document；用于隔离测试/多实例）
      *   rng? / autoLoop? / keyboard? / autoPauseOnBlur?   透传给 game.js createGame
      *   onSnapshot? / onLevelUp? / onGameOver?   宿主附加回调（与内部回调串联）
+     *   persist?      （v2.6 可选）应用层持久化句柄 = TetrisPersist.createPersistence()；
+     *                 提供则启动恢复四设置+回填 HUD 最高分、onSnapshot 只增不减写回；
+     *                 缺失即等效旧版（不持久化、零影响，向后兼容）。
      * 内部创建 game（autoLoop/keyboard 默认开启），并驱动：逐帧渲染 → HUD →
      * 遮罩同步 → 升级反馈 → 按钮绑定（点击后 blur 防空格二次触发，E9）→ resize。
      */
@@ -837,7 +849,10 @@
         (typeof TetrisAudio !== 'undefined' && typeof TetrisAudio.createSfxEngine === 'function'
           ? TetrisAudio.createSfxEngine()
           : nullSfxEngine()) // audio.js 缺失兜底（AC-09.7 无声不报错）
-      const audioPanel = createAudioPanel(audioEls, sfx)
+      // onChange：音量/静音真实变更点 → 持久化旁观写回（不新增第三设置入口，仅观察）
+      const audioPanel = createAudioPanel(audioEls, sfx, function () {
+        persistSettings()
+      })
 
       // M 键静音：设置而非游戏态 → ui.js 独立监听，任意 phase 生效（AC-10.2）；
       // game.js 键盘不拦截 'm'，无冲突；忽略系统重复（按住不连切）
@@ -846,6 +861,7 @@
         if (e.key === 'm' || e.key === 'M') {
           sfx.setMuted(!sfx.isMuted())
           audioPanel.sync()
+          persistSettings()
         }
       }
       // 首次用户交互解锁 AudioContext（AC-09.6；once 语义，触发后自解绑）
@@ -877,6 +893,7 @@
       function onGhostToggle() {
         ghostEnabled = !ghostEnabled
         syncGhostBtn()
+        persistSettings()
         blurElement(this)
         // AC-13.3：回合中切换即时生效——立即以当前快照重绘，不依赖下一次按键/重力步
         renderAll(game.getSnapshot())
@@ -902,9 +919,67 @@
         if (bgmEnabled) sfx.startBgm()
         else sfx.stopBgm()
         syncBgmBtn()
+        persistSettings()
         blurElement(this)
       }
       bgmBtn.addEventListener('click', onBgmToggle)
+
+      /* ---- 应用层持久化（v2.6，可选依赖，跨切面基础设施） ----
+         由装配根传入 opts.persist = TetrisPersist.createPersistence()（persist.js）。
+         persist 缺失（未加载 persist.js / 测试不注入）即等效旧版：不持久化、不读取、零影响。
+         持久化仅「旁观」——只 read 既有 setter/closures 的状态并写回，绝不成为第三个变更入口；
+         写入点收敛在真实变更点（onMuteKey / ghost / BGM / audioPanel onChange）+ onSnapshot 只增不减。
+         settings 来源仍是既有闭包（ghostEnabled/bgmEnabled）+ sfx 引擎 setter，此处只读写不驱动。
+         ---- */
+      const persist =
+        opts.persist && typeof opts.persist.load === 'function' && typeof opts.persist.saveHighScore === 'function'
+          ? opts.persist
+          : null
+      let persistedHighScore = 0
+      // 可选 HUD 最高分元素（#hi-score）：装配根未提供则该钩子为空——回读为 no-op、向后兼容
+      const hiScoreEl = persist ? root.querySelector('#hi-score') : null
+
+      function updateHiScoreEl() {
+        if (!hiScoreEl) return
+        const v = String(persistedHighScore)
+        if (hiScoreEl.textContent !== v) hiScoreEl.textContent = v
+      }
+
+      // 当前四设置快照 → persist.saveSettings（持久化层 sanitize 兜底，不在此猜值）
+      function persistSettings() {
+        if (!persist || typeof persist.saveSettings !== 'function') return
+        try {
+          persist.saveSettings({
+            volume: typeof sfx.getVolume === 'function' ? sfx.getVolume() : undefined,
+            muted: typeof sfx.isMuted === 'function' ? sfx.isMuted() : undefined,
+            ghostEnabled: ghostEnabled,
+            bgmEnabled: bgmEnabled,
+          })
+        } catch (e) { /* 持久化层契约不 throw；再兜底一层保证永不中断游戏 */ }
+      }
+
+      // 启动恢复：load() 取回 { highScore, settings }，回填 HUD 最高分 + 恢复四设置
+      if (persist) {
+        let loaded = null
+        try {
+          loaded = persist.load()
+        } catch (e) { loaded = null }
+        if (loaded && typeof loaded === 'object') {
+          if (loaded.highScore != null) persistedHighScore = loaded.highScore
+          const st = loaded.settings
+          if (st && typeof st === 'object') {
+            if (typeof st.volume === 'number' && typeof sfx.setVolume === 'function') sfx.setVolume(st.volume)
+            if (typeof st.muted === 'boolean' && typeof sfx.setMuted === 'function') sfx.setMuted(st.muted)
+            if (typeof st.ghostEnabled === 'boolean') ghostEnabled = st.ghostEnabled
+            // BGM：恢复开关态（AC-14.1 未经交互不出声；此处仅置初值+镜像，不启动合成循环）
+            if (typeof st.bgmEnabled === 'boolean') bgmEnabled = st.bgmEnabled
+          }
+        }
+        audioPanel.sync() // 音量/静音 DOM 镜像
+        syncGhostBtn()
+        syncBgmBtn()
+        updateHiScoreEl()
+      }
 
       /* ---- 消行闪白行索引（best-effort 精确）：
          game.js 快照不含被消行索引；用上一快照的 board+piece 经其导出的纯函数
@@ -943,6 +1018,12 @@
         autoPauseOnBlur: opts.autoPauseOnBlur !== false,
         onSnapshot: function (s) {
           renderAll(s)
+          // v2.6：最高分只增不减——仅当单游当前分 > 已持久化最高分时写回（AC-16 / 变更单 §3）
+          if (persist && typeof persist.saveHighScore === 'function' && s.score > persistedHighScore) {
+            persistedHighScore = s.score
+            try { persist.saveHighScore(s.score) } catch (e) { /* 契约不 throw，兜底不中断 */ }
+            updateHiScoreEl()
+          }
           if (typeof opts.onSnapshot === 'function') opts.onSnapshot(s)
         },
         onLevelUp: function (level) {
@@ -1034,6 +1115,10 @@
         overlay.dispose()
         feedback.dispose()
         game.dispose()
+        // v2.6：持久化层纯内存/存储句柄清理（不留定时器/监听泄漏；persist 缺失时为空 no-op）
+        if (persist && typeof persist.dispose === 'function') {
+          try { persist.dispose() } catch (e) { /* 契约不 throw，兜底不中断 */ }
+        }
       }
 
       return handle

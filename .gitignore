@@ -10,6 +10,7 @@ docs/acceptance/
 .tmp-*/
 .tmp-qa-logs/
 .workbuddy/
+.idea/
 
 # Node（本产品零依赖，防御性）
 node_modules/

@@ -16,6 +16,7 @@
 | v2.2 | 2026-08-16 | **本次变更**：幽灵块（落点预览，AC-12）——引擎新增纯函数 `ghostY`（复用 `collides` 语义、垂直直线、无踢墙）+ UI 半透明轮廓渲染（同色系空心描边 + 极淡填充，DESIGN §5.6）+ 单测/E2E/装配审计增量；**数值/状态机/keyAction/音效/既有 DOM-CSS 零改动**（回归底线 AC-01~11） |
 | v2.2-tc | 2026-08-16 | **技术变更单**（tech，无功能变化）：新增工程自检脚本 `scripts/verify-constants.cjs`，断言 `game.js`/`ui.js`/`audio.js` 头部 `VERSION` 均 === `'2.2.0'` 且与 §2.2 记录一致；不改任何既有代码/行为/UI/AC。详见 `docs/technical/changes.md`。 |
 | v2.3 | 2026-08-18 | **本次变更**：1) **幽灵块辅助开关**（AC-13）——`index.html` 新增 `#ghost-control`（`.ghost-control` + `#btn-ghost` 复用 `.btn--audio` token）；`ui.js` `createBoardRenderer.render` 增加 `ghostEnabled` 参数（默认开启，关闭不绘幽灵）+ `createUI` 开关绑定（aria-pressed/文案/aria-label 三信号 + 点击即时重绘 + 会话内保持、刷新默认开）+ render 开头 `globalAlpha=1` 防御（AC-13.2/13.3/13.4/13.5）。2) **修正硬降计分**（AC-14）——移除 `hardDrop` 的 `dropBonus`（每格 +1）调用与导出（game.js），仅消行计分。**状态机/keyAction/音效/数值公式零改动**（回归底线 AC-01~12，除 AC-14 硬降加分断言）；`VERSION` 升 `'2.3.0'`（§2.2，无断言依赖）。 |
+| v2.6-tc-1 | 2026-08 | **技术变更单**（tech，变更单 `docs/teamflow/technical/changes-persist.md`）：新增应用层持久化 `persist.js` 统一落 localStorage（对照实验分支 `feat/persistence-localStorage2`，基于 main@774abca 从零实现，严禁参考 `.tmp-zst/persist-backup` 残留）；对齐 PRD v2.6 增量（AC-16 最高分持久化 + AC-10.5 音量/静音），ghostEnabled/bgmEnabled 一并持久化；**不升级/不改写 PRD 功能 AC**。 |
 
 > **实际交付形态（沿用）**：`index.html + 本地 css/js`，脚本顺序 `audio.js → game.js → ui.js → 内联装配`；UMD 契约 `window.TetrisGame / window.TetrisAudio / window.TetrisUI`。v2.1 快照（PRD/TECHNICAL）已归档至 `docs/history/v2.1/`（本轮开始前 v2.1 PRD 已归档；TECHNICAL v2.1 快照随本轮补归档）。
 
