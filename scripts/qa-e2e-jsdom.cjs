@@ -219,7 +219,7 @@ async function main() {
     const s2 = snap()
     const dt = Date.now() - t0
     check('AC-01.3 回车 300ms 内进入进行态', dt <= 300 && s2.phase === 'RUNNING', 'dt=' + dt + 'ms')
-    check('AC-01.3 首块出生（I，顶部居中）', s2.piece && s2.piece.type === 'I' && s2.piece.y === 0 && s2.piece.x === 3, JSON.stringify(s2.piece))
+    check('AC-01.3 首块出生（顶部居中）', s2.piece && s2.piece.y === 0 && s2.piece.x === Math.floor((10 - [4,2,3,3,3,3,3][['I','O','T','S','Z','J','L'].indexOf(s2.piece.type)]) / 2), JSON.stringify(s2.piece))
     check('开始后暂停/重开按钮可用、开始禁用', $('#btn-pause').disabled === false && $('#btn-restart').disabled === false && $('#btn-start').disabled === true)
     check('状态灯 PLAYING', $('#status-text').textContent === 'PLAYING' && $('#status-dot').dataset.status === 'playing')
     check('RUNNING 遮罩隐藏', $('#overlay').hidden === true || $('#overlay').classList.contains('is-open') === false)
@@ -265,14 +265,18 @@ async function main() {
     key('ArrowLeft')
     check('AC-02.4 连续撞墙无报错且原位', snap().piece.x === wallX)
 
-    // DAS 按住重复（AC-02.1：170ms 首移后每 100ms 重复；I 块 x=0 起按住 → 撞右墙 x=6）
+    // DAS 按住重复（AC-02.1：170ms 首移后每 100ms 重复；按住 → 撞右墙）
     game.restart()
-    const startX = snap().piece.x
+    const dasSnap0 = snap()
+    const startX = dasSnap0.piece.x
+    const dasPieceType = dasSnap0.piece.type
     key('ArrowRight') // 按下不松
     await sleep(700)
     keyUp('ArrowRight')
     const dasX = snap().piece.x
-    check('AC-02.1 按住右移触发 DAS 重复（至右墙 x=6）', dasX === 6 && dasX - startX >= 2, 'x ' + startX + '→' + dasX)
+    const dasWidth = { I: 4, O: 2, T: 3, S: 3, Z: 3, J: 3, L: 3 }[dasPieceType] || 4
+    const expectedRight = 10 - dasWidth
+    check('AC-02.1 按住右移触发 DAS 重复（至右墙 x=' + expectedRight + '）', dasX === expectedRight && dasX - startX >= 2, 'x ' + startX + '→' + dasX + ' type=' + dasPieceType)
     const afterUp = snap().piece.x
     await sleep(300)
     check('AC-02.1 松开停止重复', snap().piece.x === afterUp)
@@ -309,7 +313,7 @@ async function main() {
     check('AC-06.5 计分公式 1 行=100×L1', s.score === 100, 'score=' + s.score)
     check('HUD 分数实时刷新 100', $('#score').textContent === '100')
     check('HUD 行数实时刷新 1', $('#lines').textContent === '1')
-    check('消行后新块已出生', s.piece !== null && s.piece.type === 'I')
+    check('消行后新块已出生', s.piece !== null)
     check('HUD 数值变化带 is-flashing 高亮', $('#stat-score').classList.contains('is-flashing'))
 
     // 4 行一次性消除：rows16-19 各缺 col3，竖 I 落满 → 800 分
@@ -630,7 +634,7 @@ async function main() {
     check('AC-12.2/3/4 幽灵落点随移动/旋转/软降重算为 number', typeof gyAfterMove === 'number')
     key('ArrowUp') // 旋转（I 型横向→纵向），落点轮廓变化
     const gyAfterRot = window.TetrisGame.ghostY(snap().board, snap().piece)
-    check('AC-12.3 旋转后幽灵落点随新轮廓重算', typeof gyAfterRot === 'number' && gyAfterMove !== gyAfterRot, gyAfterMove + '→' + gyAfterRot)
+    check('AC-12.3 旋转后幽灵落点随新轮廓重算', typeof gyAfterRot === 'number' && (snap().piece.type === 'O' || gyAfterMove !== gyAfterRot), gyAfterMove + '→' + gyAfterRot)
     const yBeforeSoft = snap().piece.y
     key('ArrowDown') // 软降 1 格
     const gyAfterSoft = window.TetrisGame.ghostY(snap().board, snap().piece)

@@ -281,22 +281,48 @@
     }
 
     /**
-     * 均匀随机队列（PRD §3.2：非 7-bag）。rng 可注入（默认 Math.random）便于确定性测试。
-     * next() 返回当前并补新值；peek() 不消耗。
+     * 7-bag 随机队列（标准 Tetris 随机系统，AC-17）。
+     * 每 7 块为一轮（bag）：将全部 7 种方块放入袋中并 Fisher-Yates 洗牌，
+     * 依次发完后再创建新袋。确保每 7 块中每种方块恰好出现一次。
+     * rng 可注入（默认 Math.random）便于确定性测试。
+     * peek() 不消耗；next() 返回当前并补新值。
      */
     function createQueue(rng) {
       const rand = typeof rng === 'function' ? rng : Math.random
-      function pick() {
-        const i = Math.floor(rand() * TYPES.length)
-        return TYPES[Math.min(Math.max(i, 0), TYPES.length - 1)]
+
+      function shuffle(arr) {
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(rand() * (i + 1))
+          var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp
+        }
+        return arr
       }
-      let current = pick()
+
+      function newBag() { return shuffle(TYPES.slice()) }
+
+      var bag = newBag()
+      var idx = 0
+      var peeked = false
+      var peekVal = null
+
       return {
-        peek: function () { return current },
+        peek: function () {
+          if (!peeked) {
+            if (idx >= bag.length) { bag = newBag(); idx = 0 }
+            peekVal = bag[idx]
+            peeked = true
+          }
+          return peekVal
+        },
         next: function () {
-          const v = current
-          current = pick()
-          return v
+          if (peeked) {
+            peeked = false
+            var v = peekVal
+            idx++
+            return v
+          }
+          if (idx >= bag.length) { bag = newBag(); idx = 0 }
+          return bag[idx++]
         },
       }
     }
@@ -576,7 +602,7 @@
         if (disposed) return { ok: false, reason: 'illegal-phase' }
         if (state.phase !== 'RUNNING' || !state.piece) return { ok: false, reason: 'illegal-phase' }
         const next = rotated(state.piece, 1)
-        if (collides(state.board, next)) return { ok: false, reason: 'blocked' } // E1 无踢墙，保持原位（不发声）
+        if (collides(state.board, next)) return { ok: false, reason: 'wall-kick-denied' } // AC-18: 无踢墙，保持原位（不发声）
         state.piece = next
         if (!isGrounded(state.board, state.piece)) state.lockTimer = 0
         emit()

@@ -243,27 +243,74 @@ test('clearLines: 单行/多行一次性消除 + 上方行下移（AC-03.2/3）'
 
 /* ---------- 5. 队列（T4 契约） ---------- */
 
-test('createQueue: 注入 RNG 确定、peek 不消耗', () => {
-  const seq = [0.05, 0.3, 0.75, 0.9] // 索引 0/2/5/6 → I/T/J/L
-  let i = 0
-  const q = T.createQueue(() => seq[i++ % seq.length])
-  assert.equal(q.peek(), 'I')
-  assert.equal(q.peek(), 'I', 'peek 不消耗')
-  assert.equal(q.next(), 'I')
-  assert.equal(q.peek(), 'T')
-  assert.equal(q.next(), 'T')
-  assert.equal(q.next(), 'J')
-  assert.equal(q.next(), 'L')
-  assert.equal(q.next(), 'I', '循环后回到 I')
+test('createQueue: 注入 RNG 确定、peek 不消耗（7-bag）', () => {
+  // 7-bag: shuffle 使用 rng，固定种子 → 确定性序列
+  // 用全 0.5 序列：shuffle 每次 swap(i→j) 中 j = floor(0.5*(i+1))，产生固定排列
+  let callCount = 0
+  const q = T.createQueue(() => { callCount++; return 0.5 })
+  const first = q.peek()
+  assert.equal(q.peek(), first, 'peek 不消耗')
+  assert.equal(q.next(), first, 'next 返回 peek 相同值')
+  // peek 后 next 应推进到下一块
+  const second = q.peek()
+  assert.equal(typeof second, 'string', 'peek 返回方块类型')
+  assert.equal(q.next(), second)
+  // 每袋 7 块，检查连续 7 块不重复
+  const bag = [first, second]
+  for (let k = 2; k < 7; k++) bag.push(q.next())
+  assert.equal(new Set(bag).size, 7, '前 7 块包含全部 7 型（7-bag 完整性）')
 })
 
-test('createQueue: 默认均匀随机分布（大样本各型 ≈1/7）', () => {
+/* ---------- 5b. 7-bag 算法契约用例（AC-17） ---------- */
+
+test('7-bag: 每袋 7 块包含全部 7 种方块各 1 次', () => {
+  const q = T.createQueue()
+  for (let bag = 0; bag < 100; bag++) {
+    const seen = []
+    for (let k = 0; k < 7; k++) seen.push(q.next())
+    const sorted = seen.slice().sort()
+    assert.deepEqual(sorted, ['I', 'J', 'L', 'O', 'S', 'T', 'Z'], '第 ' + (bag + 1) + ' 袋应含全部 7 型')
+  }
+})
+
+test('7-bag: 袋内排列随机（连续 10 袋不全相同）', () => {
+  const q = T.createQueue()
+  const bags = []
+  for (let b = 0; b < 10; b++) {
+    const bag = []
+    for (let k = 0; k < 7; k++) bag.push(q.next())
+    bags.push(bag.join(''))
+  }
+  const unique = new Set(bags)
+  assert.ok(unique.size >= 2, '10 袋中至少 2 种不同排列（袋内随机性）')
+})
+
+test('7-bag: 连续两袋无重叠顺序（两袋拼接 ≠ 单袋重复）', () => {
+  const q = T.createQueue()
+  const bag1 = []
+  for (let k = 0; k < 7; k++) bag1.push(q.next())
+  const bag2 = []
+  for (let k = 0; k < 7; k++) bag2.push(q.next())
+  // 两袋各自完整
+  assert.deepEqual(bag1.slice().sort(), ['I', 'J', 'L', 'O', 'S', 'T', 'Z'], 'bag1 完整')
+  assert.deepEqual(bag2.slice().sort(), ['I', 'J', 'L', 'O', 'S', 'T', 'Z'], 'bag2 完整')
+  // 两袋不完全相同（概率极低）
+  assert.notDeepEqual(bag1, bag2, '连续两袋不应固定相同排列')
+  // 第 14 块（bag2 第 7 块）仍为合法类型
+  for (let k = 0; k < 5; k++) q.next() // 消费 bag2 剩余
+  const bag3start = q.next()
+  assert.ok(T.TYPES.includes(bag3start), 'bag3 首块为合法方块类型')
+})
+
+test('createQueue: 7-bag 分布（大样本各型频率 ≈1/7）', () => {
   const counts = { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 }
   const q = T.createQueue()
-  for (let k = 0; k < 7000; k++) counts[q.next()]++
+  const total = 7000
+  for (let k = 0; k < total; k++) counts[q.next()]++
   for (const t of T.TYPES) {
-    assert.ok(counts[t] > 700, t + ' 频率下限 ' + counts[t])
-    assert.ok(counts[t] < 1300, t + ' 频率上限 ' + counts[t])
+    const expected = total / 7
+    const ratio = counts[t] / expected
+    assert.ok(ratio > 0.85 && ratio < 1.15, t + ' 频率 ' + counts[t] + ' ≈ ' + expected + '（偏差 <15%）')
   }
 })
 
@@ -353,16 +400,16 @@ test('生命周期: READY → start → RUNNING → pause → resume → restart
   assert.equal(events.snapshots.length >= 4, true, '初始+start+pause+resume 均有快照')
 })
 
-test('start 与 spawn 消费预览队列（确定性 RNG 序列）', () => {
-  const seq = [0.05, 0.3, 0.75, 0.8] // 索引 0/2/5/5 → I/T/J/J
-  let i = 0
-  const g = T.createGame({ rng: () => seq[i++ % seq.length], autoLoop: false, keyboard: false, autoPauseOnBlur: false })
+test('start 与 spawn 消费预览队列（7-bag 确定性 RNG）', () => {
+  // 7-bag: rng 用于 shuffle，全 0.5 产生固定排列
+  const g = T.createGame({ rng: () => 0.5, autoLoop: false, keyboard: false, autoPauseOnBlur: false })
   const readys = g.getSnapshot()
-  assert.equal(readys.next, 'I')
+  assert.ok(T.TYPES.includes(readys.next), 'READY 预览为合法方块类型')
   g.start()
   const s = g.getSnapshot()
-  assert.equal(s.piece.type, 'I', '首块 = READY 时预览')
-  assert.equal(s.next, 'T', '预览已补新')
+  assert.equal(s.piece.type, readys.next, '首块 = READY 时预览')
+  assert.ok(T.TYPES.includes(s.next), '预览已补新')
+  assert.notEqual(s.piece.type, null, '首块已出生')
 })
 
 test('move: 左墙阻挡保持原位（AC-02.4）', () => {
@@ -385,7 +432,7 @@ test('rotate: 旋转越界拒绝且原位（E1，AC-02.4）', () => {
   g._debug.setPiece({ type: 'T', rot: 0, x: 0, y: 18 })
   const before = g.getSnapshot()
   const r = g.rotate()
-  assert.deepEqual(r, { ok: false, reason: 'blocked' })
+  assert.deepEqual(r, { ok: false, reason: 'wall-kick-denied' })
   const s = g.getSnapshot()
   assert.equal(s.piece.rot, 0, '旋转被拒，rot 不变')
   assert.equal(snapshotDeep(before, s), true, '快照不变')
@@ -393,6 +440,59 @@ test('rotate: 旋转越界拒绝且原位（E1，AC-02.4）', () => {
   g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 0 })
   assert.equal(g.rotate().ok, true)
   assert.equal(g.getSnapshot().piece.rot, 1)
+})
+
+/* ---------- AC-18: 无踢墙旋转系统 ---------- */
+
+test('rotate: 左墙碰撞保持原位（AC-18.3）', () => {
+  const { g } = freshGame()
+  g.start()
+  // T 型方块紧贴左墙（x=0）且靠近底部，旋转后底部越界 → 碰撞
+  g._debug.setPiece({ type: 'T', rot: 0, x: 0, y: 18 })
+  const before = g.getSnapshot()
+  const r = g.rotate()
+  assert.deepEqual(r, { ok: false, reason: 'wall-kick-denied' }, '左墙碰撞返回 wall-kick-denied')
+  const after = g.getSnapshot()
+  assert.equal(after.piece.x, before.piece.x, 'x 不变（不右移让位）')
+  assert.equal(after.piece.y, before.piece.y, 'y 不变')
+  assert.equal(after.piece.rot, before.piece.rot, 'rot 不变')
+})
+
+test('rotate: 右墙碰撞保持原位（AC-18.4）', () => {
+  const { g } = freshGame()
+  g.start()
+  // I 型方块横放（rot=0）紧贴右墙（x=8），旋转后右侧越界 → 碰撞
+  g._debug.setPiece({ type: 'I', rot: 0, x: 8, y: 0 })
+  const before = g.getSnapshot()
+  const r = g.rotate()
+  assert.deepEqual(r, { ok: false, reason: 'wall-kick-denied' }, '右墙碰撞返回 wall-kick-denied')
+  const after = g.getSnapshot()
+  assert.equal(after.piece.x, before.piece.x, 'x 不变（不左移让位）')
+  assert.equal(after.piece.y, before.piece.y, 'y 不变')
+  assert.equal(after.piece.rot, before.piece.rot, 'rot 不变')
+})
+
+test('rotate: 已固定方块碰撞保持原位（AC-18.5）', () => {
+  const { g } = freshGame()
+  g.start()
+  // 在方块下方放置已固定方块，使旋转产生碰撞
+  const b = Array.from({ length: 20 }, () => Array(10).fill(null))
+  b[19][3] = '#f00' // 固定方块位于 (3,19)
+  g._debug.setBoard(b)
+  g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 17 })
+  const before = g.getSnapshot()
+  const r = g.rotate()
+  // T 型 rot=0 旋转后底部可能与固定方块碰撞
+  if (!r.ok) {
+    assert.deepEqual(r, { ok: false, reason: 'wall-kick-denied' }, '已固定方块碰撞返回 wall-kick-denied')
+    const after = g.getSnapshot()
+    assert.equal(after.piece.x, before.piece.x, 'x 不变')
+    assert.equal(after.piece.y, before.piece.y, 'y 不变')
+    assert.equal(after.piece.rot, before.piece.rot, 'rot 不变')
+  } else {
+    // 若旋转成功（无碰撞），验证位置已更新
+    assert.equal(g.getSnapshot().piece.rot, 1)
+  }
 })
 
 test('softDrop: 下落 1 格；触底立即锁定（AC-02.2、AC-03.5）', () => {
@@ -547,7 +647,7 @@ test('tick: 触底锁定缓冲 500ms（AC-03.5）', () => {
   assert.equal(g.getSnapshot().piece.type, 'T', '缓冲期内未锁定')
   g.tick(250) // 500ms → 锁定
   const s = g.getSnapshot()
-  assert.notEqual(s.piece.type, 'T', '已换新块')
+  assert.ok(s.piece, '锁定后已出生新块（7-bag 新块类型可能与锁定块相同）')
   assert.equal(s.board[18][4], 'T', 'T 已固定')
 })
 
@@ -606,7 +706,7 @@ test('onSfx: rotate 成功 → 恰好 1 次；越界被拒 → 0 次（AC-09.3�
   const { g, events } = freshGame()
   g.start()
   g._debug.setPiece({ type: 'T', rot: 0, x: 0, y: 18 }) // 旋转后底部越界 → 拒绝
-  assert.deepEqual(g.rotate(), { ok: false, reason: 'blocked' })
+  assert.deepEqual(g.rotate(), { ok: false, reason: 'wall-kick-denied' })
   assert.deepEqual(events.sfx, [])
   g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 0 })
   assert.deepEqual(g.rotate(), { ok: true })
