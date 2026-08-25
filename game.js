@@ -416,6 +416,7 @@
      * @param {boolean} [options.keyboard=true] 浏览器下自动绑定 window 级键盘
      * @param {boolean} [options.autoPauseOnBlur=true] 失焦/切页自动暂停（AC-04.4）
      * @param {boolean} [options.wallKickEnabled=true] 踢墙旋转开关（AC-19.1，默认开；false=无踢墙 AC-18 语义）
+     * @param {number} [options.animMs=240] 消行动画时长 ms（r13，AC-1/AC-9；容差 160~320；0 = 即时消除 = reduced-motion 等价，AC-7）
      * @param {(s: GameSnapshot) => void} [options.onSnapshot] 状态变化回调（只读快照）
      * @param {(phase: GamePhase) => void} [options.onPhaseChange]
      * @param {(level: number) => void} [options.onLevelUp] 升级瞬间（AC-06.4）
