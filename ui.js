@@ -101,6 +101,36 @@
       LINE_WIDTH: 2,       // 轮廓线宽（css px，随 DPR 由 ctx.setTransform 缩放）
     }
 
+    // 消行动画包络（r13，AC-1 数值断言锚点；DESIGN §4.3 霓虹脉冲：渐亮→过曝→熄灭）
+    // 引擎 createGame 默认 animMs 与该常量同源（240）；本表为 Node 可断言的单一事实来源
+    const ANIM_MS = 240      // 动画时长 ms（验收容差 160~320）
+    const ANIM_PEAK = 1.25   // 峰值乘性亮度（AC-1 下限 1.2）
+    const ANIM_PEAK_T = 0.40 // 峰值到达点（占 T 比例）；渐亮段 ease-out-quart
+
+    /**
+     * 消行动画亮度曲线（纯函数，AC-1/AC-9 数值断言锚点）：
+     * p = animProgress ∈ [0,1] → B ∈ [0, ANIM_PEAK]。
+     * B(0)=1（首帧原亮度，无叠加，等于静态绘制）；渐亮 1→1.25（ease-out-quart，
+     * 帧增量单调递减，可断言）；淡出 1.25→0（ease-in-quart，先慢后快；
+     * 结束帧 B=0 → 塌缩帧无视觉跳变，AC-6）。色相保持：只提亮/渐隐、不换色（DESIGN §5.2）。
+     */
+    function pulseBrightness(p) {
+      if (p <= 0) return 1
+      if (p <= ANIM_PEAK_T) {
+        const u = p / ANIM_PEAK_T
+        const e = 1 - Math.pow(1 - u, 4)
+        return 1 + (ANIM_PEAK - 1) * e // 渐亮：1 → 1.25
+      }
+      const w = (p - ANIM_PEAK_T) / (1 - ANIM_PEAK_T)
+      return ANIM_PEAK * (1 - Math.pow(w, 4)) // 淡出：1.25 → 0
+    }
+
+    /** 系统减弱动态偏好（r13，AC-7）：matchMedia 存在且命中 reduced → 动画时长降级为 0（即时消除）。
+     *  typeof 守卫：jsdom/Node 无 matchMedia 时安全返回 false。 */
+    function prefersReducedMotion() {
+      return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    }
+
     // 游戏态 → UI 文本/状态（game.js 命名：READY/RUNNING/PAUSED/OVER）
     const STATUS_LABEL = {
       READY: 'READY',
@@ -335,10 +365,44 @@
         ctx.fillRect(0, 0, COLS * CELL, ROWS * CELL)
         drawGrid()
 
+        // r13（AC-1）：动画帧被消行由下方 anim 分支接管（霓虹脉冲），静态遍历跳过 → 未消除行逐像素不变
+        const animRows = fx && fx.anim ? fx.anim.indices : null
         for (let row = 0; row < ROWS; row++) {
+          if (animRows && animRows.indexOf(row) !== -1) continue
           for (let col = 0; col < COLS; col++) {
             const cell = s.board[row][col]
             if (cell) drawCell(cell, col * CELL, row * CELL)
+          }
+        }
+
+        // r13（AC-1/AC-8，动画帧）：霓虹脉冲——被消行不立即消失，按动画进度提亮/渐隐
+        //（引擎快照驱动，UI 无自有计时器；暂停快照 frozen → 自动冻帧，AC-4）。
+        // 每格 ≤2 基元：渐亮 = 烘焙 sprite 原样 + 白热叠加；淡出 = 整体渐隐至 0（结束帧 B=0）。
+        if (fx && fx.anim) {
+          const B = pulseBrightness(fx.anim.progress)
+          for (let ai = 0; ai < fx.anim.indices.length; ai++) {
+            const row = fx.anim.indices[ai]
+            if (row < 0 || row >= ROWS) continue
+            for (let col = 0; col < COLS; col++) {
+              if (!s.board[row][col]) continue
+              const px = col * CELL
+              const py = row * CELL
+              if (B >= 1) {
+                drawCell(s.board[row][col], px, py) // 基元1：烘焙 sprite 原样
+                if (B > 1) {
+                  // 基元2：白热叠加，不透明度 ∝ 亮度增量（1 → 峰值 1.25 全白）
+                  ctx.globalAlpha = (B - 1) / (ANIM_PEAK - 1)
+                  ctx.fillStyle = '#ffffff'
+                  roundRectPath(ctx, px, py, CELL, CELL, 3)
+                  ctx.fill()
+                  ctx.globalAlpha = 1
+                }
+              } else {
+                ctx.globalAlpha = B // 淡出：整体渐隐至 0（色相不变，DESIGN §5.2）
+                drawCell(s.board[row][col], px, py)
+                ctx.globalAlpha = 1
+              }
+            }
           }
         }
 
@@ -791,6 +855,9 @@
       }
       const opts = options || {}
       const root = opts.el || document
+      // 消行动画时长（r13，AC-7）：显式 opts.animMs > reduced-motion 检测 > 默认 240。
+      // E2E 传 animMs:0 即绕过 matchMedia（jsdom 无 matchMedia，typeof 守卫安全）。
+      const animMs = opts.animMs !== undefined ? opts.animMs : prefersReducedMotion() ? 0 : ANIM_MS
 
       /* ---- 取 DOM（缺失即抛错，保证装配期暴露接线问题） ---- */
       function must(selector) {
@@ -1168,8 +1235,20 @@
       }
 
       function renderAll(s) {
-        const fx = flashIndicesFor(s)
-        boardRenderer.render(s, fx ? { flashLines: fx } : undefined, ghostEnabled)
+        // r13（AC-1/AC-8，三分支分发，取代点红线 §4.2）：
+        // 1) 动画帧（快照含 clearedIndices）→ fx.anim 霓虹脉冲（含 PAUSED 冻结帧：进度定格自动冻帧，AC-4）；
+        // 2) 完结帧（前一快照在动画、本帧已塌缩）→ fx=undefined 抑制白闪，防「脉冲+事后闪」双重反馈；
+        // 3) 其余 → 既有 flashIndicesFor 白闪反推原样（即时路径保留白闪 = 现状等价，AC-7；
+        //    animMs=0 时快照永无 clearedIndices，恒走此分支）。
+        const isClearing = s.clearedIndices !== null
+        const justFinished = !isClearing && prevSnapshot !== null && prevSnapshot.clearedIndices !== null
+        let fx
+        if (isClearing) fx = { anim: { indices: s.clearedIndices, progress: s.animProgress } }
+        else if (!justFinished) {
+          const fl = flashIndicesFor(s)
+          if (fl) fx = { flashLines: fl }
+        }
+        boardRenderer.render(s, fx, ghostEnabled)
         nextWell.render(s.phase === 'READY' ? null : s.next)
         hud.update(s)
         if (s.phase === 'RUNNING') overlay.hide()
@@ -1185,6 +1264,7 @@
         autoLoop: opts.autoLoop !== false,
         keyboard: opts.keyboard !== false,
         autoPauseOnBlur: opts.autoPauseOnBlur !== false,
+        animMs: animMs, // r13（AC-7）：构造期只读注入（解析见 createUI 顶部）
         onSnapshot: function (s) {
           renderAll(s)
           // v2.6：最高分只增不减——仅当单游当前分 > 已持久化最高分时写回（AC-16 / 变更单 §3）
@@ -1340,6 +1420,11 @@
       COLS: COLS,
       ROWS: ROWS,
       GHOST: GHOST, // v2.2：幽灵块视觉参数表（DESIGN §5.6 单一事实来源）
+      // r13（AC-1/AC-9）：消行动画包络常量与亮度曲线单一事实来源（Node 可断言，同 GHOST 先例）
+      ANIM_MS: ANIM_MS,
+      ANIM_PEAK: ANIM_PEAK,
+      ANIM_PEAK_T: ANIM_PEAK_T,
+      pulseBrightness: pulseBrightness,
       createUI: createUI,
       // 渲染/UI 组件（签名对齐 TECHNICAL §3.4 / §3.5，便于宿主独立使用与测试）
       createBoardRenderer: createBoardRenderer,

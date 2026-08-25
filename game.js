@@ -453,6 +453,8 @@
         lockTimer: 0,
         gravityAcc: 0,
         queue: null,
+        // r13 消行动画（AC-1）：clearing 子阶段（仅在 RUNNING 下存在；初始 null，见 §2.2）
+        clearing: null,
       }
       state.queue = createQueue(rng)
       state.next = state.queue.next()
@@ -461,6 +463,9 @@
       let lastPhase = state.phase
       // 踢墙旋转开关（v2.9，AC-19.1：默认开；仅 rotate 内自判读取，UI 经 setWallKickEnabled 同步）
       let wallKickEnabled = opts.wallKickEnabled !== false
+      // 消行动画时长（r13，AC-1/AC-9）：默认 240ms（容差 160~320）；0 = 即时消除（与 reduced-motion 等价，AC-7）；
+      // 强制布尔/负值兜底为默认值（对齐 wallKickEnabled 的 opts 解析风格）；构造期只读，无运行期 setter
+      const animMs = typeof opts.animMs === 'number' && opts.animMs >= 0 ? opts.animMs : 240
 
       /* ---- 快照与回调 ---- */
       function snapshot() {
@@ -472,6 +477,9 @@
           score: state.score,
           level: state.level,
           lines: state.lines,
+          // r13（AC-10，additive）：动画期附加快照字段；非动画期恒 null（不影响既有消费方对比）
+          clearedIndices: state.clearing ? state.clearing.indices.slice() : null,
+          animProgress: state.clearing ? Math.min(1, state.clearing.elapsed / animMs) : null,
         }
       }
 
@@ -496,21 +504,47 @@
       }
 
       /* ---- 锁定流程：消行 → 计分 → 升级 → spawn → 出生碰撞 → GAME_OVER（单一时钟原子处理） ---- */
+      // r13（AC-1/AC-4）：clearing 子阶段——消行而非立即塌缩：动画期（T=animMs）保持含满行棋盘，
+      // 进度由引擎 tick 驱动（唯一时钟），完结帧整体执行原子步（finishLock，两路径共享唯一实现，
+      // 杜绝双份维护漂移）；暂停冻结/续播自然成立（clearing 不随暂停清空，AC-4）。
       function lockFlow() {
-        const clearedRes = clearLines(merge(state.board, state.piece))
-        state.board = clearedRes.board
+        const merged = merge(state.board, state.piece)
+        const res = clearLines(merged) // 预计算，动画路径完结帧复用（AC-2 逐格等价来源）
         state.piece = null
         state.lockTimer = 0
         state.gravityAcc = 0
+        if (res.cleared > 0 && animMs > 0) {
+          // → clearing 子阶段：保持含满行棋盘（视觉静止），动画结束帧才塌缩
+          state.board = merged
+          state.clearing = { indices: res.indices, elapsed: 0, res: res }
+          sfx('clear') // 动画开始帧恰好 1 次（AC-3；2/3/4 行均 1 次，AC-09.2/E-SFX-03）
+          emit() // 首帧快照 clearedIndices + animProgress=0
+          // 入口返回值：levelUp/gameOver 为「完成时」才确定的结果（§2.4），动画接管期恒 false
+          return { ok: true, locked: true, cleared: res.cleared, levelUp: false, gameOver: false }
+        }
+        // —— 既有原子步（cleared=0 或 animMs=0 与现状逐点等价，AC-2/AC-7）——
+        return finishLock(res.board, res.cleared, true)
+      }
 
+      /** 动画完结帧：elapsed ≥ animMs → 原子步整体执行（塌缩→计分/行数/升级→spawn→碰撞） */
+      function completeClearing() {
+        const cl = state.clearing
+        state.clearing = null
+        finishLock(cl.res.board, cl.res.cleared, false) // sfx('clear') 已在动画首帧发射（恰好 1 次）
+      }
+
+      /** 原子步（即时路径与动画完结帧共享唯一实现）：塌缩 → 计分 → 升级 → spawn → 出生碰撞 → GAME_OVER。
+       *  playClearSfx=true 时于本步发射 sfx('clear')（即时路径）；动画路径已在首帧发过 → false。 */
+      function finishLock(board, cleared, playClearSfx) {
+        state.board = board
         let levelUp = false
-        if (clearedRes.cleared > 0) {
-          state.score += scoreForLines(clearedRes.cleared, state.level) // 多行一次计分（E3）
-          state.lines += clearedRes.cleared
+        if (cleared > 0) {
+          state.score += scoreForLines(cleared, state.level) // 多行一次计分（E3）
+          state.lines += cleared
           const newLevel = levelForLines(state.lines)
           levelUp = newLevel > state.level
           state.level = newLevel
-          sfx('clear') // 一次消行动作恰好 1 次（含 2/3/4 行，AC-09.2/E-SFX-03）
+          if (playClearSfx) sfx('clear') // 一次消行动作恰好 1 次（含 2/3/4 行，AC-09.2/E-SFX-03）
         }
 
         // spawn 下一块（next 预览先出块再补新）
@@ -526,13 +560,13 @@
           if (levelUp) sfx('levelUp') // 与 LEVEL UP 回调同栈（AC-09.4）
           if (cb.onGameOver) cb.onGameOver(state.score)
           sfx('gameOver') // 进入 OVER 态恰好 1 次，与遮罩回调同栈（AC-09.4）
-          return { ok: true, locked: true, cleared: clearedRes.cleared, levelUp: levelUp, gameOver: true }
+          return { ok: true, locked: true, cleared: cleared, levelUp: levelUp, gameOver: true }
         }
         state.piece = p
         emit()
         if (levelUp && cb.onLevelUp) cb.onLevelUp(state.level)
         if (levelUp) sfx('levelUp')
-        return { ok: true, locked: true, cleared: clearedRes.cleared, levelUp: levelUp, gameOver: false }
+        return { ok: true, locked: true, cleared: cleared, levelUp: levelUp, gameOver: false }
       }
 
       function spawnFirst() {
@@ -571,6 +605,7 @@
         state.queue = createQueue(rng) // 队列重建（TECHNICAL §5.3）
         state.next = state.queue.next()
         state.piece = null
+        state.clearing = null // r13（AC-6/§2.2）：restart 强制清空动画状态（防宿主异常调用留脏）
         state.phase = transition(state.phase, 'restart') // 任意态 → RUNNING
         spawnFirst()
         emit()
@@ -598,7 +633,10 @@
 
       function move(dir) {
         if (disposed) return { ok: false, reason: 'illegal-phase' }
-        if (state.phase !== 'RUNNING' || !state.piece) return { ok: false, reason: 'illegal-phase' }
+        if (state.phase !== 'RUNNING') return { ok: false, reason: 'illegal-phase' }
+        // r13（AC-4/E2）：动画期输入一律拒绝（不排队、不发声），reason='clearing' 为内部枚举（UMD 签名不变）
+        if (state.clearing) return { ok: false, reason: 'clearing' }
+        if (!state.piece) return { ok: false, reason: 'illegal-phase' }
         const d = dir === -1 ? -1 : 1
         const moved = { type: state.piece.type, rot: state.piece.rot, x: state.piece.x + d, y: state.piece.y }
         if (collides(state.board, moved)) return { ok: false, reason: 'blocked' } // E2 原位不动（不发声，AC-09.3）
@@ -611,7 +649,10 @@
 
       function rotate() {
         if (disposed) return { ok: false, reason: 'illegal-phase' }
-        if (state.phase !== 'RUNNING' || !state.piece) return { ok: false, reason: 'illegal-phase' }
+        if (state.phase !== 'RUNNING') return { ok: false, reason: 'illegal-phase' }
+        // r13（AC-4/E2）：动画期输入一律拒绝（不排队、不发声），reason='clearing' 为内部枚举（UMD 签名不变）
+        if (state.clearing) return { ok: false, reason: 'clearing' }
+        if (!state.piece) return { ok: false, reason: 'illegal-phase' }
         const next = rotated(state.piece, 1)
         if (!collides(state.board, next)) {
           // 原地合法：直接成功（AC-18/AC-19 共用路径）
@@ -643,7 +684,10 @@
 
       function softDrop() {
         if (disposed) return { ok: false, reason: 'illegal-phase' }
-        if (state.phase !== 'RUNNING' || !state.piece) return { ok: false, reason: 'illegal-phase' }
+        if (state.phase !== 'RUNNING') return { ok: false, reason: 'illegal-phase' }
+        // r13（AC-4/E2）：动画期输入一律拒绝（不排队、不发声），reason='clearing' 为内部枚举（UMD 签名不变）
+        if (state.clearing) return { ok: false, reason: 'clearing' }
+        if (!state.piece) return { ok: false, reason: 'illegal-phase' }
         const moved = { type: state.piece.type, rot: state.piece.rot, x: state.piece.x, y: state.piece.y + 1 }
         if (collides(state.board, moved)) {
           // 软降后仍触底 → 立即固定（TECHNICAL §6.2）；下移未成功不发射 softDrop
@@ -659,7 +703,10 @@
 
       function hardDrop() {
         if (disposed) return { ok: false, reason: 'illegal-phase' }
-        if (state.phase !== 'RUNNING' || !state.piece) return { ok: false, reason: 'illegal-phase' }
+        if (state.phase !== 'RUNNING') return { ok: false, reason: 'illegal-phase' }
+        // r13（AC-4/E2）：动画期输入一律拒绝（不排队、不发声），reason='clearing' 为内部枚举（UMD 签名不变）
+        if (state.clearing) return { ok: false, reason: 'clearing' }
+        if (!state.piece) return { ok: false, reason: 'illegal-phase' }
         let d = 0
         while (!collides(state.board, { type: state.piece.type, rot: state.piece.rot, x: state.piece.x, y: state.piece.y + d + 1 })) {
           d++
@@ -672,8 +719,17 @@
 
       /** 手动时钟驱动：宿主在 autoLoop:false 时每帧调用（dt 单位 ms，内部 clamp ≤ 250） */
       function tick(dtMs) {
-        if (disposed || state.phase !== 'RUNNING' || !state.piece) return
+        if (disposed || state.phase !== 'RUNNING') return
         const dt = dtMs < 0 ? 0 : dtMs > DT_CLAMP_MS ? DT_CLAMP_MS : dtMs
+        // r13（AC-5）：动画期 piece===null，原「!state.piece」早退必须让位——clearing 守卫先行：
+        // dt 只进动画进度（gravityAcc/lockTimer 冻结），完结帧整体执行原子步
+        if (state.clearing) {
+          state.clearing.elapsed += dt
+          if (state.clearing.elapsed >= animMs) completeClearing()
+          else emit()
+          return
+        }
+        if (!state.piece) return
         state.gravityAcc += dt
 
         let changed = false
@@ -710,6 +766,7 @@
       function lose() {
         if (disposed) return { ok: false, reason: 'illegal-phase' }
         if (state.phase !== 'RUNNING') return { ok: false, reason: 'illegal-phase' }
+        state.clearing = null // r13（AC-6/§2.2）：OVER 后动画状态清空，无残留亮度帧
         state.phase = transition(state.phase, 'lose')
         stopLoop()
         emit()
