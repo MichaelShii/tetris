@@ -2,7 +2,8 @@
   "reqId": "req-13",
   "runId": "tf-mt8sdf2z-g6g49x",
   "title": "实现消行动画缓动功能",
-  "status": "running",
+  "status": "accepted",
   "mode": "medium",
-  "createdAt": 1787669765900
+  "createdAt": 1787669682592,
+  "endedAt": 1787672635255
 }
