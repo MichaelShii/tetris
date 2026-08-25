@@ -45,37 +45,9 @@
         <span class="stat__label">下一个</span>
         <canvas id="next-well" width="48" height="24" aria-label="下一个方块预览"></canvas>
       </div>
-      <!-- 音量/静音控件区（v2.0，AC-10：复用 .btn--secondary/.stat__label token，最小改动） -->
-      <div id="audio-controls" class="audio-controls" role="group" aria-label="音量控制">
-        <span class="stat__label">音量</span>
-        <button type="button" id="btn-mute" class="btn btn--secondary btn--audio"
-                aria-pressed="false" aria-label="静音">🔊 静音</button>
-        <div class="audio-controls__row">
-          <button type="button" id="btn-vol-down" class="btn btn--secondary btn--audio"
-                  aria-label="降低音量 10%">−</button>
-          <output id="vol-value" class="audio-controls__value" aria-live="polite">80%</output>
-          <button type="button" id="btn-vol-up" class="btn btn--secondary btn--audio"
-                  aria-label="提高音量 10%">+</button>
-        </div>
-      </div>
-      <!-- 幽灵块辅助开关（v2.3，AC-13：科技玻璃风按钮开关，受样式 .ghost-control 约束） -->
-      <div id="ghost-control" class="ghost-control" role="group" aria-label="幽灵块开关">
-        <span class="stat__label">幽灵块</span>
-        <button type="button" id="btn-ghost" class="btn btn--secondary btn--audio"
-                aria-pressed="true" aria-label="幽灵块辅助：开启">👻 幽灵块：开</button>
-      </div>
-      <!-- BGM 开关（v2.4，AC-14：科技玻璃风按钮开关，默认关，复用 .btn--audio/.stat__label token） -->
-      <div id="bgm-control" class="ghost-control" role="group" aria-label="背景音乐开关">
-        <span class="stat__label">背景音乐</span>
-        <button type="button" id="btn-bgm" class="btn btn--secondary btn--audio"
-                aria-pressed="false" aria-label="背景音乐：关闭">🎵 BGM：关</button>
-      </div>
-      <!-- 踢墙旋转开关（v2.9，AC-19.7：科技玻璃风按钮开关，默认开，复用 .btn--audio/.stat__label token） -->
-      <div id="wallkick-control" class="ghost-control" role="group" aria-label="踢墙旋转开关">
-        <span class="stat__label">踢墙旋转</span>
-        <button type="button" id="btn-wallkick" class="btn btn--secondary btn--audio"
-                aria-pressed="true" aria-label="踢墙旋转：开启">🔄 踢墙旋转：开</button>
-      </div>
+      <!-- v3.0 设置入口（齿轮图标按钮）：点击打开设置弹层（AC-01） -->
+      <button type="button" id="btn-settings" class="btn btn--secondary"
+              aria-label="打开设置">⚙ 设置</button>
     </section>
 
     <!-- 游戏板列：唯一逐帧重绘 Canvas；遮罩/toast 为 #board-frame 子节点（覆盖板面，非全页） -->
@@ -114,6 +86,62 @@
       </div>
     </section>
   </main>
+
+  <!-- v3.0 设置弹层（AC-01~06：齿轮图标触发的毛玻璃风格模态框）。
+       注意：必须位于脚本之前——createUI 装配期立即校验全部必需元素（#btn-mute 等），
+       若置于脚本之后，真实浏览器解析时同步执行 createUI 会因弹层未入 DOM 而装配失败。 -->
+  <div id="settings-modal" class="settings-modal" hidden>
+    <div class="settings-modal__backdrop"></div>
+    <div class="settings-modal__card" role="dialog" aria-modal="true" aria-label="设置">
+      <div class="settings-modal__header">
+        <h2 id="settings-modal__title" class="settings-modal__title">设置</h2>
+        <button type="button" class="settings-modal__close" aria-label="关闭设置">×</button>
+      </div>
+      <div class="settings-modal__body">
+        <div class="settings-group settings-group--audio">
+          <h3 class="settings-group__title">音频设置</h3>
+          <div class="settings-group__content">
+            <!-- 音量/静音控件区（v2.0，AC-10） -->
+            <div id="audio-controls" class="audio-controls" role="group" aria-label="音量控制">
+              <span class="stat__label">音量</span>
+              <button type="button" id="btn-mute" class="btn btn--secondary btn--audio"
+                      aria-pressed="false" aria-label="静音">🔊 静音</button>
+              <div class="audio-controls__row">
+                <button type="button" id="btn-vol-down" class="btn btn--secondary btn--audio"
+                        aria-label="降低音量 10%">−</button>
+                <output id="vol-value" class="audio-controls__value" aria-live="polite">80%</output>
+                <button type="button" id="btn-vol-up" class="btn btn--secondary btn--audio"
+                        aria-label="提高音量 10%">+</button>
+              </div>
+            </div>
+            <!-- BGM 开关（v2.4，AC-14） -->
+            <div id="bgm-control" class="ghost-control" role="group" aria-label="背景音乐开关">
+              <span class="stat__label">背景音乐</span>
+              <button type="button" id="btn-bgm" class="btn btn--secondary btn--audio"
+                      aria-pressed="false" aria-label="背景音乐：关闭">🎵 BGM：关</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-group settings-group--assist">
+          <h3 class="settings-group__title">辅助设置</h3>
+          <div class="settings-group__content">
+            <!-- 幽灵块辅助开关（v2.3，AC-13） -->
+            <div id="ghost-control" class="ghost-control" role="group" aria-label="幽灵块开关">
+              <span class="stat__label">幽灵块</span>
+              <button type="button" id="btn-ghost" class="btn btn--secondary btn--audio"
+                      aria-pressed="true" aria-label="幽灵块辅助：开启">👻 幽灵块：开</button>
+            </div>
+            <!-- 踢墙旋转开关（v2.9，AC-19.7） -->
+            <div id="wallkick-control" class="ghost-control" role="group" aria-label="踢墙旋转开关">
+              <span class="stat__label">踢墙旋转</span>
+              <button type="button" id="btn-wallkick" class="btn btn--secondary btn--audio"
+                      aria-pressed="true" aria-label="踢墙旋转：开启">🔄 踢墙旋转：开</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- 本地脚本（顺序：持久化层 → 音效引擎 → 核心逻辑 → UI 层 → 装配根；经典脚本，file:// 安全，AC-08；
        persist.js 为可选依赖，缺席即等效旧版，createUI 不启用持久化，见 TECHNICAL §2.5/v2.6 修订） -->

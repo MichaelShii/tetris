@@ -33,6 +33,7 @@
 | v2.8 | 2026-08-24 | 无踢墙旋转系统（AC-18）：碰撞保持原位 + `wall-kick-denied` | ✅ 通过（tf-mt5afdch，分支 feat/v2.8-no-wallkick） |
 | v2.7 | 2026-08-24 | 7-bag 随机算法（AC-17）：袋内 Fisher-Yates、每 7 块全覆盖 | ✅ 通过（tf-mt417ope，56 用例含 7-bag 契约组） |
 | v2.9 | 2026-08-25 | 踢墙旋转开关（AC-19）：默认开=踢墙偏移表，关=v2.8 行为 + 开关持久化 | ✅ 通过（tf-mt85o5jj，197/197 e2e）；P3：verify-constants 存量漂移（见待办） |
+| v3.0 | 2026-08-25 | 设置弹层毛玻璃风格（AC-1~8）：设置项从左面板移出至齿轮图标触发的模态框，按分组展示 | ✅ 通过（r9 + 人工热修后全绿：装配时序修复 + E2E 五缺陷收口，236/236） |
 
 ## 已知待办
 
@@ -40,6 +41,7 @@
 - **TECHNICAL.md 补 BGM 契约章节**（v2.5 遗留文档缺口）：BGM_DEFS（bpm96/triangle/peak0.16/14 音 C 大调/lookahead 调度/独立 bgmVoices 池/masterGain 汇入/dispose 无泄漏）落盘供追溯。
 - **人工补测汇总（环境限制非缺陷）**：各轮 QA-REPORT §6/§7 清单——音效听感/时序、B1~B9 听感视觉读屏、幽灵块暗色可辨识度/双分辨率、开关可访问性与即时性、快捷键时序等，待有真实浏览器环境时集中补测。
 - **测试增强（P3 建议）**：qa-e2e 补 AC-09.6 显式断言（首次交互后 AudioContext resume 恰好 1 次）；`#btn-mute` 静音态 aria-label 动态切换「取消静音」。
+- ~~**qa-e2e 测试桩缺口（v3.0）**~~ ✅ 已收口（人工热修，2026-08-25）：spy 补 startBgm/stopBgm 代理；key() 改 document 派发（贴近真实冒泡链）；is-open 动画类断言等待 rAF；弹层 ESC 加 stopPropagation（不误触游戏暂停）+ 打开动画帧取消；file:// 管线新增 console.error「装配失败」回归断言；修复后 236/236 全绿。
 - **OBS-12-2（P3 观察）**：`ghostY` 对 NaN/小数/undefined rot 归一不收敛会抛错（合法流程 rot 恒整数 0–3 不触发）；健壮性迭代可在归一前加 `Math.trunc` 校验。
 
 ## 说明
