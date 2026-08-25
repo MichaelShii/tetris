@@ -54,6 +54,14 @@
     // audio.js 参数表 / 装配（ui.js onSfx→play）/ 测试统一引用，杜绝字符串漂移
     const SFX_EVENTS = ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver']
 
+    // 踢墙旋转偏移表（v2.9，AC-19.2：固定次序/固定值，不可由玩家配置——Guideline 简化单点表）
+    // 开关=开 时，旋转碰撞依次尝试：左移 → 右移 → 上移，各 1 格；全部失败则保持原位
+    const WALL_KICK_OFFSETS = [
+      [-1, 0],
+      [+1, 0],
+      [0, -1],
+    ]
+
     // 计分：单次消 1/2/3/4 行 = 100/300/500/800 × 等级（AC-06.5）
     const LINE_SCORES = [100, 300, 500, 800]
     // 触底锁定缓冲（AC-03.5，≤ 500ms）
@@ -407,6 +415,7 @@
      * @param {boolean} [options.autoLoop=true] 内部 rAF 时钟驱动下落；false 时宿主自行调 tick(dtMs)
      * @param {boolean} [options.keyboard=true] 浏览器下自动绑定 window 级键盘
      * @param {boolean} [options.autoPauseOnBlur=true] 失焦/切页自动暂停（AC-04.4）
+     * @param {boolean} [options.wallKickEnabled=true] 踢墙旋转开关（AC-19.1，默认开；false=无踢墙 AC-18 语义）
      * @param {(s: GameSnapshot) => void} [options.onSnapshot] 状态变化回调（只读快照）
      * @param {(phase: GamePhase) => void} [options.onPhaseChange]
      * @param {(level: number) => void} [options.onLevelUp] 升级瞬间（AC-06.4）
@@ -450,6 +459,8 @@
 
       let disposed = false
       let lastPhase = state.phase
+      // 踢墙旋转开关（v2.9，AC-19.1：默认开；仅 rotate 内自判读取，UI 经 setWallKickEnabled 同步）
+      let wallKickEnabled = opts.wallKickEnabled !== false
 
       /* ---- 快照与回调 ---- */
       function snapshot() {
@@ -602,12 +613,32 @@
         if (disposed) return { ok: false, reason: 'illegal-phase' }
         if (state.phase !== 'RUNNING' || !state.piece) return { ok: false, reason: 'illegal-phase' }
         const next = rotated(state.piece, 1)
-        if (collides(state.board, next)) return { ok: false, reason: 'wall-kick-denied' } // AC-18: 无踢墙，保持原位（不发声）
-        state.piece = next
-        if (!isGrounded(state.board, state.piece)) state.lockTimer = 0
-        emit()
-        sfx('rotate') // 仅旋转成功
-        return { ok: true }
+        if (!collides(state.board, next)) {
+          // 原地合法：直接成功（AC-18/AC-19 共用路径）
+          state.piece = next
+          if (!isGrounded(state.board, state.piece)) state.lockTimer = 0
+          emit()
+          sfx('rotate') // 仅旋转成功
+          return { ok: true }
+        }
+        // v2.9（AC-19.4）：开关关闭 → 无踢墙，保持原位（AC-18 语义，零偏移）
+        if (wallKickEnabled === false) {
+          return { ok: false, reason: 'wall-kick-denied' }
+        }
+        // v2.9（AC-19.2）：开关打开 → 按固定偏移表逐格尝试踢墙
+        for (var wi = 0; wi < WALL_KICK_OFFSETS.length; wi++) {
+          const off = WALL_KICK_OFFSETS[wi]
+          const candidate = { type: next.type, rot: next.rot, x: next.x + off[0], y: next.y + off[1] }
+          if (!collides(state.board, candidate)) {
+            state.piece = candidate // 命中：x/y 随偏移更新、rot 生效
+            if (!isGrounded(state.board, state.piece)) state.lockTimer = 0
+            emit()
+            sfx('rotate') // 仅旋转成功
+            return { ok: true }
+          }
+        }
+        // v2.9（AC-19.3）：全部偏移失败 → 保持原位
+        return { ok: false, reason: 'wall-kick-denied' }
       }
 
       function softDrop() {
@@ -853,6 +884,13 @@
         restart: restart,
         move: move,
         rotate: rotate,
+        // v2.9（AC-19.1/19.5）：踢墙开关读写（UI 装配期同步；钳制为布尔，实时生效）
+        setWallKickEnabled: function (enabled) {
+          if (disposed) return false
+          wallKickEnabled = enabled === true
+          return true
+        },
+        getWallKickEnabled: function () { return wallKickEnabled },
         softDrop: softDrop,
         hardDrop: hardDrop,
         tick: tick,

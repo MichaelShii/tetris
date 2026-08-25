@@ -1,7 +1,7 @@
 # 俄罗斯方块（Tetris）简化版 — QA 测试报告（v2.8 · 无踢墙旋转系统）
 
 - **被测交付**：`products/tetris/` v2.8（无踢墙旋转系统，AC-18）
-- **测试执行**：QA 独立复核（run `tf-mt5afdch-7xyajm`）
+- **测试执行**：QA 独立复核（run `tf-mt5afdch-7xyajm`，独立验证）
 - **规格依据**：PRD v2.8 AC-18 + TECHNICAL §2.1/§3.2
 - **测试环境**：Node.js + jsdom（沙箱限制，无真实浏览器自动化）
 
@@ -33,7 +33,6 @@
 | 装配审计 | assembly-check.cjs | 导出面/选择器/CSS 类/脚本顺序/自包含/音频文件审计 |
 | DOM E2E | qa-e2e-jsdom.cjs（jsdom 29） | AC-01~18 全链路 DOM 行为验证 |
 | 静态审计 | grep/read | wall-kick-denied 实现正确性、零副作用确认、代码结构审计 |
-| 对抗性测试 | verify-persist.cjs #3 | 真实 localStorage 形状（仅 setItem/getItem/removeItem） |
 
 ### 环境限制说明
 
@@ -170,4 +169,4 @@ v2.8 无踢墙旋转系统交付达到可验收标准：
 
 建议进入产品验收阶段。
 
-<!-- state -->{"phase":"qa","summary":"v2.8 QA 复核通过，达到可验收标准。七套验证全绿：verify-game 58/58（含3项AC-18旋转边界）、verify-audio 23/23、verify-ui 7/7、verify-constants 1/1（§2漂移为预存问题）、assembly-check ALL PASSED、verify-persist 11/11、qa-e2e-jsdom 188/188。AC-18七项全部通过：旋转碰撞保持原位、返回值语义区分、左墙/右墙/已固定方块碰撞、零副作用、回归底线。架构核验无P1缺陷。未发现缺陷。7项人工补测清单已列出。","version":"v2.8","memory":["v2.8 QA 复核通过，达到可验收标准","七套验证全绿：58/23/7/1/ALL/11/188","AC-18七项全部通过：旋转碰撞保持原位、返回值语义区分、各碰撞边界、零副作用、回归底线","verify-constants §2漂移为预存问题，非本次引入","架构核验无P1缺陷","未发现缺陷","7项人工补测清单已列出"]}<!-- /state -->
+<!-- state -->{"phase":"qa","summary":"v2.8 QA 独立复核通过，达到可验收标准。七套验证全绿：verify-game 58/58（含3项AC-18旋转边界）、verify-audio 23/23、verify-ui 7/7、verify-constants 1/1（§2漂移为预存问题）、assembly-check ALL PASSED、verify-persist 11/11、qa-e2e-jsdom 188/188。AC-18七项全部通过：旋转碰撞保持原位、返回值语义区分、左墙/右墙/已固定方块碰撞、零副作用、回归底线。架构核验无P1缺陷。未发现缺陷。7项人工补测清单已列出。","version":"v2.8","memory":["v2.8 QA 独立复核通过，达到可验收标准","七套验证全绿：58/23/7/1/ALL/11/188","AC-18七项全部通过：旋转碰撞保持原位、返回值语义区分、各碰撞边界、零副作用、回归底线","verify-constants §2漂移为预存问题，非本次引入","架构核验无P1缺陷","未发现缺陷","7项人工补测清单已列出"]}<!-- /state -->

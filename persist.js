@@ -1,7 +1,7 @@
 /* ============================================================================
  * persist.js — Tetris 应用层统一持久化基础设施（v2.6）
  *
- * 职责：把「最高分」与「音量/静音/幽灵块/BGM」四设置持久化到 localStorage。
+ * 职责：把「最高分」与「音量/静音/幽灵块/BGM/踢墙」五设置持久化到 localStorage。
  *   - createStorage(): localStorage 能力探测 → 不可用自动降级为内存 Map，绝不 throw
  *   - createPersistence(): 返回 load() / saveHighScore(n) / saveSettings(s) / dispose()
  *   - sanitize(value, schema): 纯函数清洗，highScore 非负整数、volume 收敛 0~1 浮点、
@@ -47,6 +47,7 @@
       muted: false,
       ghostEnabled: true,
       bgmEnabled: false, // v2.4 信息面板 BGM 开关默认关（AC-BGM）
+      wallKickEnabled: true, // v2.9 信息面板踢墙开关默认开（AC-19.1）
     }
 
     /* ======================================================================
@@ -271,6 +272,7 @@
             muted: sanitize(settings.muted, { type: 'boolean', def: DEFAULT_SETTINGS.muted }),
             ghostEnabled: sanitize(settings.ghostEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.ghostEnabled }),
             bgmEnabled: sanitize(settings.bgmEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.bgmEnabled }),
+            wallKickEnabled: sanitize(settings.wallKickEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.wallKickEnabled }),
           },
         }
       }
@@ -288,6 +290,7 @@
               muted: state.settings.muted,
               ghostEnabled: state.settings.ghostEnabled,
               bgmEnabled: state.settings.bgmEnabled,
+              wallKickEnabled: state.settings.wallKickEnabled,
             },
           })
         } catch (_e) {

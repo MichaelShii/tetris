@@ -54,6 +54,7 @@ test('persist: 导出契约齐全（VERSION/键/默认值/工厂/sanitize）', (
   assert.equal(P.DEFAULT_SETTINGS.muted, false)
   assert.equal(P.DEFAULT_SETTINGS.ghostEnabled, true)
   assert.equal(P.DEFAULT_SETTINGS.bgmEnabled, false)
+  assert.equal(P.DEFAULT_SETTINGS.wallKickEnabled, true) // v2.9：踢墙开关默认开（AC-19.1）
 })
 
 /* ============================================================================
@@ -67,7 +68,7 @@ test('persist: 最高分/设置键读写往返（跨实例持久）', () => {
   assert.deepEqual(loaded1.settings, P.DEFAULT_SETTINGS, '初始设置默认值')
 
   p1.saveHighScore(120)
-  p1.saveSettings({ volume: 0.5, muted: true, ghostEnabled: false, bgmEnabled: true })
+  p1.saveSettings({ volume: 0.5, muted: true, ghostEnabled: false, bgmEnabled: true, wallKickEnabled: false })
 
   // 新实例（等价刷新重开）读回同一底层 → 恢复
   const p2 = P.createPersistence({ storage: backing })
@@ -78,7 +79,8 @@ test('persist: 最高分/设置键读写往返（跨实例持久）', () => {
     muted: true,
     ghostEnabled: false,
     bgmEnabled: true,
-  }, '四设置跨实例恢复')
+    wallKickEnabled: false,
+  }, '五设置跨实例恢复（含踢墙开关）')
 })
 
 /* ============================================================================
@@ -102,7 +104,7 @@ test('persist: 真实 Web Storage 形状（仅 getItem/setItem/removeItem）全�
   assert.deepEqual(initial.settings, P.DEFAULT_SETTINGS, '初始设置默认值')
 
   p1.saveHighScore(250)
-  p1.saveSettings({ volume: 0.6, muted: true, ghostEnabled: false, bgmEnabled: true })
+  p1.saveSettings({ volume: 0.6, muted: true, ghostEnabled: false, bgmEnabled: true, wallKickEnabled: false })
 
   // 断言真实落盘（经 setItem/getItem 可读回，未走 get/set）
   const raw = lsShaped.getItem(P.TETRIS_PERSIST_KEY)
@@ -117,6 +119,7 @@ test('persist: 真实 Web Storage 形状（仅 getItem/setItem/removeItem）全�
   assert.equal(restored.settings.muted, true, '恢复静音')
   assert.equal(restored.settings.ghostEnabled, false, '恢复幽灵开关')
   assert.equal(restored.settings.bgmEnabled, true, '恢复 BGM 开关')
+  assert.equal(restored.settings.wallKickEnabled, false, '恢复踢墙开关（AC-19.6）')
 })
 
 /* ============================================================================

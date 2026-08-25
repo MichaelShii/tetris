@@ -475,6 +475,22 @@ canvas {
   color: var(--muted);
 }
 
+/* 踢墙旋转开关（v2.9，AC-19.7：复制 #btn-bgm 同款科技玻璃按钮风格与 open 态描边） */
+#btn-wallkick {
+  width: 100%;
+  white-space: nowrap;
+}
+
+#btn-wallkick[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+
+#btn-wallkick[aria-pressed='false'] {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
 /* 静音态：文案/图标形态变化 + aria-pressed 双信号（AC-10.6，非仅颜色） */
 #btn-mute.is-muted {
   border-color: var(--muted);

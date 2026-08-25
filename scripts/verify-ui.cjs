@@ -80,6 +80,19 @@ test('与 game.js 的协作面：ui 依赖的 engine 导出存在', () => {
   assert.equal(Object.keys(G.COLORS).length, 7) // AC-07.5 七色
 })
 
+test('v2.9: 踢墙开关 engine API 契约存在（AC-19.7 装配断言）', () => {
+  // ui.js #btn-wallkick 依赖 createGame 实例的 setWallKickEnabled/getWallKickEnabled
+  const g = G.createGame({ autoLoop: false, keyboard: false, autoPauseOnBlur: false, rng: function () { return 0 } })
+  assert.equal(typeof g.setWallKickEnabled, 'function', 'setWallKickEnabled 导出存在')
+  assert.equal(typeof g.getWallKickEnabled, 'function', 'getWallKickEnabled 导出存在')
+  assert.equal(g.getWallKickEnabled(), true, '默认开（AC-19.1）')
+  assert.equal(g.setWallKickEnabled(false), true, '可关闭（AC-19.4）')
+  assert.equal(g.getWallKickEnabled(), false, '关闭生效')
+  assert.equal(g.setWallKickEnabled(true), true, '可再开启')
+  assert.equal(g.getWallKickEnabled(), true, '重新开启生效')
+  g.dispose()
+})
+
 test('v2.2 ghost 视觉参数单一事实来源（AC-12.8 透明度可编程测量）', () => {
   // DESIGN §5.6：幽灵块同色系半透明空心轮廓
   assert.equal(typeof T.GHOST, 'object')

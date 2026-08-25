@@ -70,6 +70,12 @@
         <button type="button" id="btn-bgm" class="btn btn--secondary btn--audio"
                 aria-pressed="false" aria-label="背景音乐：关闭">🎵 BGM：关</button>
       </div>
+      <!-- 踢墙旋转开关（v2.9，AC-19.7：科技玻璃风按钮开关，默认开，复用 .btn--audio/.stat__label token） -->
+      <div id="wallkick-control" class="ghost-control" role="group" aria-label="踢墙旋转开关">
+        <span class="stat__label">踢墙旋转</span>
+        <button type="button" id="btn-wallkick" class="btn btn--secondary btn--audio"
+                aria-pressed="true" aria-label="踢墙旋转：开启">🔄 踢墙旋转：开</button>
+      </div>
     </section>
 
     <!-- 游戏板列：唯一逐帧重绘 Canvas；遮罩/toast 为 #board-frame 子节点（覆盖板面，非全页） -->

@@ -705,6 +705,29 @@ async function main() {
     game.restart() // 恢复干净 RUNNING，供后续 AC-09/10 段使用
   }
 
+  /* ---------- AC-19 踢墙旋转开关（v2.9，TECHNICAL §7.1） ---------- */
+  console.log('\n-- AC-19 踢墙旋转开关 --')
+  {
+    game.restart()
+    // AC-19.7/19.1：开关默认开（三信号：aria-pressed + 文案 + aria-label）
+    check('AC-19.7 踢墙开关默认开启（aria-pressed=true）', $('#btn-wallkick').getAttribute('aria-pressed') === 'true')
+    check('AC-19.7 开关样式挂钩就位（btn--audio 复用 + wallkick-control 存在）', $('#btn-wallkick').className.indexOf('btn') !== -1 && $('#wallkick-control') !== null)
+    check('AC-19.7 开启态文案「开」+ aria-label 含「开启」', $('#btn-wallkick').textContent.indexOf('开') !== -1 && $('#btn-wallkick').getAttribute('aria-label').indexOf('开启') !== -1)
+    check('AC-19.1 引擎开关默认开（getWallKickEnabled=true）', game.getWallKickEnabled() === true)
+
+    // AC-19.5/19.3：点击关闭 → 驱动引擎 + aria 联动即时生效
+    $('#btn-wallkick').click()
+    check('AC-19.5 点击关闭 → aria-pressed=false / 文案「关」', $('#btn-wallkick').getAttribute('aria-pressed') === 'false' && $('#btn-wallkick').textContent.indexOf('关') !== -1)
+    check('AC-19.5 引擎开关联动关闭（getWallKickEnabled=false）', game.getWallKickEnabled() === false)
+
+    // AC-19.5：再点击开启 → 恢复
+    $('#btn-wallkick').click()
+    check('AC-19.5 再点击 → aria-pressed=true', $('#btn-wallkick').getAttribute('aria-pressed') === 'true')
+    check('AC-19.5 引擎开关联动开启（getWallKickEnabled=true）', game.getWallKickEnabled() === true)
+
+    game.restart()
+  }
+
   /* ---------- AC-09/AC-10 音效与音量控制（v2.0：真实 audio.js + 假 AudioContext） ---------- */
   console.log('\n-- AC-09/10 音效与音量控制 --')
   {
@@ -885,6 +908,10 @@ async function main() {
     check('v2.0: audio.js 随页面加载（window.TetrisAudio 就绪）', !!(w2.TetrisAudio && typeof w2.TetrisAudio.createSfxEngine === 'function'))
     check('AC-09.5 DOM 无 <audio>/<source> 元素', !w2.document.querySelector('audio') && !w2.document.querySelector('source'))
     check('AC-10.4 自动装配下音量控件初始 80%', w2.document.getElementById('vol-value').textContent === '80%', w2.document.getElementById('vol-value').textContent)
+    check('AC-19.7 自动装配下踢墙开关存在且默认开', (function () {
+      const btn = w2.document.getElementById('btn-wallkick')
+      return !!btn && btn.getAttribute('aria-pressed') === 'true'
+    })())
     check('AC-09.7 降级：jsdom 无 AudioContext → isAvailable=false 且 play 不报错', (function () {
       try {
         const eng = w2.TetrisAudio.createSfxEngine()

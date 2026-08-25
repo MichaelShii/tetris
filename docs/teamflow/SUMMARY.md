@@ -7,10 +7,10 @@
 
 | 文档 | 用途 | 关键章节 | 体积提示 |
 |---|---|---|---|
-| `prd/PRD.md` | **验收唯一依据**：AC-01~18 全集 + 数值规格（v2.8 无踢墙旋转；v2.7 7-bag；v2.5 BGM；v2.4 ghostY 防御） | §2 用户故事与验收标准（AC 全集）、§5 数值规格（计分/等级/速度/音效/BGM/幽灵块/开关/7-bag/旋转） | 大（~240 行）：按需读 AC 相关条目 |
-| `teamflow/memory.md` | **产品记忆**：迭代历史 + 当前迭代记忆（v2.8 无踢墙旋转系统）与待办 | 全文 | 中：PM/架构/QA 迭代时读 |
+| `prd/PRD.md` | **验收唯一依据**：AC-01~19 全集 + 数值规格（v2.9 踢墙旋转开关系统·默认开；v2.8 无踢墙（现为开关关闭态）；v2.7 7-bag；v2.5 BGM；v2.4 ghostY 防御） | §2 用户故事与验收标准（AC 全集）、§5 数值规格（计分/等级/速度/音效/BGM/幽灵块/开关/7-bag/旋转） | 大（~260 行）：按需读 AC 相关条目 |
+| `teamflow/memory.md` | **产品记忆**：迭代历史 + 当前迭代记忆（v2.9 踢墙旋转开关系统）与待办 | 全文 | 中：PM/架构/QA 迭代时读 |
 | `teamflow/acceptance/ACCEPTANCE-v2.7.md` | **产品验收报告**：v2.7 7-bag 随机算法逐条核对 + 架构核验 + 遗留事项 | 全文 | 小：验收结论 |
-| `design/DESIGN.md` | 视觉 token / 交互 / 动效 / a11y | §5 token 与配色、§4 交互 | 中：UI 相关阶段才需要 |
+| `design/DESIGN.md` | 视觉 token / 交互 / 动效 / a11y（v2.9 踢墙旋转开关：信息面板设置区新增 `#btn-wallkick` 开关，默认开；旧版归档 history/） | §5 token 与配色、§3.7 设置区开关、§8 交付清单 | 中：UI 相关阶段才需要 |
 | `architecture/ARCHITECTURE.md` | 工程方案（注意：TS+Vite 为可选升级路径，未执行） | 头部"实际交付偏差"注记 | 小：工程决策才需要 |
 | `technical/TECHNICAL.md` | 模块接口契约（UMD 对齐）+ 任务拆分参考 | §2 数据模型、§3 API 契约、§6 边界情况 | 大：开发/技术阶段必读契约章节 |
 | `qa/QA-REPORT.md` | 测试报告 + 人工补测清单 | 结论章节 + §6 人工补测清单（v2.1 章置顶；v2.0 历史章 §6.2 沿用） | 大：验收/回归时读结论即可 |
@@ -23,7 +23,7 @@
 - 每轮迭代**更新活文档之前**，先把当前版本快照复制到 `docs/history/<版本号>/`（如 `docs/history/v1.0/`），
   历史版本不再被任何 Agent 日常读取（仅供追溯）。
 - 变更线索以 `AGENTS.md §5 产品记忆` 与各文档头部修订记录为准，不需要回读历史快照。
-- 注：v1.0 快照未在迁移时留存（当时无归档机制），`docs/history/` 从 v2.0 起开始积累；v2.0 快照已于 v2.1 迭代开始前归档至 `docs/history/v2.0/`；v2.1 快照已于 v2.2 迭代开始前归档至 `docs/history/v2.1/`；v2.2/v2.3 快照已分别归档至 `docs/history/v2.2/`、`docs/history/v2.3/`；v2.4 快照已于 v2.5 迭代开始前归档至 `docs/history/v2.4/`；v2.5 快照已归档至 `docs/history/v2.5/`；v2.7 PRD/QA 报告已归档至 `docs/history/v2.7/`。活文档为当前版（v2.8）。
+- 注：v1.0 快照未在迁移时留存（当时无归档机制），`docs/history/` 从 v2.0 起开始积累；v2.0 快照已于 v2.1 迭代开始前归档至 `docs/history/v2.0/`；v2.1 快照已于 v2.2 迭代开始前归档至 `docs/history/v2.1/`；v2.2/v2.3 快照已分别归档至 `docs/history/v2.2/`、`docs/history/v2.3/`；v2.4 快照已于 v2.5 迭代开始前归档至 `docs/history/v2.4/`；v2.5 快照已归档至 `docs/history/v2.5/`；v2.7 PRD/QA 报告已归档至 `docs/history/v2.7/`；v2.8 PRD/DESIGN/TECHNICAL/QA-REPORT 已完整归档至 `docs/teamflow/history/v2.8/`。活文档为当前版（v2.9，踢墙旋转开关系统，已验收通过 2026-08-18）。
 
 ## 读取指引（token 预算）
 

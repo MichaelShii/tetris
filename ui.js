@@ -924,6 +924,30 @@
       }
       bgmBtn.addEventListener('click', onBgmToggle)
 
+      /* ---- 踢墙旋转开关（v2.9，AC-19.7） ----
+         驱动引擎 rotate 三态分支（game.setWallKickEnabled）；UI 只读旁观 + 装配期同步，
+         复用 ghost/BGM 开关三信号模式；默认开（AC-19.1）；切换实时生效（AC-19.5）。 ---- */
+      const wallKickBtn = must('#btn-wallkick')
+      let wallKickEnabled = true // 默认开（AC-19.1）
+
+      function syncWallKickBtn() {
+        wallKickBtn.setAttribute('aria-pressed', wallKickEnabled ? 'true' : 'false')
+        wallKickBtn.setAttribute('aria-label', '踢墙旋转：' + (wallKickEnabled ? '开启' : '关闭'))
+        wallKickBtn.textContent = wallKickEnabled ? '🔄 踢墙旋转：开' : '🔄 踢墙旋转：关'
+      }
+      syncWallKickBtn()
+
+      function onWallKickToggle() {
+        wallKickEnabled = !wallKickEnabled
+        if (typeof game !== 'undefined' && game && typeof game.setWallKickEnabled === 'function') {
+          game.setWallKickEnabled(wallKickEnabled) // 驱动引擎开关（装配期同步）
+        }
+        syncWallKickBtn()
+        persistSettings()
+        blurElement(this)
+      }
+      wallKickBtn.addEventListener('click', onWallKickToggle)
+
       /* ---- 应用层持久化（v2.6，可选依赖，跨切面基础设施） ----
          由装配根传入 opts.persist = TetrisPersist.createPersistence()（persist.js）。
          persist 缺失（未加载 persist.js / 测试不注入）即等效旧版：不持久化、不读取、零影响。
@@ -945,7 +969,7 @@
         if (hiScoreEl.textContent !== v) hiScoreEl.textContent = v
       }
 
-      // 当前四设置快照 → persist.saveSettings（持久化层 sanitize 兜底，不在此猜值）
+      // 当前设置快照 → persist.saveSettings（持久化层 sanitize 兜底，不在此猜值）
       function persistSettings() {
         if (!persist || typeof persist.saveSettings !== 'function') return
         try {
@@ -954,6 +978,7 @@
             muted: typeof sfx.isMuted === 'function' ? sfx.isMuted() : undefined,
             ghostEnabled: ghostEnabled,
             bgmEnabled: bgmEnabled,
+            wallKickEnabled: wallKickEnabled,
           })
         } catch (e) { /* 持久化层契约不 throw；再兜底一层保证永不中断游戏 */ }
       }
@@ -973,11 +998,14 @@
             if (typeof st.ghostEnabled === 'boolean') ghostEnabled = st.ghostEnabled
             // BGM：恢复开关态（AC-14.1 未经交互不出声；此处仅置初值+镜像，不启动合成循环）
             if (typeof st.bgmEnabled === 'boolean') bgmEnabled = st.bgmEnabled
+            // 踢墙：恢复开关态（AC-19.6）；引擎同步在 createGame 之后补做（装配时序，见下）
+            if (typeof st.wallKickEnabled === 'boolean') wallKickEnabled = st.wallKickEnabled
           }
         }
         audioPanel.sync() // 音量/静音 DOM 镜像
         syncGhostBtn()
         syncBgmBtn()
+        syncWallKickBtn()
         updateHiScoreEl()
       }
 
@@ -1040,6 +1068,10 @@
 
       const handle = { game: game, dispose: dispose }
 
+      // 装配时序（v2.9，AC-19.6）：persist.load() 恢复块在 createGame 之前执行，
+      // 故这里在 createGame 之后补一次引擎同步，防「UI 显示已恢复值、引擎仍默认开」漂移。
+      game.setWallKickEnabled(wallKickEnabled)
+
       // 单例句柄：宿主手动装配（window.__tetris = createUI()）可抑制自动装配；
       // 自动装配路径在此写入，供后续 createUI 调用/测试读取。
       if (typeof window !== 'undefined' && !window.__tetris) {
@@ -1074,7 +1106,7 @@
       ghostBtn.addEventListener('click', onGhostToggle)
 
       // E9：鼠标点击按钮不落焦点（防空格/回车二次触发按钮）
-      const btnList = [hudEls.btnStart, hudEls.btnPause, hudEls.btnRestart, overlayEls.btn, ghostBtn, bgmBtn]
+      const btnList = [hudEls.btnStart, hudEls.btnPause, hudEls.btnRestart, overlayEls.btn, ghostBtn, bgmBtn, wallKickBtn]
       const mousedownGuards = btnList.map(function (btn) {
         const guard = function (e) {
           e.preventDefault()
@@ -1106,6 +1138,7 @@
         overlayEls.btn.removeEventListener('click', onOverlayBtn)
         ghostBtn.removeEventListener('click', onGhostToggle)
         bgmBtn.removeEventListener('click', onBgmToggle)
+        wallKickBtn.removeEventListener('click', onWallKickToggle)
         mousedownGuards.forEach(function (entry) {
           entry.btn.removeEventListener('mousedown', entry.guard)
         })

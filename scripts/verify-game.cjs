@@ -429,6 +429,7 @@ test('move: 左墙阻挡保持原位（AC-02.4）', () => {
 test('rotate: 旋转越界拒绝且原位（E1，AC-02.4）', () => {
   const { g } = freshGame()
   g.start()
+  g.setWallKickEnabled(false) // v2.9：碰撞被拒断言需在开关关闭态（默认已改开）
   g._debug.setPiece({ type: 'T', rot: 0, x: 0, y: 18 })
   const before = g.getSnapshot()
   const r = g.rotate()
@@ -444,9 +445,10 @@ test('rotate: 旋转越界拒绝且原位（E1，AC-02.4）', () => {
 
 /* ---------- AC-18: 无踢墙旋转系统 ---------- */
 
-test('rotate: 左墙碰撞保持原位（AC-18.3）', () => {
+test('rotate: 左墙碰撞保持原位（AC-18.3，开关关闭态）', () => {
   const { g } = freshGame()
   g.start()
+  g.setWallKickEnabled(false) // v2.9：AC-18 语义在开关关闭态断言（默认已改开）
   // T 型方块紧贴左墙（x=0）且靠近底部，旋转后底部越界 → 碰撞
   g._debug.setPiece({ type: 'T', rot: 0, x: 0, y: 18 })
   const before = g.getSnapshot()
@@ -458,9 +460,10 @@ test('rotate: 左墙碰撞保持原位（AC-18.3）', () => {
   assert.equal(after.piece.rot, before.piece.rot, 'rot 不变')
 })
 
-test('rotate: 右墙碰撞保持原位（AC-18.4）', () => {
+test('rotate: 右墙碰撞保持原位（AC-18.4，开关关闭态）', () => {
   const { g } = freshGame()
   g.start()
+  g.setWallKickEnabled(false)
   // I 型方块横放（rot=0）紧贴右墙（x=8），旋转后右侧越界 → 碰撞
   g._debug.setPiece({ type: 'I', rot: 0, x: 8, y: 0 })
   const before = g.getSnapshot()
@@ -472,9 +475,10 @@ test('rotate: 右墙碰撞保持原位（AC-18.4）', () => {
   assert.equal(after.piece.rot, before.piece.rot, 'rot 不变')
 })
 
-test('rotate: 已固定方块碰撞保持原位（AC-18.5）', () => {
+test('rotate: 已固定方块碰撞保持原位（AC-18.5，开关关闭态）', () => {
   const { g } = freshGame()
   g.start()
+  g.setWallKickEnabled(false)
   // 在方块下方放置已固定方块，使旋转产生碰撞
   const b = Array.from({ length: 20 }, () => Array(10).fill(null))
   b[19][3] = '#f00' // 固定方块位于 (3,19)
@@ -493,6 +497,129 @@ test('rotate: 已固定方块碰撞保持原位（AC-18.5）', () => {
     // 若旋转成功（无碰撞），验证位置已更新
     assert.equal(g.getSnapshot().piece.rot, 1)
   }
+})
+
+/* ---------- AC-19: 踢墙旋转开关系统 ---------- */
+
+test('rotate: 默认开关开启（AC-19.1）', () => {
+  const { g } = freshGame()
+  assert.equal(g.getWallKickEnabled(), true, '新会话默认开')
+  g.start()
+  assert.equal(g.getWallKickEnabled(), true, '开始后仍开')
+  // 可通过装配入参关闭（确定性单测注入，AC-19.1）
+  const off = freshGame({ wallKickEnabled: false }).g
+  assert.equal(off.getWallKickEnabled(), false, 'createGame({wallKickEnabled:false}) 初值关')
+})
+
+test('rotate: 开=左偏移命中成功（AC-19.2）', () => {
+  const { g } = freshGame()
+  g.start()
+  // T rot0 (3,17)：旋转→rot1 底部落 (4,19)；(4,19) 放固定块 → 旋转碰撞，
+  // 踢墙先试左移 → (2,17) rot1 合法 → 命中非零偏移 (dx=-1)
+  const b = Array.from({ length: 20 }, () => Array(10).fill(null))
+  b[19][4] = '#f00'
+  g._debug.setBoard(b)
+  g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 17 })
+  const before = g.getSnapshot()
+  const r = g.rotate()
+  assert.equal(r.ok, true, '开=踢墙命中 → 旋转成功')
+  const after = g.getSnapshot()
+  assert.equal(after.piece.rot, 1, 'rot 生效')
+  assert.equal(after.piece.x, 2, 'x 随偏移左移 1 格')
+  assert.equal(after.piece.y, 17, 'y 不变')
+  assert.ok(after.piece.x !== before.piece.x, '发生踢墙偏移（非原地）')
+})
+
+test('rotate: 开=右偏移命中成功（AC-19.2）', () => {
+  const { g } = freshGame()
+  g.start()
+  // T rot0 (2,17)：旋转→rot1 落 (3,19)；(3,19)(2,19) 放固定块 → 旋转碰撞且左移也被挡，
+  // 右移 → (3,17) rot1 合法 → 命中非零偏移 (dx=+1)
+  const b = Array.from({ length: 20 }, () => Array(10).fill(null))
+  b[19][3] = '#f00'
+  b[19][2] = '#f00'
+  g._debug.setBoard(b)
+  g._debug.setPiece({ type: 'T', rot: 0, x: 2, y: 17 })
+  const r = g.rotate()
+  assert.equal(r.ok, true, '右移规避成功')
+  const after = g.getSnapshot()
+  assert.equal(after.piece.rot, 1, 'rot 生效')
+  assert.equal(after.piece.x, 3, 'x 右移 1 格')
+  assert.equal(after.piece.y, 17, 'y 不变')
+})
+
+test('rotate: 开=全部偏移失败保持原位（AC-19.3）', () => {
+  const { g } = freshGame()
+  g.start()
+  // I rot0 (0,19)：旋转 rot1 竖放纵跨 y16..19，被底部行(19)与竖列(2,16)围死；
+  // 左/右移均碰底部固定块、上移碰 (2,16) → 全部偏移失败 → 保持原位
+  const b = Array.from({ length: 20 }, () => Array(10).fill(null))
+  for (let c = 0; c < 5; c++) b[19][c] = '#f00'
+  b[16][2] = '#f00'
+  g._debug.setBoard(b)
+  g._debug.setPiece({ type: 'I', rot: 0, x: 0, y: 19 })
+  const before = g.getSnapshot()
+  const r = g.rotate()
+  assert.deepEqual(r, { ok: false, reason: 'wall-kick-denied' }, '开=全部失败 → wall-kick-denied')
+  const after = g.getSnapshot()
+  assert.equal(after.piece.x, before.piece.x, 'x 不变')
+  assert.equal(after.piece.y, before.piece.y, 'y 不变')
+  assert.equal(after.piece.rot, before.piece.rot, 'rot 不变')
+})
+
+test('rotate: 关=旋转碰撞零偏移保持原位（AC-19.4）', () => {
+  const { g } = freshGame()
+  g.start()
+  g.setWallKickEnabled(false)
+  // T 贴左墙贴底（x=0,y=18）：旋转 rot1 底部越界 → 碰撞；即便开关打开有上移空间，
+  // 关闭态也绝不偏移（AC-18 语义），返回 wall-kick-denied 且 x/y/rot 全不变
+  g._debug.setPiece({ type: 'T', rot: 0, x: 0, y: 18 })
+  const before = g.getSnapshot()
+  const r = g.rotate()
+  assert.deepEqual(r, { ok: false, reason: 'wall-kick-denied' }, '关=碰撞 → wall-kick-denied（零偏移）')
+  const after = g.getSnapshot()
+  assert.equal(after.piece.x, before.piece.x, 'x 不变（零偏移）')
+  assert.equal(after.piece.y, before.piece.y, 'y 不变（零偏移）')
+  assert.equal(after.piece.rot, before.piece.rot, 'rot 不变')
+})
+
+test('rotate: 切换实时生效 ≤100ms（AC-19.5）', () => {
+  const { g } = freshGame()
+  g.start()
+  // 用「贴左墙贴底 T」作开关判别器：开=踢墙上移命中成功；关=拒绝零偏移
+  const place = function () { g._debug.setPiece({ type: 'T', rot: 0, x: 0, y: 18 }) }
+  // 默认开（AC-19.1）→ 旋转碰撞后踢墙命中（上移 y17）→ 成功
+  place()
+  const t0 = Date.now()
+  const r1 = g.rotate()
+  assert.equal(r1.ok, true, '开（默认）→ 踢墙命中旋转成功')
+  assert.equal(g.getSnapshot().piece.rot, 1, 'rot 生效')
+  assert.equal(g.getSnapshot().piece.y, 17, '踢墙上移 1 格（y 17）')
+  assert.ok(Date.now() - t0 <= 100, '切换生效 ≤100ms 内（开关读取即时）')
+  // 关闭后下一次 rotate 立即按新值：同场景 → 拒绝零偏移
+  place()
+  g.setWallKickEnabled(false)
+  const before = g.getSnapshot()
+  const r2 = g.rotate()
+  assert.deepEqual(r2, { ok: false, reason: 'wall-kick-denied' }, '关闭后下一次 rotate 立即拒绝')
+  const after = g.getSnapshot()
+  assert.equal(after.piece.x, before.piece.x, '关闭态 x 不变')
+  assert.equal(after.piece.y, before.piece.y, '关闭态 y 不变（不偏移）')
+  assert.equal(after.piece.rot, before.piece.rot, '关闭态 rot 不变')
+})
+
+test('rotate: setWallKickEnabled 钳制为布尔（AC-19.1）', () => {
+  const { g } = freshGame()
+  g.setWallKickEnabled(1)
+  assert.equal(g.getWallKickEnabled(), false, '1 !=== true → false（钳制）')
+  g.setWallKickEnabled(0)
+  assert.equal(g.getWallKickEnabled(), false, '0 → false')
+  g.setWallKickEnabled('yes')
+  assert.equal(g.getWallKickEnabled(), false, '非布尔真值 → false')
+  g.setWallKickEnabled(false)
+  assert.equal(g.getWallKickEnabled(), false, 'false → false')
+  g.setWallKickEnabled(true)
+  assert.equal(g.getWallKickEnabled(), true, 'true → true（唯一真值）')
 })
 
 test('softDrop: 下落 1 格；触底立即锁定（AC-02.2、AC-03.5）', () => {
@@ -705,6 +832,7 @@ test('onSfx: move 成功 → 恰好 1 次；被拒 → 0 次（AC-09.2/3）', ()
 test('onSfx: rotate 成功 → 恰好 1 次；越界被拒 → 0 次（AC-09.3）', () => {
   const { g, events } = freshGame()
   g.start()
+  g.setWallKickEnabled(false) // v2.9：越界被拒断言需在开关关闭态（默认已改开）
   g._debug.setPiece({ type: 'T', rot: 0, x: 0, y: 18 }) // 旋转后底部越界 → 拒绝
   assert.deepEqual(g.rotate(), { ok: false, reason: 'wall-kick-denied' })
   assert.deepEqual(events.sfx, [])

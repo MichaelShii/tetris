@@ -48,6 +48,7 @@ const sel = ['#board','#next-well','#board-frame','#overlay','#feedback-toast',
   '#audio-controls','#btn-mute','#btn-vol-down','#btn-vol-up','#vol-value',
   '#ghost-control','#btn-ghost', // v2.3：幽灵块辅助开关（AC-13）
   '#bgm-control','#btn-bgm',   // v2.5：背景音乐 BGM 开关（AC-15）
+  '#wallkick-control','#btn-wallkick', // v2.9：踢墙旋转开关（AC-19.7）
   '#stat-hi','#hi-score']      // v2.6：HUD 最高分元素（持久化回读钩子，AC-16）
 for (const s of sel) {
   if (s.includes(' ')) {
