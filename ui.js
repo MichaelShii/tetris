@@ -950,8 +950,9 @@
       wallKickBtn.addEventListener('click', onWallKickToggle)
 
       /* ---- v3.0 设置弹层（AC-01~06：齿轮图标触发的毛玻璃风格模态框） ----
-         弹层状态为会话内保持（不持久化），每次打开重置。
-         弹层打开时游戏继续运行（不暂停），关闭后设置状态保持。 ---- */
+         设置状态为会话内保持（不持久化），每次打开重置。
+         打开弹层自动暂停（req-12：RUNNING→PAUSED；READY/PAUSED/OVER 幂等跳过），
+         关闭后保持暂停、由玩家按 P/空格/Esc 恢复；restart() 天然回 RUNNING。 ---- */
       const settingsBtn = must('#btn-settings')
       const settingsModal = must('#settings-modal')
       let settingsModalOpen = false
@@ -963,6 +964,12 @@
         if (settingsModalOpen) return
         settingsModalOpen = true
         lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+
+        // req-12：打开设置弹层自动暂停——引擎持态（game.js togglePause），UI 只做 RUNNING 态单点触发；
+        // READY/PAUSED/OVER 由 togglePause 幂等跳过（同 L943 onWallKickToggle 守卫模式）
+        if (typeof game !== 'undefined' && game && game.getPhase() === 'RUNNING' && typeof game.togglePause === 'function') {
+          game.togglePause()
+        }
 
         settingsModal.hidden = false
         openRafId = requestAnimationFrame(function () {
@@ -1013,8 +1020,8 @@
 
       function onSettingsModalKeyDown(e) {
         if (e.key === 'Escape') {
-          // 弹层打开期间 ESC 只关弹层（AC-04）：阻止冒泡到 window 级游戏键盘，
-          // 避免同时触发 game.js 的 ESC 暂停/恢复（弹层打开时游戏继续运行，不暂停）
+          // 弹层打开期间游戏已自动暂停（req-12）：ESC 只关弹层（AC-04），阻止冒泡到
+          // window 级游戏键盘，避免同时触发 game.js PAUSED 键表的 ESC 恢复（弹层保持打开）
           e.stopPropagation()
           closeSettingsModal()
         }

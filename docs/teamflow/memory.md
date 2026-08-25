@@ -43,6 +43,7 @@
 - **测试增强（P3 建议）**：qa-e2e 补 AC-09.6 显式断言（首次交互后 AudioContext resume 恰好 1 次）；`#btn-mute` 静音态 aria-label 动态切换「取消静音」。
 - ~~**qa-e2e 测试桩缺口（v3.0）**~~ ✅ 已收口（人工热修，2026-08-25）：spy 补 startBgm/stopBgm 代理；key() 改 document 派发（贴近真实冒泡链）；is-open 动画类断言等待 rAF；弹层 ESC 加 stopPropagation（不误触游戏暂停）+ 打开动画帧取消；file:// 管线新增 console.error「装配失败」回归断言；修复后 236/236 全绿。
 - **OBS-12-2（P3 观察）**：`ghostY` 对 NaN/小数/undefined rot 归一不收敛会抛错（合法流程 rot 恒整数 0–3 不触发）；健壮性迭代可在归一前加 `Math.trunc` 校验。
+- **设置弹层打开期间恢复键窗口（req-12 遗留，P3）**：req-12 打开弹层自动暂停后，弹层打开期间 window 键表的 P/空格（PAUSED=恢复）仍生效——弹层保持打开而游戏被恢复 RUNNING。E2E 仅覆盖「关闭后按空格 → RUNNING」恢复路径；是否在弹层打开期吞掉恢复键待下一需求裁定（当前按最小改动保持现状，验收 ✅ 通过）。
 
 ## 说明
 

@@ -1,0 +1,9 @@
+{
+  "reqId": "req-12",
+  "runId": "tf-mt8ndeu6-xd1g51",
+  "title": "打开设置弹窗时应该先暂停游戏。请实现：打开设置弹层时，若游戏正处于 RUNNING 状态则自动暂停（READY/OVER 状态无需处理）；关闭弹层后保持暂停状态",
+  "status": "completed",
+  "mode": "patch",
+  "createdAt": 1787661284194,
+  "endedAt": 1787662011141
+}

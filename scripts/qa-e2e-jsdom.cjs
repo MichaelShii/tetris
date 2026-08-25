@@ -837,8 +837,12 @@ async function main() {
     check('AC-04 弹层关闭后设置状态保持（踢墙旋转）', wallkickBtn.getAttribute('aria-pressed') === initialWallkickState)
     check('AC-04 弹层关闭后设置状态保持（BGM）', bgmBtn.getAttribute('aria-pressed') === initialBgmState)
 
-    // AC-04：游戏状态保持
-    check('AC-04 弹层关闭后游戏状态保持', snap().phase === 'RUNNING')
+    // AC-04 + req-12：打开弹层自动暂停（RUNNING→PAUSED），关闭后保持暂停（不随关闭恢复）
+    check('AC-04/req-12 弹层关闭后游戏保持暂停', snap().phase === 'PAUSED')
+    // 段末基线恢复：空格 = PAUSED 键表恢复键（keyAction，AC-11.2），覆盖「关闭弹层后按空格 →
+    // RUNNING」的焦点竞态恢复路径，同时把基线还给后续 AC-09/10 M 键段（不再停留 PAUSED 上下文）
+    key(' ')
+    check('req-12 关闭弹层后按空格 → RUNNING（焦点竞态恢复路径）', snap().phase === 'RUNNING')
   }
 
   /* ---------- AC-09/AC-10 音效与音量控制（v2.0：真实 audio.js + 假 AudioContext） ---------- */
