@@ -160,6 +160,8 @@ async function buildEnv() {
     setMuted: function (m) { return realEngine.setMuted(m) },
     isMuted: function () { return realEngine.isMuted() },
     isAvailable: function () { return realEngine.isAvailable() },
+    startBgm: function () { return realEngine.startBgm() },
+    stopBgm: function () { return realEngine.stopBgm() },
     dispose: function () { return realEngine.dispose() },
   }
 
@@ -175,11 +177,13 @@ async function buildEnv() {
   const doc = window.document
   const key = function (k, opts) {
     const ev = new window.KeyboardEvent('keydown', Object.assign({ key: k, bubbles: true, cancelable: true }, opts || {}))
-    window.dispatchEvent(ev)
+    // 从 document 派发（真实浏览器：按键事件在文档内产生并冒泡 document → window），
+    // 使 document 级监听器（如设置弹层 ESC）与 window 级监听器（game.js 键盘 / ui.js M 键）都能收到
+    doc.dispatchEvent(ev)
     return ev
   }
   const keyUp = function (k) {
-    window.dispatchEvent(new window.KeyboardEvent('keyup', { key: k, bubbles: true }))
+    doc.dispatchEvent(new window.KeyboardEvent('keyup', { key: k, bubbles: true }))
   }
   const snap = function () { return game.getSnapshot() }
 
@@ -728,6 +732,119 @@ async function main() {
     game.restart()
   }
 
+  /* ---------- v3.0 设置弹层（AC-01~06：齿轮图标触发的毛玻璃风格模态框） ---------- */
+  console.log('\n-- v3.0 设置弹层（AC-01~06） --')
+  {
+    // AC-01：齿轮图标按钮存在、可见、可点击、ARIA标签正确
+    check('AC-01 齿轮图标按钮存在', $('#btn-settings') !== null)
+    check('AC-01 齿轮图标按钮 ARIA 标签正确', $('#btn-settings').getAttribute('aria-label') === '打开设置')
+    check('AC-01 齿轮图标按钮可见（无 hidden/disabled）', !$('#btn-settings').hidden && !$('#btn-settings').disabled)
+
+    // AC-02：设置弹层存在、初始隐藏
+    check('AC-02 设置弹层存在', $('#settings-modal') !== null)
+    check('AC-02 设置弹层初始隐藏', $('#settings-modal').hidden === true)
+    check('AC-02 设置弹层 ARIA 角色正确', $('#settings-modal .settings-modal__card').getAttribute('role') === 'dialog')
+    check('AC-02 设置弹层 ARIA 模态正确', $('#settings-modal .settings-modal__card').getAttribute('aria-modal') === 'true')
+    check('AC-02 设置弹层 ARIA 标签正确', $('#settings-modal .settings-modal__card').getAttribute('aria-label') === '设置')
+
+    // AC-03：设置项分组展示
+    check('AC-03 音频设置组存在', $('.settings-group--audio') !== null)
+    check('AC-03 辅助设置组存在', $('.settings-group--assist') !== null)
+    check('AC-03 音频设置组标题正确', $('.settings-group--audio .settings-group__title').textContent === '音频设置')
+    check('AC-03 辅助设置组标题正确', $('.settings-group--assist .settings-group__title').textContent === '辅助设置')
+
+    // AC-03：弹层内设置项存在
+    check('AC-03 弹层内音量控件存在', $('#settings-modal #audio-controls') !== null)
+    check('AC-03 弹层内 BGM 开关存在', $('#settings-modal #btn-bgm') !== null)
+    check('AC-03 弹层内幽灵块开关存在', $('#settings-modal #btn-ghost') !== null)
+    check('AC-03 弹层内踢墙旋转开关存在', $('#settings-modal #btn-wallkick') !== null)
+
+    // AC-05：左面板精简
+    check('AC-05 左面板无音量控件', $('#panel-left #audio-controls') === null)
+    check('AC-05 左面板无 BGM 开关', $('#panel-left #btn-bgm') === null)
+    check('AC-05 左面板无幽灵块开关', $('#panel-left #btn-ghost') === null)
+    check('AC-05 左面板无踢墙旋转开关', $('#panel-left #btn-wallkick') === null)
+    check('AC-05 左面板有齿轮图标按钮', $('#panel-left #btn-settings') !== null)
+
+    // AC-02/04：点击齿轮图标打开弹层
+    const btnSettings = $('#btn-settings')
+    btnSettings.click()
+    check('AC-02 点击齿轮图标后弹层显示', $('#settings-modal').hidden === false)
+    await sleep(50) // 等待 rAF 动画帧：is-open 由 requestAnimationFrame 添加（ui.js openSettingsModal）
+    check('AC-02 弹层动画类添加', $('#settings-modal').classList.contains('is-open'))
+
+    // AC-04：关闭按钮关闭弹层
+    const closeBtn = $('#settings-modal .settings-modal__close')
+    check('AC-04 关闭按钮存在', closeBtn !== null)
+    closeBtn.click()
+    // 等待动画结束（160ms）
+    await sleep(200)
+    check('AC-04 点击关闭按钮后弹层隐藏', $('#settings-modal').hidden === true)
+    check('AC-04 弹层动画类移除', !$('#settings-modal').classList.contains('is-open'))
+
+    // AC-04：ESC 关闭弹层
+    btnSettings.click()
+    await sleep(50)
+    check('AC-04 再次打开弹层', $('#settings-modal').hidden === false)
+    key('Escape')
+    await sleep(200)
+    check('AC-04 ESC 关闭弹层', $('#settings-modal').hidden === true)
+
+    // AC-04：点击外部关闭弹层
+    btnSettings.click()
+    await sleep(50)
+    check('AC-04 第三次打开弹层', $('#settings-modal').hidden === false)
+    // 点击背景遮罩
+    const backdrop = $('#settings-modal .settings-modal__backdrop')
+    check('AC-04 背景遮罩存在', backdrop !== null)
+    backdrop.click()
+    await sleep(200)
+    check('AC-04 点击外部关闭弹层', $('#settings-modal').hidden === true)
+
+    // AC-03：弹层内设置项功能正常
+    btnSettings.click()
+    await sleep(50)
+    // 测试幽灵块开关
+    const ghostBtn = $('#settings-modal #btn-ghost')
+    const initialGhostState = ghostBtn.getAttribute('aria-pressed')
+    ghostBtn.click()
+    check('AC-03 弹层内幽灵块开关可点击', ghostBtn.getAttribute('aria-pressed') !== initialGhostState)
+    // 恢复状态
+    ghostBtn.click()
+
+    // 测试踢墙旋转开关
+    const wallkickBtn = $('#settings-modal #btn-wallkick')
+    const initialWallkickState = wallkickBtn.getAttribute('aria-pressed')
+    wallkickBtn.click()
+    check('AC-03 弹层内踢墙旋转开关可点击', wallkickBtn.getAttribute('aria-pressed') !== initialWallkickState)
+    // 恢复状态
+    wallkickBtn.click()
+
+    // 测试 BGM 开关
+    const bgmBtn = $('#settings-modal #btn-bgm')
+    const initialBgmState = bgmBtn.getAttribute('aria-pressed')
+    bgmBtn.click()
+    check('AC-03 弹层内 BGM 开关可点击', bgmBtn.getAttribute('aria-pressed') !== initialBgmState)
+    // 恢复状态
+    bgmBtn.click()
+
+    // 关闭弹层
+    closeBtn.click()
+    await sleep(200)
+
+    // AC-04：设置状态保持
+    check('AC-04 弹层关闭后设置状态保持（幽灵块）', ghostBtn.getAttribute('aria-pressed') === initialGhostState)
+    check('AC-04 弹层关闭后设置状态保持（踢墙旋转）', wallkickBtn.getAttribute('aria-pressed') === initialWallkickState)
+    check('AC-04 弹层关闭后设置状态保持（BGM）', bgmBtn.getAttribute('aria-pressed') === initialBgmState)
+
+    // AC-04 + req-12：打开弹层自动暂停（RUNNING→PAUSED），关闭后保持暂停（不随关闭恢复）
+    check('AC-04/req-12 弹层关闭后游戏保持暂停', snap().phase === 'PAUSED')
+    // 段末基线恢复：空格 = PAUSED 键表恢复键（keyAction，AC-11.2），覆盖「关闭弹层后按空格 →
+    // RUNNING」的焦点竞态恢复路径，同时把基线还给后续 AC-09/10 M 键段（不再停留 PAUSED 上下文）
+    key(' ')
+    check('req-12 关闭弹层后按空格 → RUNNING（焦点竞态恢复路径）', snap().phase === 'RUNNING')
+  }
+
   /* ---------- AC-09/AC-10 音效与音量控制（v2.0：真实 audio.js + 假 AudioContext） ---------- */
   console.log('\n-- AC-09/10 音效与音量控制 --')
   {
@@ -877,8 +994,12 @@ async function main() {
   console.log('\n-- file:// 加载管线（jsdom resources:usable） --')
   {
     const errors = []
+    const consoleErrs = [] // v3.0 回归防护：装配期 console.error（如 [tetris] 装配失败）必须被 E2E 捕获
     const vc = new VirtualConsole()
     vc.on('jsdomError', function (e) { errors.push(String(e && e.message || e)) })
+    vc.on('error', function () {
+      consoleErrs.push(Array.prototype.slice.call(arguments).map(String).join(' '))
+    })
     const dom2 = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {
       url: 'file://' + path.join(root, 'index.html').replace(/\\/g, '/'),
       runScripts: 'dangerously',
@@ -902,6 +1023,7 @@ async function main() {
     const handle2 = w2.__tetris && typeof w2.__tetris.dispose === 'function' ? w2.__tetris : null
     const bootedGame = handle2 && handle2.game ? handle2.game : null
     check('AC-08.1 file:// 下外部 css/js 全部加载解析（无资源错误）', errors.length === 0, errors.length ? errors[0] : '0 errors')
+    check('装配期无 [tetris] 装配失败 console.error（v3.0 弹层 DOM 必须先于脚本，回归防护）', !consoleErrs.some(function (m) { return m.indexOf('装配失败') !== -1 }), consoleErrs.length ? consoleErrs[0] : 'no console.error')
     check('AC-08.1 脚本顺序执行 → 自动装配成功（window.__tetris 就绪）', !!bootedGame)
     check('自动装配实例 phase = READY', !!bootedGame && bootedGame.getPhase() === 'READY')
     check('自动装配已绑定键盘', !!bootedGame && bootedGame.isKeyboardAttached() === true)

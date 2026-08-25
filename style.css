@@ -792,7 +792,123 @@ kbd {
   }
 }
 
-/* ═══════════════ 5. 可访问性与降级（DESIGN §6 / §4.3） ═══════════════ */
+/* ═══════════════ 5. 设置弹层（v3.0，AC-01~06：齿轮图标触发的毛玻璃风格模态框） ═══════════════ */
+
+/* 齿轮图标按钮（AC-01）：左面板顶部，复用 .btn--secondary */
+#btn-settings {
+  width: 100%;
+  white-space: nowrap;
+  margin-bottom: var(--sp-3);
+}
+
+/* 设置弹层（AC-02）：全屏遮罩 + 居中卡片，复用 #overlay 毛玻璃规范 */
+.settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100; /* 高于所有其他元素 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 160ms ease-out; /* 与 #overlay 动画时长一致 */
+}
+
+.settings-modal[hidden] {
+  display: none;
+}
+
+.settings-modal.is-open {
+  opacity: 1;
+}
+
+.settings-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 5, 8, 0.62);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.settings-modal__card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  width: 90%;
+  max-width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6);
+}
+
+.settings-modal.is-open .settings-modal__card {
+  animation: overlay-in 160ms ease-out;
+}
+
+.settings-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-modal__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.settings-modal__close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: var(--fs-lg);
+  cursor: pointer;
+}
+
+.settings-modal__close:hover,
+.settings-modal__close:focus-visible {
+  color: var(--accent);
+}
+
+.settings-group {
+  margin-bottom: var(--sp-4);
+}
+
+.settings-group__title {
+  margin: 0 0 var(--sp-2) 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.settings-group__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* 响应式适配（移动端 ≤480px） */
+@media (max-width: 480px) {
+  .settings-modal__card {
+    width: 95%;
+    max-height: 85vh;
+    padding: var(--sp-4);
+  }
+}
+
+/* ═══════════════ 6. 可访问性与降级（DESIGN §6 / §4.3） ═══════════════ */
 
 :focus-visible {
   outline: 2px solid var(--accent);

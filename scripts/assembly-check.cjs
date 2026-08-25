@@ -49,12 +49,17 @@ const sel = ['#board','#next-well','#board-frame','#overlay','#feedback-toast',
   '#ghost-control','#btn-ghost', // v2.3：幽灵块辅助开关（AC-13）
   '#bgm-control','#btn-bgm',   // v2.5：背景音乐 BGM 开关（AC-15）
   '#wallkick-control','#btn-wallkick', // v2.9：踢墙旋转开关（AC-19.7）
-  '#stat-hi','#hi-score']      // v2.6：HUD 最高分元素（持久化回读钩子，AC-16）
+  '#stat-hi','#hi-score',      // v2.6：HUD 最高分元素（持久化回读钩子，AC-16）
+  '#btn-settings','#settings-modal','.settings-modal__card','.settings-modal__close'] // v3.0：设置弹层（AC-01~06）
 for (const s of sel) {
   if (s.includes(' ')) {
     const [pid, cls] = s.split(' ')
     const block = html.match(new RegExp('id="' + pid.slice(1) + '"[^>]*>([\\s\\S]*?)</div>'))
     if (block && block[1].includes(cls.split('.').pop())) ok(s); else bad('MISSING selector ' + s)
+  } else if (s.startsWith('.')) {
+    // 类选择器：检查 class 属性中是否包含该类名
+    const className = s.slice(1)
+    if (new RegExp('class="[^"]*\\b' + className + '\\b[^"]*"').test(html)) ok(s); else bad('MISSING ' + s)
   } else if (new RegExp('id="' + s.slice(1) + '"').test(html)) ok(s); else bad('MISSING ' + s)
 }
 

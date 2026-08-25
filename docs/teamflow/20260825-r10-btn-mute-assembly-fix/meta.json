@@ -1,0 +1,9 @@
+{
+  "reqId": "req-10",
+  "runId": "tf-mt8kxyef-29ruxt",
+  "title": "前端控制台报装配失败：[tetris] 装配失败： Error: TetrisUI.createUI: 缺少必需元素 #btn-mute（见 ui.js DOM\n…[已截断 136 字符]",
+  "status": "failed",
+  "mode": "patch",
+  "createdAt": 1787657203820,
+  "endedAt": 1787658566627
+}

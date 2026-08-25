@@ -1,0 +1,9 @@
+{
+  "reqId": "req-9",
+  "runId": "tf-mt8fbavd-alqdtn",
+  "title": "左侧面板的设置按钮（音量/静音、幽灵块、BGM、踢墙旋转）与游戏数据混在一起，随着设置越来越多会越来越乱。请实现方案B：将所有设置项从左面板移出，改为齿轮图标按",
+  "status": "completed",
+  "mode": "medium",
+  "createdAt": 1787647748813,
+  "endedAt": 1787652565001
+}

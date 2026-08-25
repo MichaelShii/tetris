@@ -1,0 +1,9 @@
+{
+  "reqId": "req-11",
+  "runId": "tf-mt8lzttk-k6w4lh",
+  "title": "修复 v3.0 设置弹层改造遗留的装配回归 bug。已核实根因：index.html 中设置弹层 #settings-modal（含 #btn-mute 等全部\n…[已截断 821 字符]",
+  "status": "cancelled",
+  "mode": "patch",
+  "createdAt": 1787658970811,
+  "endedAt": 1787659002887
+}

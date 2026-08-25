@@ -898,6 +898,7 @@
         // AC-13.3：回合中切换即时生效——立即以当前快照重绘，不依赖下一次按键/重力步
         renderAll(game.getSnapshot())
       }
+      ghostBtn.addEventListener('click', onGhostToggle)
 
       /* ---- BGM 开关（v2.4，AC-14） ----
          合成背景乐，仅 ui.js 接线 → audio.js startBgm/stopBgm（发声职责唯一在 audio.js）；
@@ -947,6 +948,146 @@
         blurElement(this)
       }
       wallKickBtn.addEventListener('click', onWallKickToggle)
+
+      /* ---- v3.0 设置弹层（AC-01~06：齿轮图标触发的毛玻璃风格模态框） ----
+         设置状态为会话内保持（不持久化），每次打开重置。
+         打开弹层自动暂停（req-12：RUNNING→PAUSED；READY/PAUSED/OVER 幂等跳过），
+         关闭后保持暂停、由玩家按 P/空格/Esc 恢复；restart() 天然回 RUNNING。 ---- */
+      const settingsBtn = must('#btn-settings')
+      const settingsModal = must('#settings-modal')
+      let settingsModalOpen = false
+      let lastFocusedElement = null
+      let focusTrapHandler = null
+      let openRafId = null // 打开动画帧句柄：关闭时取消，防 is-open 在关闭后仍被补加（快速开合竞态）
+
+      function openSettingsModal() {
+        if (settingsModalOpen) return
+        settingsModalOpen = true
+        lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+
+        // req-12：打开设置弹层自动暂停——引擎持态（game.js togglePause），UI 只做 RUNNING 态单点触发；
+        // READY/PAUSED/OVER 由 togglePause 幂等跳过（同 L943 onWallKickToggle 守卫模式）
+        if (typeof game !== 'undefined' && game && game.getPhase() === 'RUNNING' && typeof game.togglePause === 'function') {
+          game.togglePause()
+        }
+
+        settingsModal.hidden = false
+        openRafId = requestAnimationFrame(function () {
+          openRafId = null
+          // 关闭竞态守卫：若关闭已发生在该帧之前，不再补加动画类（E2E 快速开合断言）
+          if (settingsModalOpen) settingsModal.classList.add('is-open')
+        })
+
+        // 焦点管理：移动到关闭按钮
+        const closeBtn = settingsModal.querySelector('.settings-modal__close')
+        if (closeBtn) closeBtn.focus()
+
+        // 启用焦点陷阱
+        enableFocusTrap(settingsModal)
+
+        // 键盘事件：ESC关闭
+        document.addEventListener('keydown', onSettingsModalKeyDown)
+        // 点击外部关闭：由 onSettingsModalClick 委托单次绑定处理（v3.0 修复：不再每次 open 追加监听）
+      }
+
+      function closeSettingsModal() {
+        if (!settingsModalOpen) return
+        settingsModalOpen = false
+
+        // 取消未执行的打开动画帧，并同步移除动画类（快速开合时 is-open 不得残留）
+        if (openRafId !== null) {
+          cancelAnimationFrame(openRafId)
+          openRafId = null
+        }
+        settingsModal.classList.remove('is-open')
+
+        // 动画结束后隐藏
+        setTimeout(function() {
+          settingsModal.hidden = true
+        }, 160) // 与 #overlay 动画时长一致
+
+        // 焦点返回
+        if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+          lastFocusedElement.focus()
+        }
+
+        // 禁用焦点陷阱
+        disableFocusTrap()
+
+        // 移除键盘事件
+        document.removeEventListener('keydown', onSettingsModalKeyDown)
+      }
+
+      function onSettingsModalKeyDown(e) {
+        if (e.key === 'Escape') {
+          // 弹层打开期间游戏已自动暂停（req-12）：ESC 只关弹层（AC-04），阻止冒泡到
+          // window 级游戏键盘，避免同时触发 game.js PAUSED 键表的 ESC 恢复（弹层保持打开）
+          e.stopPropagation()
+          closeSettingsModal()
+        }
+      }
+
+      // 焦点陷阱（复用 #overlay 的焦点管理模式）
+      function enableFocusTrap(modal) {
+        const focusableSelectors = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        const focusableElements = Array.prototype.slice.call(
+          modal.querySelectorAll(focusableSelectors)
+        ).filter(function(el) {
+          return !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true'
+        })
+
+        if (focusableElements.length === 0) return
+
+        focusTrapHandler = function(e) {
+          if (e.key !== 'Tab') return
+
+          const first = focusableElements[0]
+          const last = focusableElements[focusableElements.length - 1]
+
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault()
+            last.focus()
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault()
+            first.focus()
+          }
+        }
+
+        modal.addEventListener('keydown', focusTrapHandler)
+      }
+
+      function disableFocusTrap() {
+        if (focusTrapHandler) {
+          settingsModal.removeEventListener('keydown', focusTrapHandler)
+          focusTrapHandler = null
+        }
+      }
+
+      // 齿轮图标按钮事件绑定（AC-01）：具名 handler，dispose 对称解绑（v3.0 修复：原匿名绑定导致移除无效）
+      function onSettingsBtnClick() {
+        openSettingsModal()
+        blurElement(this)
+      }
+      settingsBtn.addEventListener('click', onSettingsBtnClick)
+
+      // 事件委托：仅处理弹层结构性点击（关闭按钮 / 背景遮罩，AC-03/AC-04）。
+      // v3.0 修复：六个设置控件（mute/vol±/ghost/bgm/wallkick）一律直绑单一触发路径
+      // （mute/vol± 在 createAudioPanel 内，ghost/bgm/wallkick 在上文直绑），
+      // 不再经委托 id 分支二次触发——单次绑定、dispose 具名移除。
+      function onSettingsModalClick(e) {
+        const target = e.target
+        // 关闭按钮
+        if (target.classList.contains('settings-modal__close')) {
+          closeSettingsModal()
+          return
+        }
+        // 点击背景遮罩关闭（单次绑定，避免每次 open 累积监听）
+        if (target.classList.contains('settings-modal__backdrop')) {
+          closeSettingsModal()
+          return
+        }
+      }
+      settingsModal.addEventListener('click', onSettingsModalClick)
 
       /* ---- 应用层持久化（v2.6，可选依赖，跨切面基础设施） ----
          由装配根传入 opts.persist = TetrisPersist.createPersistence()（persist.js）。
@@ -1103,10 +1244,14 @@
       hudEls.btnPause.addEventListener('click', onPause)
       hudEls.btnRestart.addEventListener('click', onRestart)
       overlayEls.btn.addEventListener('click', onOverlayBtn)
-      ghostBtn.addEventListener('click', onGhostToggle)
+      // v3.0 修复：六个设置控件各自直绑单一触发路径——mute/vol± 在 createAudioPanel 内绑定，
+      // ghost/bgm/wallkick 在上文直绑（不再经弹层委托 id 分支；委托仅处理 close/backdrop 结构性点击）
 
       // E9：鼠标点击按钮不落焦点（防空格/回车二次触发按钮）
-      const btnList = [hudEls.btnStart, hudEls.btnPause, hudEls.btnRestart, overlayEls.btn, ghostBtn, bgmBtn, wallKickBtn]
+      const btnList = [
+        hudEls.btnStart, hudEls.btnPause, hudEls.btnRestart, overlayEls.btn, settingsBtn,
+        ghostBtn, bgmBtn, wallKickBtn, // E9：设置开关同样补 mousedown guard（防空格误触发）
+      ]
       const mousedownGuards = btnList.map(function (btn) {
         const guard = function (e) {
           e.preventDefault()
@@ -1136,9 +1281,13 @@
         hudEls.btnPause.removeEventListener('click', onPause)
         hudEls.btnRestart.removeEventListener('click', onRestart)
         overlayEls.btn.removeEventListener('click', onOverlayBtn)
+        // v3.0 修复：清理设置弹层事件——命名 handler 对称解绑（原匿名绑定移除无效、委托从未移除、直绑 removeEventListener 被 v3.0 diff 删除 → 泄漏治理）
+        settingsBtn.removeEventListener('click', onSettingsBtnClick)
+        settingsModal.removeEventListener('click', onSettingsModalClick)
         ghostBtn.removeEventListener('click', onGhostToggle)
         bgmBtn.removeEventListener('click', onBgmToggle)
         wallKickBtn.removeEventListener('click', onWallKickToggle)
+        closeSettingsModal() // 关闭弹层并清理内部事件（ESC keydown / 焦点陷阱）
         mousedownGuards.forEach(function (entry) {
           entry.btn.removeEventListener('mousedown', entry.guard)
         })
