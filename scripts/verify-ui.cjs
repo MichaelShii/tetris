@@ -110,3 +110,49 @@ test('v2.2 ghost 视觉参数单一事实来源（AC-12.8 透明度可编程测�
   // 引擎依赖：ui.js 渲染调用 ghostY 纯函数导出存在（AC-12.1）
   assert.equal(typeof G.ghostY, 'function')
 })
+
+test('r13: 消行动画包络常量单一事实来源（AC-1/AC-9 数值锚点）', () => {
+  // DESIGN §4.3 霓虹脉冲：渐亮 → 过曝 → 熄灭；引擎 createGame 默认 animMs 同源
+  assert.equal(T.ANIM_MS, 240, 'ANIM_MS = 240ms（验收容差 160~320）')
+  assert.equal(T.ANIM_PEAK, 1.25, 'ANIM_PEAK = 峰值乘性亮度（下限 1.2）')
+  assert.equal(T.ANIM_PEAK_T, 0.40, 'ANIM_PEAK_T = 峰值到达点（占 T）')
+  assert.equal(typeof T.pulseBrightness, 'function', 'pulseBrightness 纯函数导出')
+})
+
+test('r13: pulseBrightness 包络数值断言（端点/峰值/值域）', () => {
+  assert.equal(T.pulseBrightness(0), 1, 'B(0)=1：首帧原亮度（无叠加）')
+  assert.equal(T.pulseBrightness(1), 0, 'B(1)=0：结束帧熄灭（塌缩帧无跳变）')
+  const peak = T.pulseBrightness(T.ANIM_PEAK_T)
+  assert.ok(peak >= 1.2, '峰值 ≥ 1.2（AC-1 下限），实际 ' + peak)
+  assert.equal(peak, T.ANIM_PEAK, 'p=0.40 处恰为峰值 1.25')
+  // 值域：B ∈ [0, 1.25]（p ∈ [0,1] 采样 101 点）
+  for (let i = 0; i <= 100; i++) {
+    const B = T.pulseBrightness(i / 100)
+    assert.ok(B >= 0 && B <= T.ANIM_PEAK + 1e-9, 'p=' + i / 100 + ' → B=' + B + ' 越界')
+  }
+})
+
+test('r13: pulseBrightness 渐亮段帧增量单调递减（ease-out-quart 可判据）', () => {
+  // 渐亮段 0 → ANIM_PEAK_T（N=16 点）：相邻亮度差严格递减（ease-out-quart 的导数性质）
+  const N = 16
+  const step = T.ANIM_PEAK_T / (N - 1)
+  let prevB = T.pulseBrightness(0)
+  let prevDiff = Infinity
+  for (let i = 1; i < N; i++) {
+    const B = T.pulseBrightness(i * step)
+    const diff = B - prevB
+    assert.ok(diff > 0, '渐亮段单调上升（样本 ' + i + '）')
+    assert.ok(diff < prevDiff + 1e-12, '帧增量单调递减（样本 ' + i + '：' + diff + ' ≥ ' + prevDiff + '）')
+    prevB = B
+    prevDiff = diff
+  }
+  // 淡出段 0.40 → 1：单调不升（ease-in-quart 先慢后快 → 0）
+  const M = 16
+  const fstep = (1 - T.ANIM_PEAK_T) / (M - 1)
+  prevB = T.pulseBrightness(T.ANIM_PEAK_T)
+  for (let i = 1; i < M; i++) {
+    const B = T.pulseBrightness(T.ANIM_PEAK_T + i * fstep)
+    assert.ok(B <= prevB + 1e-12, '淡出段单调不升（样本 ' + i + '）')
+    prevB = B
+  }
+})

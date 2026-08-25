@@ -166,10 +166,12 @@ async function buildEnv() {
   }
 
   // 手动装配（rng 固定 → 恒出 I 块；autoLoop 关闭 → tick 手动驱动，保证确定性）
+  // animMs:0（r13，AC-7）→ 消行即时化，既有 237 断言与现状逐字节等价（零回归基线）
   const handle = window.TetrisUI.createUI({
     autoLoop: false,
     rng: function () { return 0 }, // 恒选 TYPES[0]='I'
     sfxEngine: spy,
+    animMs: 0,
   })
   const game = handle.game
 
@@ -977,6 +979,85 @@ async function main() {
     const rafId = window.requestAnimationFrame(function () {})
     window.cancelAnimationFrame(rafId)
     check('dispose 后无异常（rAF 正常）', true)
+  }
+
+  /* ---------- r13 消行动画段（AC-1~10；独立 createUI animMs:240，TECHNICAL §6.4） ----------
+     第一实例已在上段 dispose；本段新建独立 UI（同文档/jsdom canvas 桩，无真实视觉），
+     语义用 tick 步进断言快照字段与音效计数，不做逐帧像素判定。 */
+  {
+    const handle2 = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 240,
+    })
+    const game2 = handle2.game
+    const snap2 = function () { return game2.getSnapshot() }
+    const spy0 = spy.plays.length
+    game2.start()
+
+    // 1. 装 4 行满（各缺 col5）+ 竖 I（rot1 x3 y16）→ 空格硬降触发锁定 → clearing（4 行）
+    const b = window.TetrisGame.createBoard()
+    for (let r = 16; r < 20; r++) {
+      for (let c = 0; c < 10; c++) b[r][c] = c === 5 ? null : 'I'
+    }
+    game2._debug.setBoard(b)
+    game2._debug.setNext('T')
+    game2._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+    key(' ') // 空格 = 硬降（AC-11.3）
+    let s = snap2()
+    check('r13 E2E: 消行动画接管（clearedIndices=4、首帧进度 0、phase RUNNING）',
+      s.clearedIndices && s.clearedIndices.length === 4 && s.animProgress === 0 && s.phase === 'RUNNING',
+      JSON.stringify(s.clearedIndices) + ' p=' + s.animProgress)
+    check('r13 E2E: 动画期棋盘=含满行（row16-19 全满）',
+      s.board[16].every(function (c) { return c !== null }) && s.board[19].every(function (c) { return c !== null }))
+    check('r13 E2E: 动画期无活动块、计分行数冻结（AC-1/AC-8）',
+      s.piece === null && s.score === 0 && s.lines === 0 && s.level === 1)
+    check('r13 E2E: clear 音效动画首帧恰 1 次（AC-3）',
+      spy.plays.slice(spy0).filter(function (n) { return n === 'clear' }).length === 1,
+      JSON.stringify(spy.plays.slice(spy0)))
+
+    // 2. tick(120)：进度推进、piece 仍 null、score 冻结
+    game2.tick(120)
+    s = snap2()
+    check('r13 E2E: 动画中期进度 ∈ (0.4,0.6)、piece=null、score 冻结',
+      s.animProgress > 0.4 && s.animProgress < 0.6 && s.piece === null && s.score === 0,
+      'p=' + s.animProgress)
+
+    // 3. tick(130)：完结帧 → 塌缩 + 计分 + spawn（AC-2/AC-3）
+    game2.tick(130)
+    s = snap2()
+    check('r13 E2E: 完结帧塌缩+计分+新块（lines=4、score=800、clear 仍恰 1 次）',
+      s.clearedIndices === null && s.lines === 4 && s.score === 800 && !!s.piece &&
+        spy.plays.slice(spy0).filter(function (n) { return n === 'clear' }).length === 1,
+      'lines=' + s.lines + ' score=' + s.score)
+    check('r13 E2E: 完结后四行清空（row16-19 全空）',
+      s.board[16].every(function (c) { return c === null }) && s.board[19].every(function (c) { return c === null }))
+
+    // 4. r12 协同（AC-4）：动画中途 P → 暂停进度定格 → 空格恢复 → 续播至完结
+    const b2 = window.TetrisGame.createBoard()
+    b2[19] = b2[19].map(function (c, i) { return i === 5 ? null : 'I' }) // 仅 row19 缺 col5 → 1 行
+    game2._debug.setBoard(b2)
+    game2._debug.setNext('T')
+    game2._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+    key(' ')
+    game2.tick(60) // 进度 0.25
+    key('p') // r12 既有：P 手动暂停（动画期 piece=null 亦可暂停，AC-4/E3）
+    s = snap2()
+    check('r13 E2E r12协同: 动画期 P → PAUSED 且 animProgress 定格',
+      s.phase === 'PAUSED' && s.clearedIndices !== null && s.clearedIndices.length === 1 && Math.abs(s.animProgress - 0.25) < 1e-9,
+      'phase=' + s.phase + ' p=' + s.animProgress)
+    key(' ') // 空格在 PAUSED = 继续（r12 既有：玩家主动恢复）
+    s = snap2()
+    check('r13 E2E r12协同: 空格恢复 → RUNNING 续播（clearing 保留）',
+      s.phase === 'RUNNING' && s.clearedIndices !== null)
+    game2.tick(180) // 60+180 = 240 ≥ 240 → 完结
+    s = snap2()
+    check('r13 E2E r12协同: 续播至完结（lines=5、新块已出生、无残留字段）',
+      s.clearedIndices === null && s.lines === 5 && !!s.piece,
+      'lines=' + s.lines)
+    handle2.dispose()
+    check('r13 E2E: 独立动画实例 dispose 无异常', true)
   }
 
   /* ---------- 汇总 ---------- */

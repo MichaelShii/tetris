@@ -347,15 +347,23 @@ test('transition: 迁移矩阵 20 格全遍历', () => {
 
 /* ---------- 7. 会话集成（T6 契约，AC 关键路径） ---------- */
 
+// r13（§6.1）：mk() 统一基线工厂——animMs:0 为正规配置项（即时消除，= reduced-motion 降级语义，AC-7），
+// 既有消行/计分/音效序列断言逐字保留；新动画用例组显式传 animMs:240
+function mk(opts) {
+  return T.createGame(
+    Object.assign(
+      { autoLoop: false, keyboard: false, autoPauseOnBlur: false, animMs: 0 },
+      opts || {}
+    )
+  )
+}
+
 function freshGame(extra) {
   const events = { levelUp: [], gameOver: [], sfx: [], snapshots: [] }
-  const g = T.createGame(
+  const g = mk(
     Object.assign(
       {
         rng: () => 0, // 确定性：恒为 I
-        autoLoop: false, // 手动 tick，避免测试依赖 rAF
-        keyboard: false, // 不绑 DOM
-        autoPauseOnBlur: false,
         onSnapshot: (s) => events.snapshots.push(s),
         onLevelUp: (l) => events.levelUp.push(l),
         onGameOver: (s) => events.gameOver.push(s),
@@ -402,7 +410,7 @@ test('生命周期: READY → start → RUNNING → pause → resume → restart
 
 test('start 与 spawn 消费预览队列（7-bag 确定性 RNG）', () => {
   // 7-bag: rng 用于 shuffle，全 0.5 产生固定排列
-  const g = T.createGame({ rng: () => 0.5, autoLoop: false, keyboard: false, autoPauseOnBlur: false })
+  const g = mk({ rng: () => 0.5 })
   const readys = g.getSnapshot()
   assert.ok(T.TYPES.includes(readys.next), 'READY 预览为合法方块类型')
   g.start()
@@ -1176,5 +1184,228 @@ test('ghostY: 非法入参防御不抛错、返回类型安全值（v2.4 E-12-08
   assert.equal(T.ghostY(board, undefined), -1, 'piece=undefined 同样防御返回 -1')
   // boxed null 防御不抛错
   assert.equal(typeof T.ghostY(board, null), 'number', 'piece=null 返回类型为 number')
+})
+
+/* ---------- 11. r13 消行动画（v3.1，AC-1~10；animMs:240 + tick 步进，TECHNICAL §6.2） ---------- */
+
+// 公共布景：仅 row19 缺 col5 的满行 + 竖 I（rot1 x3 y16，落点 y16）硬降 → 恰好消 1 行、进入 clearing。
+// 返回 merged（= lockFlow 内 merge(board, piece) 的值，动画期棋盘等价基准）。
+function stageSingleLineClear(animMs) {
+  const { g, events } = freshGame({ animMs: animMs })
+  g.start()
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  g._debug.setBoard(b)
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  const merged = T.merge(b, { type: 'I', rot: 1, x: 3, y: 16 })
+  const entry = g.hardDrop()
+  return { g, events, merged, entry }
+}
+
+test('r13 消行动画 ①: 动画期棋盘=锁定后含满行、快照附加字段、计分行数未动（AC-1/AC-8/AC-10）', () => {
+  const { g, merged, entry } = stageSingleLineClear(240)
+  // 入口返回值：动画接管期 levelUp/gameOver 为「完成时」语义 → 恒 false（§2.4）
+  assert.deepEqual(
+    { ok: entry.ok, locked: entry.locked, cleared: entry.cleared, levelUp: entry.levelUp, gameOver: entry.gameOver },
+    { ok: true, locked: true, cleared: 1, levelUp: false, gameOver: false }
+  )
+  const s = g.getSnapshot()
+  assert.deepEqual(s.clearedIndices, [19], 'clearedIndices = 被消行索引')
+  assert.equal(s.animProgress, 0, '首帧进度 0')
+  assert.deepEqual(s.board, merged, '动画期棋盘 = 锁定后含满行棋盘（逐格）')
+  for (let rr = 0; rr < 19; rr++) {
+    for (let c = 0; c < T.COLS; c++) {
+      assert.equal(s.board[rr][c], merged[rr][c], '未消行逐格不变 r' + rr + 'c' + c)
+    }
+  }
+  assert.equal(s.phase, 'RUNNING')
+  assert.equal(s.piece, null, '动画期无活动块/幽灵（AC-8）')
+  assert.equal(s.score, 0, '计分在完结帧')
+  assert.equal(s.lines, 0, '行数在完结帧')
+  assert.equal(s.level, 1)
+})
+
+test('r13 消行动画 ②: 动画期输入全部拒绝 reason=clearing，零副作用（AC-4/E2）', () => {
+  const { g, events } = stageSingleLineClear(240)
+  const before = g.getSnapshot()
+  assert.deepEqual(g.move(-1), { ok: false, reason: 'clearing' })
+  assert.deepEqual(g.move(1), { ok: false, reason: 'clearing' })
+  assert.deepEqual(g.rotate(), { ok: false, reason: 'clearing' })
+  assert.deepEqual(g.softDrop(), { ok: false, reason: 'clearing' })
+  assert.deepEqual(g.hardDrop(), { ok: false, reason: 'clearing' })
+  const after = g.getSnapshot()
+  assert.deepEqual(after.board, before.board, '棋盘不变')
+  assert.equal(after.animProgress, before.animProgress, '进度不变')
+  assert.deepEqual(events.sfx, ['hardDrop', 'clear'], '拒绝输入零音效（不排队不发声）')
+})
+
+test('r13 消行动画 ③: 完结帧原子步=clearLines(merged) 逐格一致 + clear 恰 1 次（AC-2/AC-3）', () => {
+  const { g, events, merged } = stageSingleLineClear(240)
+  assert.deepEqual(events.sfx, ['hardDrop', 'clear'], 'clear 在动画首帧（hardDrop 后恰好 1 次）')
+  g.tick(120)
+  g.tick(120) // 120+120 = 240 ≥ 240 → 完结
+  const s = g.getSnapshot()
+  const expected = T.clearLines(merged).board
+  assert.deepEqual(s.board, expected, '塌缩后棋盘 = clearLines(merged) 逐格一致')
+  assert.equal(s.score, 100, '消 1 行 100 × L1')
+  assert.equal(s.lines, 1)
+  assert.equal(s.level, 1)
+  assert.ok(s.piece, 'spawn 完成')
+  assert.ok(s.next !== 'T', 'next 已从预览队列更新（恰 1 次）')
+  assert.equal(s.clearedIndices, null, '完结帧无动画残留字段')
+  assert.deepEqual(events.sfx, ['hardDrop', 'clear'], 'clear 全程恰 1 次（完结帧不再发）')
+})
+
+test('r13 消行动画 ③b: 升级判定在完结帧、次序 hardDrop→clear→levelUp（AC-3/AC-9，E-SFX-04）', () => {
+  const { g, events } = freshGame({ animMs: 240 })
+  g.start()
+  g._debug.setLines(9)
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  g._debug.setBoard(b)
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  g.hardDrop()
+  assert.deepEqual(events.sfx, ['hardDrop', 'clear'], '动画首帧：clear 已发')
+  assert.equal(events.levelUp.length, 0, '完结前不触发升级回调')
+  g.tick(120)
+  g.tick(120)
+  assert.deepEqual(events.levelUp, [2], '完结帧触发 onLevelUp(2)')
+  assert.deepEqual(events.sfx, ['hardDrop', 'clear', 'levelUp'], 'E-SFX-04 次序保持（clear 提前 T 拍）')
+  assert.equal(g.getSnapshot().level, 2)
+  assert.equal(g.getSnapshot().lines, 10)
+})
+
+test('r13 消行动画 ④: animMs:0 与 animMs:240（步进完）逐点等价（AC-7）', () => {
+  const run = function (animMs) {
+    const { g, events } = freshGame({ animMs: animMs })
+    g.start()
+    const b = T.createBoard()
+    b[19] = fullRow('I', 5)
+    g._debug.setBoard(b)
+    g._debug.setNext('T')
+    g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+    g.hardDrop()
+    if (animMs > 0) {
+      g.tick(120)
+      g.tick(130)
+    }
+    return { snap: g.getSnapshot(), sfx: events.sfx.slice() }
+  }
+  const instant = run(0)
+  const anim = run(240)
+  assert.deepEqual(instant.snap.board, anim.snap.board, '棋盘逐格等价')
+  assert.equal(instant.snap.score, anim.snap.score, '计分等价')
+  assert.equal(instant.snap.lines, anim.snap.lines, '行数等价')
+  assert.equal(instant.snap.level, anim.snap.level, '等级等价')
+  assert.equal(instant.snap.next, anim.snap.next, '预览等价')
+  assert.deepEqual(instant.snap.piece, anim.snap.piece, 'spawn 活动块一致')
+  assert.deepEqual(instant.sfx, anim.sfx, '音效事件序列一致')
+})
+
+test('r13 消行动画 ⑤: 时钟冻结——动画期 dt 只进进度、重力/锁定缓冲不累积（AC-5）', () => {
+  const { g } = stageSingleLineClear(240)
+  g.tick(70)
+  g.tick(70)
+  g.tick(70) // 210 < 240 不完结
+  const mid = g.getSnapshot()
+  assert.equal(mid.clearedIndices !== null, true, '仍在动画')
+  assert.equal(mid.piece, null, '未 spawn')
+  g.tick(40) // 210+40 = 250 ≥ 240 → 完结
+  const done = g.getSnapshot()
+  assert.equal(done.clearedIndices, null)
+  assert.ok(done.piece, '新块已出生')
+  const y0 = done.piece.y
+  // 动画期冻结的下落时钟不跨完结累积：新块从 0 起计（无连降/积压）。
+  // 注意 tick 内部 dt clamp ≤ 250（E7/E8），满 L1 间隔需 4 × 250
+  g.tick(250)
+  g.tick(250)
+  g.tick(250)
+  assert.equal(g.getSnapshot().piece.y, y0, '750ms < 1000ms（L1 间隔）不下落')
+  g.tick(250)
+  assert.equal(g.getSnapshot().piece.y, y0 + 1, '满间隔恰好 1 格')
+})
+
+test('r13 消行动画 ⑥: 暂停冻结/恢复续播——进度定格、无跳帧（AC-4/E3/E10）', () => {
+  const { g } = stageSingleLineClear(240)
+  g.tick(120)
+  const mid = g.getSnapshot()
+  assert.equal(mid.animProgress, 0.5, '中期进度 0.5')
+  assert.deepEqual(mid.clearedIndices, [19])
+  assert.equal(g.togglePause().ok, true)
+  assert.equal(g.getPhase(), 'PAUSED')
+  const paused = g.getSnapshot()
+  assert.equal(paused.animProgress, 0.5, '暂停快照进度定格')
+  assert.deepEqual(paused.clearedIndices, [19], 'clearing 经暂停保留（AC-4 续播前提）')
+  assert.equal(g.togglePause().ok, true)
+  assert.equal(g.getPhase(), 'RUNNING')
+  g.tick(120) // 120+120 = 240 → 完结
+  const done = g.getSnapshot()
+  assert.equal(done.clearedIndices, null, '恢复后续播至完结')
+  assert.equal(done.lines, 1, '塌缩在恢复后完成')
+  assert.ok(done.piece, 'spawn 完成')
+})
+
+test('r13 消行动画 ⑦: 完结帧出生碰撞 → OVER 序列完整、无残留（AC-6）', () => {
+  const { g, events } = freshGame({ animMs: 240 })
+  g.start()
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  // I 出生（4×4 盒填充行索引 1 → 绝对行 1，列 3-6）放阻挡 → 塌缩后 spawn 即碰撞（OVER）。
+  // 注意：消 1 行塌缩会向顶部补空行 → 旧 row0 变为新 row1，故阻挡放旧 row0
+  b[0][4] = 'J'
+  b[0][5] = 'J'
+  g._debug.setBoard(b)
+  g._debug.setNext('I')
+  g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  g.hardDrop()
+  assert.ok(g.getSnapshot().clearedIndices !== null, '动画已接管')
+  g.tick(120)
+  assert.equal(g.getPhase(), 'RUNNING', '动画完整播放中不提前 OVER')
+  assert.equal(events.gameOver.length, 0)
+  assert.ok(g.getSnapshot().animProgress > 0, '进度有推进')
+  g.tick(130) // 250 ≥ 240 → 完结帧 spawn 碰撞
+  assert.equal(g.getPhase(), 'OVER', '完结帧才 OVER')
+  const s = g.getSnapshot()
+  assert.equal(s.clearedIndices, null, '无动画残留字段')
+  assert.equal(s.piece, null)
+  assert.equal(events.gameOver.length, 1)
+  assert.equal(events.sfx.filter((n) => n === 'gameOver').length, 1, 'gameOver 恰 1 次')
+  assert.equal(events.sfx[events.sfx.length - 1], 'gameOver', 'gameOver 为末位（E-SFX-05 次序）')
+  // 防御：OVER 后 restart 无残留（E9）
+  assert.equal(g.restart().ok, true)
+  assert.equal(g.getPhase(), 'RUNNING')
+  assert.equal(g.getSnapshot().clearedIndices, null)
+})
+
+test('r13 消行动画 ⑧: createGame() 默认 animMs>0 → 消行默认进入 clearing；非法值兜底默认（AC-1/AC-9）', () => {
+  const sfx = []
+  const g = T.createGame({
+    rng: () => 0,
+    autoLoop: false,
+    keyboard: false,
+    autoPauseOnBlur: false,
+    onSfx: (n) => sfx.push(n),
+  })
+  g.start()
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  g._debug.setBoard(b)
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  g.hardDrop()
+  const s = g.getSnapshot()
+  assert.ok(s.clearedIndices !== null, '默认 animMs=240>0 → clearing 接管')
+  assert.deepEqual(s.clearedIndices, [19])
+  assert.deepEqual(sfx, ['hardDrop', 'clear'])
+  // 非法 animMs（字符串）→ 兜底为默认（§2.1 opts 解析风格）
+  const g2 = mk({ animMs: 'no' })
+  g2.start()
+  g2._debug.setBoard(b)
+  g2._debug.setNext('T')
+  g2._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  g2.hardDrop()
+  assert.ok(g2.getSnapshot().clearedIndices !== null, '非法 animMs 兜底为默认 240 → clearing')
 })
 
