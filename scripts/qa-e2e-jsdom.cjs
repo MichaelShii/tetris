@@ -12,6 +12,9 @@
  *     （成功移动 1 次 / 被拒不发声 / 硬降 1 次）、音量 −/+ 与 clamp、M 键与按钮
  *     静音四态切换、会话保持（重开不清设置）、静音零调度；file:// 管线验证
  *     无 AudioContext 时静默降级 0 报错（AC-09.7）
+ *   - r15（v3.2）：3 格多格预览队列——READY 三格渲染、开关三信号默认开、关闭整区
+ *     隐藏（含标签）+ 游戏不受影响、重开即时恢复与 snapshot.queue 一致、关闭期多次
+ *     hardDrop 后重开不错位、二次装载持久化恢复、与 Hold 并存（AC-1/3/6/7/8/9/11）
  *   - 装配契约：canvas 尺寸、渲染调用、按钮矩阵、焦点管理、dispose 清理
  *
  * 运行：node scripts/qa-e2e-jsdom.cjs
@@ -218,7 +221,16 @@ async function main() {
     check('初始状态灯 READY', $('#status-text').textContent === 'READY' && $('#status-dot').dataset.status === 'ready')
     check('HUD 初始值 0 / 1 / 0', $('#score').textContent === '0' && $('#level').textContent === '1' && $('#lines').textContent === '0')
     check('主画布属性 280×560（buffer 尺寸）', $('#board').width === 280 && $('#board').height === 560, $('#board').width + '×' + $('#board').height)
-    check('预览画布 48×24 css 尺寸', $('#next-well').style.width === '48px' && $('#next-well').style.height === '24px')
+    check('r15 预览画布 48×80 css 尺寸（3 格队列窗）', $('#next-well').style.width === '48px' && $('#next-well').style.height === '80px',
+      $('#next-well').style.width + '×' + $('#next-well').style.height)
+    check('r15 READY 初始 3 格队列（snapshot.queue 恒长 3 且队首=next）', (function () {
+      const q = snap().queue
+      return Array.isArray(q) && q.length === 3 && q[0] === snap().next
+    })(), JSON.stringify(snap().queue))
+    check('r15 READY 即渲染 3 格（#next-well fill ≥ 12 = 3 槽 × 4 格）', (function () {
+      const ctx = $('#next-well')._qaCtx
+      return !!ctx && ctx._calls.filter(function (c) { return c === 'fill' }).length >= 12
+    })(), 'fills=' + ($('#next-well')._qaCtx ? $('#next-well')._qaCtx._calls.filter(function (c) { return c === 'fill' }).length : 0))
 
     const t0 = Date.now()
     key('Enter') // 开始
@@ -1193,6 +1205,150 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       'calls before=' + ctxBefore.length + ' after=' + ctxAfter.length)
     handleHold3.dispose()
     check('r14 Hold E2E: 独立 Hold 实例 dispose 无异常', true)
+  }
+
+  /* ---------- r15 多格预览队列 E2E 段（AC-1,3,6,7,8,9,11） ----------
+开关为纯显示层（AC-9，引擎无开关字段）；主 env 的 handle 已在 v3.0 弹层段 dispose
+（UI 死、按钮监听与键盘解绑），故 1~3 用独立实例（r13/r14 同模式）验证三信号/即时显隐/
+闭合期硬降不错位；4 独立持久化实例（storage 注入：jsdom file:// 下 localStorage 不可用
+→ 降级内存，按 verify-persist 同源注入契约模拟「写盘→重载→恢复」全链，AC-8）；
+5 独立实例验证与 Hold 并存、队首消费正确（AC-11）。rng=0 → bag [O,T,S,Z,J,L,I]。 */
+  {
+    const pqMain = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 0,
+    })
+    const pqGame = pqMain.game
+    const pqSnap = function () { return pqGame.getSnapshot() }
+
+    // 0. 装配契约：开关默认开（三信号）+ 可聚焦 + 队列默认可见渲染（AC-6）
+    pqGame.restart()
+    const qBtn = $('#btn-preview-queue')
+    const qWrap = $('.next-well')
+    const qCanvas = $('#next-well')
+    function qCalls() {
+      return (qCanvas._qaCtx ? qCanvas._qaCtx._calls : []).slice()
+    }
+    check('r15 预览队列开关默认开（aria-pressed=true）', qBtn.getAttribute('aria-pressed') === 'true')
+    check('r15 预览队列开关默认开（文案「开」+ aria-label 含「开启」）',
+      qBtn.textContent.indexOf('开') !== -1 && qBtn.getAttribute('aria-label').indexOf('开启') !== -1)
+    check('r15 预览队列开关可聚焦（BUTTON + tabIndex≥0 + 非 disabled）',
+      qBtn.tagName === 'BUTTON' && qBtn.tabIndex >= 0 && !qBtn.disabled)
+    check('r15 队列窗容器存在且默认可见（display 非 none）', qWrap !== null && qWrap.style.display !== 'none')
+    check('r15 默认态 snapshot.queue 恒长 3 且队首=next',
+      Array.isArray(pqSnap().queue) && pqSnap().queue.length === 3 && pqSnap().queue[0] === pqSnap().next,
+      JSON.stringify(pqSnap().queue))
+
+    // 1. 点击关闭 → 整区隐藏（含标签）+ 游戏不受影响（AC-7, AC-9）
+    const score0 = pqSnap().score
+    const level0 = pqSnap().level
+    const calls0 = qCalls().length
+    qBtn.click()
+    check('r15 点击关闭 → aria-pressed=false / 文案「关」',
+      qBtn.getAttribute('aria-pressed') === 'false' && qBtn.textContent.indexOf('关') !== -1)
+    check('r15 关闭 → .next-well 整区隐藏（display:none，含「下一个」标签）',
+      qWrap.style.display === 'none' && qWrap.querySelector('.stat__label') !== null)
+    check('r15 关闭 → 棋盘不受影响（piece 存活、仍 RUNNING）', !!pqSnap().piece && pqSnap().phase === 'RUNNING')
+    check('r15 关闭 → score/level 不受影响（纯显示层开关）', pqSnap().score === score0 && pqSnap().level === level0)
+    check('r15 关闭 → 引擎队列照常维护（恒长 3 且队首=next）',
+      Array.isArray(pqSnap().queue) && pqSnap().queue.length === 3 && pqSnap().queue[0] === pqSnap().next,
+      JSON.stringify(pqSnap().queue))
+
+    // 2. 再点击 → 即时恢复 + 与 snapshot 一致（AC-7：同步重绘，无动效）
+    qBtn.click()
+    check('r15 重开 → 整区立即恢复（display 非 none）', qWrap.style.display !== 'none')
+    check('r15 重开 → #next-well 即时重绘（渲染调用增量）', qCalls().length > calls0,
+      'calls ' + calls0 + '→' + qCalls().length)
+    check('r15 重开 → 渲染内容与 snapshot.queue 一致（恒长 3 且队首=next）',
+      Array.isArray(pqSnap().queue) && pqSnap().queue.length === 3 && pqSnap().queue[0] === pqSnap().next,
+      JSON.stringify(pqSnap().queue))
+    check('r15 重开 → score/level 不重置', pqSnap().score === score0 && pqSnap().level === level0)
+
+    // 3. 关闭期多次 hardDrop → 重开后队列与下一出生一致（AC-9：关闭只是显示层，队列不错位）
+    qBtn.click() // 再次关闭（进入关闭期）
+    const q0 = pqSnap().queue[0]
+    key(' ') // 关闭期第 1 次 hardDrop → 出生块应为队列原队首
+    check('r15 关闭期 hardDrop → 新出生块 = 队列原队首（队列-出块不错位）',
+      !!pqSnap().piece && pqSnap().piece.type === q0,
+      'piece=' + (pqSnap().piece && pqSnap().piece.type) + ' 原队首=' + q0)
+    key(' '); key(' ') // 关闭期继续 2 次 hardDrop（队列/引擎照常推进）
+    const q1 = pqSnap().queue[0]
+    qBtn.click() // 重开
+    check('r15 关闭期后重开 → 整区恢复且队列与引擎一致',
+      qWrap.style.display !== 'none' && pqSnap().queue.length === 3 && pqSnap().queue[0] === pqSnap().next,
+      JSON.stringify(pqSnap().queue))
+    key(' ') // 再硬降一次：新出生块应为队列当前队首（与 snapshot 一致）
+    check('r15 关闭期后重开 → 下一出生 = 队列当前队首（与 snapshot 一致）',
+      !!pqSnap().piece && pqSnap().piece.type === q1,
+      'piece=' + (pqSnap().piece && pqSnap().piece.type) + ' 队首=' + q1)
+    pqMain.dispose() // 收尾释放本段实例，避免与 4/5 段实例的按钮监听叠加（后续各段自行 sync 契约态）
+
+    // 4. 二次装载持久化恢复（AC-8）：关闭 → saveSettings 写盘 → 新 persist+新 UI（模拟刷新）恢复关闭态
+    //    jsdom file:// 下 localStorage 不可用（内存降级，r14 先例），故经 persist 注入点共享同一
+    //    存储（persist.js {storage} 契约，verify-persist.cjs 同源），验证「写盘→重载→恢复」全链
+    if (!window.TetrisPersist) {
+      window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+    }
+    const backing = {}
+    const sharedStore = {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(backing, k) ? backing[k] : null },
+      setItem: function (k, v) { backing[k] = String(v) },
+      removeItem: function (k) { delete backing[k] },
+    }
+    const pqPersist1 = window.TetrisPersist.createPersistence({ storage: sharedStore })
+    const pqHandleA = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 0,
+      persist: pqPersist1,
+    })
+    pqHandleA.game.start()
+    doc.querySelector('#btn-preview-queue').click() // 关闭 → persistSettings 写盘 false
+    const loaded1 = pqPersist1.load()
+    check('r15 持久化：关闭后写盘（load 回读 previewQueueEnabled=false）',
+      loaded1 && loaded1.settings && loaded1.settings.previewQueueEnabled === false,
+      JSON.stringify(loaded1 && loaded1.settings))
+    pqHandleA.dispose()
+    const pqPersist2 = window.TetrisPersist.createPersistence({ storage: sharedStore })
+    const pqHandleB = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 0,
+      persist: pqPersist2,
+    })
+    const qBtnB = doc.querySelector('#btn-preview-queue')
+    check('r15 二次装载：恢复关闭态（aria-pressed=false + 文案「关」）',
+      qBtnB.getAttribute('aria-pressed') === 'false' && qBtnB.textContent.indexOf('关') !== -1)
+    pqHandleB.game.start() // 触发 renderAll → 恢复的关闭态即时落到整区显隐
+    check('r15 二次装载：整区隐藏随恢复态即时生效（display:none）', qWrap.style.display === 'none')
+    pqHandleB.dispose()
+
+    // 5. Hold 并存（AC-11）：队列开启下 hold 正常且队首消费正确（hold 消耗序与队列同源）
+    const pqHandleC = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 0,
+    })
+    const pqGameC = pqHandleC.game
+    pqGameC.start()
+    const sC = pqGameC.getSnapshot()
+    const qc0 = sC.queue[0]      // 队首 = 下一个出生
+    const curType = sC.piece.type
+    key('c') // hold：当前方块入槽，当前方块 ← 队列队首
+    const sC2 = pqGameC.getSnapshot()
+    check('r15 Hold 并存：hold 正常（holdPiece = 原当前块）', sC2.holdPiece === curType, sC2.holdPiece)
+    check('r15 Hold 并存：队首消费正确（piece = 队列原队首）', sC2.piece && sC2.piece.type === qc0,
+      'piece=' + (sC2.piece && sC2.piece.type) + ' 队首=' + qc0)
+    check('r15 Hold 并存：队列恒长 3 且队首=next（不脱节）',
+      Array.isArray(sC2.queue) && sC2.queue.length === 3 && sC2.queue[0] === sC2.next,
+      JSON.stringify(sC2.queue))
+    pqHandleC.dispose()
+    check('r15 预览队列独立实例 dispose 无异常', true)
   }
 
   /* ---------- 汇总 ---------- */
