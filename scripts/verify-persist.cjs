@@ -56,6 +56,7 @@ test('persist: 导出契约齐全（VERSION/键/默认值/工厂/sanitize）', (
   assert.equal(P.DEFAULT_SETTINGS.bgmEnabled, false)
   assert.equal(P.DEFAULT_SETTINGS.wallKickEnabled, true) // v2.9：踢墙开关默认开（AC-19.1）
   assert.equal(P.DEFAULT_SETTINGS.holdEnabled, true) // v3.2：暂存方块开关默认开（AC-14）
+  assert.equal(P.DEFAULT_SETTINGS.previewQueueEnabled, true) // v3.2：多格预览队列开关默认开（AC-8）
 })
 
 /* ============================================================================
@@ -69,7 +70,7 @@ test('persist: 最高分/设置键读写往返（跨实例持久）', () => {
   assert.deepEqual(loaded1.settings, P.DEFAULT_SETTINGS, '初始设置默认值')
 
   p1.saveHighScore(120)
-  p1.saveSettings({ volume: 0.5, muted: true, ghostEnabled: false, bgmEnabled: true, wallKickEnabled: false, holdEnabled: false })
+  p1.saveSettings({ volume: 0.5, muted: true, ghostEnabled: false, bgmEnabled: true, wallKickEnabled: false, holdEnabled: false, previewQueueEnabled: false })
 
   // 新实例（等价刷新重开）读回同一底层 → 恢复
   const p2 = P.createPersistence({ storage: backing })
@@ -82,7 +83,8 @@ test('persist: 最高分/设置键读写往返（跨实例持久）', () => {
     bgmEnabled: true,
     wallKickEnabled: false,
     holdEnabled: false,
-  }, '六设置跨实例恢复（含暂存开关）')
+    previewQueueEnabled: false,
+  }, '七设置跨实例恢复（含暂存/预览队列开关）')
 })
 
 /* ============================================================================
@@ -122,6 +124,7 @@ test('persist: 真实 Web Storage 形状（仅 getItem/setItem/removeItem）全�
   assert.equal(restored.settings.ghostEnabled, false, '恢复幽灵开关')
   assert.equal(restored.settings.bgmEnabled, true, '恢复 BGM 开关')
   assert.equal(restored.settings.wallKickEnabled, false, '恢复踢墙开关（AC-19.6）')
+  assert.equal(restored.settings.previewQueueEnabled, true, '缺省 previewQueueEnabled 字段 → 恢复默认开（AC-8）')
 })
 
 /* ============================================================================
@@ -228,6 +231,44 @@ test('persist: 旧数据无 holdEnabled 字段 → 回默认 true（向后兼容
   // 其他字段正常
   assert.equal(loaded.settings.volume, 0.7)
   assert.equal(loaded.settings.wallKickEnabled, true)
+})
+
+/* ============================================================================
+ * 5d. previewQueueEnabled sanitize 边界（AC-8：非布尔回默认 true）
+ * ========================================================================== */
+test('persist: previewQueueEnabled sanitize 边界（非布尔回默认 true）', () => {
+  const bool = (v) => P.sanitize(v, { type: 'boolean', def: P.DEFAULT_SETTINGS.previewQueueEnabled })
+  assert.equal(bool(true), true, 'true 保留')
+  assert.equal(bool(false), false, 'false 保留')
+  assert.equal(bool('1'), true, '字符串非白名单 → 回默认 true')
+  assert.equal(bool(1), true, '数值 1 → 回默认 true')
+  assert.equal(bool(0), true, '数值 0 → 回默认 true')
+  assert.equal(bool(undefined), true, 'undefined → 回默认 true')
+  assert.equal(bool(null), true, 'null → 回默认 true')
+})
+
+/* ============================================================================
+ * 5e. 旧数据兼容（无 previewQueueEnabled 字段 → 回默认 true，additive 不升版）
+ * ========================================================================== */
+test('persist: 旧数据无 previewQueueEnabled 字段 → 回默认 true（向后兼容）', () => {
+  const backing = makeBacking()
+  // 伪造一份不含 previewQueueEnabled 的旧版载荷（r14 格式）
+  const legacy = {
+    version: P.PAYLOAD_VERSION,
+    highScore: 300,
+    settings: { volume: 0.7, muted: false, ghostEnabled: true, bgmEnabled: false, wallKickEnabled: true, holdEnabled: false },
+  }
+  seedRaw(backing, P.TETRIS_PERSIST_KEY, JSON.stringify(legacy))
+  const p = P.createPersistence({ storage: backing })
+  const loaded = p.load()
+  assert.equal(loaded.highScore, 300, '旧载荷最高分恢复')
+  assert.equal(loaded.settings.holdEnabled, false, '旧载荷 holdEnabled 恢复')
+  assert.equal(loaded.settings.previewQueueEnabled, true, '无 previewQueueEnabled 字段 → 回默认 true')
+  // 其他字段正常
+  assert.equal(loaded.settings.volume, 0.7)
+  assert.equal(loaded.settings.wallKickEnabled, true)
+  // PAYLOAD_VERSION 不升（additive）：仍为 1
+  assert.equal(P.PAYLOAD_VERSION, 1, 'additive 新增字段不升 PAYLOAD_VERSION')
 })
 
 /* ============================================================================

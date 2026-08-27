@@ -1,11 +1,11 @@
 /* ============================================================================
  * persist.js — Tetris 应用层统一持久化基础设施（v2.6）
  *
- * 职责：把「最高分」与「音量/静音/幽灵块/BGM/踢墙/暂存」六设置持久化到 localStorage。
+ * 职责：把「最高分」与「音量/静音/幽灵块/BGM/踢墙/暂存/预览队列」七设置持久化到 localStorage。
  *   - createStorage(): localStorage 能力探测 → 不可用自动降级为内存 Map，绝不 throw
  *   - createPersistence(): 返回 load() / saveHighScore(n) / saveSettings(s) / dispose()
  *   - sanitize(value, schema): 纯函数清洗，highScore 非负整数、volume 收敛 0~1 浮点、
- *     其余三设置布尔白名单
+ *     其余布尔设置走白名单
  *
  * 设计要点（TECHNICAL v2.6）：
  *   1) 独立 UMD 模块，浏览器挂 window.TetrisPersist，Node/CommonJS 同挂 module.exports。
@@ -49,6 +49,7 @@
       bgmEnabled: false, // v2.4 信息面板 BGM 开关默认关（AC-BGM）
       wallKickEnabled: true, // v2.9 信息面板踢墙开关默认开（AC-19.1）
       holdEnabled: true, // v3.2 暂存方块开关默认开（AC-14）
+      previewQueueEnabled: true, // v3.2 多格预览队列开关默认开（AC-8）
     }
 
     /* ======================================================================
@@ -275,6 +276,7 @@
             bgmEnabled: sanitize(settings.bgmEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.bgmEnabled }),
             wallKickEnabled: sanitize(settings.wallKickEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.wallKickEnabled }),
             holdEnabled: sanitize(settings.holdEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.holdEnabled }),
+            previewQueueEnabled: sanitize(settings.previewQueueEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.previewQueueEnabled }),
           },
         }
       }
@@ -294,6 +296,7 @@
               bgmEnabled: state.settings.bgmEnabled,
               wallKickEnabled: state.settings.wallKickEnabled,
               holdEnabled: state.settings.holdEnabled,
+              previewQueueEnabled: state.settings.previewQueueEnabled,
             },
           })
         } catch (_e) {
@@ -349,7 +352,7 @@
       }
 
       /**
-       * saveSettings(s) — 布尔白名单清洗后写回全部四设置。
+       * saveSettings(s) — 布尔白名单清洗后写回全部设置。
        * @returns {boolean} 是否成功写盘
        */
       function saveSettings(s) {
