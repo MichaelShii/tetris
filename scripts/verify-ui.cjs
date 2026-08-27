@@ -12,6 +12,9 @@
  *   4. Node 环境加载不触碰 window/document（顶层零 DOM）。
  * r15（多格预览队列）：createNextQueueRenderer 导出+签名（缺 canvas 抛错），
  *   且 createNextWellRenderer/createHoldWellRenderer 契约保持（drawMiniPieceAt 抽取复用回归）。
+ * r16（触屏控制）：TOUCH_KEYS 六键回放表 ↔ game.js keyAction 交叉校验（防触屏映射漂移
+ *   工程护栏；'c'→Hold 特例由 ui.js onHoldKey 消费）、isTouchDevice/createTouchControls
+ *   导出、工厂缺 #touch-controls 元素抛错、Node 加载 isTouchDevice()=false 零 DOM 副作用。
  * 浏览器行为（毛玻璃/霓虹/逐帧渲染/FPS）按 PRD AC-07 手测。
  */
 const test = require('node:test')
@@ -204,4 +207,82 @@ test('r13: pulseBrightness 渐亮段帧增量单调递减（ease-out-quart 可�
     assert.ok(B <= prevB + 1e-12, '淡出段单调不升（样本 ' + i + '）')
     prevB = B
   }
+})
+
+/* ======================================================================
+ * r16 移动端触屏控制 —— 契约自检（T4；TECHNICAL §2.1/§6.1）
+ * 触屏键不是第二套动作表，而是键盘事件的『回放表』：TOUCH_KEYS.key → 合成
+ * KeyboardEvent → 复走 game.js 既有 keyAction/held 时钟。TOUCH_KEYS 与引擎
+ * 分发表交叉断言是防「触屏映射漂移」的工程护栏 —— 映射唯一事实来源在 ui.js，
+ * 本段验证其与 game.js keyAction 语义一致，且 Node 加载零 DOM 副作用。
+ * ==================================================================== */
+
+test('r16: TOUCH_KEYS 导出与六键结构契约（触屏键映射回放表）', () => {
+  assert.equal(typeof T.isTouchDevice, 'function', 'isTouchDevice 导出存在')
+  assert.equal(typeof T.createTouchControls, 'function', 'createTouchControls 导出存在')
+  assert.ok(Array.isArray(T.TOUCH_KEYS), 'TOUCH_KEYS 为数组')
+  assert.equal(T.TOUCH_KEYS.length, 6, 'TOUCH_KEYS 六键（PRD §2 US-2）')
+  // 每条目结构：action/key/holdable 三字段，类型齐备
+  // （TECHNICAL §2.1 表含 label 展示字段，实现按需精简为三字段——中文键名由 index.html DOM
+  //   承载，回放表本身仅需合成所需；契约以实现为准，label 不作导出面断言）
+  for (const entry of T.TOUCH_KEYS) {
+    assert.equal(typeof entry, 'object')
+    assert.equal(typeof entry.action, 'string', 'action 为字符串（语义动作）')
+    assert.equal(typeof entry.key, 'string', 'key 为合成键盘事件 key 码')
+    assert.equal(typeof entry.holdable, 'boolean', 'holdable 为布尔（是否 DAS/软降按住类）')
+  }
+  // 六个合成 key 码全集与顺序（TECHNICAL §2.1 表）
+  assert.deepEqual(
+    T.TOUCH_KEYS.map((entry) => entry.key),
+    ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'c'],
+    'TOUCH_KEYS 六 key 码固定：ArrowLeft/Right/Up/Down + 空格 + c'
+  )
+  // 六个 action 互异且恰为六键语义动作
+  const actions = T.TOUCH_KEYS.map((entry) => entry.action)
+  assert.equal(new Set(actions).size, 6, 'action 六值互异')
+  assert.deepEqual(
+    actions.slice().sort(),
+    ['hardDrop', 'hold', 'moveLeft', 'moveRight', 'rotate', 'softDrop'],
+    'action 全集 = 移动左/右/旋转/软降/硬降/Hold 六语义'
+  )
+  // Node 加载零 DOM 副作用：Node 无 window/navigator/matchMedia → isTouchDevice() 恒 false
+  assert.equal(T.isTouchDevice(), false, 'isTouchDevice() Node 下恒 false（无 DOM 副作用）')
+  assert.equal(typeof globalThis.window, 'undefined', 'require 后 window 未定义')
+  assert.equal(typeof globalThis.document, 'undefined', 'require 后 document 未定义')
+})
+
+test('r16: TOUCH_KEYS ↔ game.js keyAction 交叉校验（防触屏映射漂移护栏）', () => {
+  // 引擎「按住类」动作：game.js onKeyDown 落 held Map 注册 DAS/软降 repeat 的仅
+  // moveLeft/moveRight/softDrop（ArrowLeft/ArrowRight/ArrowDown）——触屏 holdable=true 必须与之重合
+  const HELD_ACTIONS = new Set(['moveLeft', 'moveRight', 'softDrop'])
+  for (const entry of T.TOUCH_KEYS) {
+    const action = G.keyAction('RUNNING', entry.key)
+    if (entry.action === 'hold') {
+      // 'c' 在 game.js 全 phase 均无映射（null）→ Hold 特例，由 ui.js 既有 onHoldKey 消费
+      assert.equal(action, null, `hold 键 key='${entry.key}' 在 RUNNING 无 engine 映射（Hold 特例）`)
+      for (const phase of G.PHASES) {
+        assert.equal(G.keyAction(phase, entry.key), null, `hold 键 key='${entry.key}' 在 ${phase} 亦无映射`)
+      }
+      continue
+    }
+    assert.equal(action, entry.action, `TOUCH_KEYS.${entry.action} key='${entry.key}' → keyAction('RUNNING') 一致`)
+    if (entry.holdable) {
+      // holdable=true（移动/软降）：必为引擎 held 注册的按住类动作（同一 DAS/软降 repeat 时钟，PRD §8 红线）
+      assert.ok(HELD_ACTIONS.has(entry.action), `${entry.action} 应属按住类动作（DAS/软降 repeat）`)
+    } else {
+      // holdable=false（旋转/硬降）：引擎只做单发，不得落 held Map
+      assert.ok(!HELD_ACTIONS.has(entry.action), `${entry.action} 不得属按住类动作（单发语义）`)
+    }
+  }
+  // 反向护栏：引擎三枚 held 注册键（ArrowLeft/ArrowRight/ArrowDown）恰为 TOUCH_KEYS 的 holdable=true 子集
+  const heldKeys = T.TOUCH_KEYS.filter((entry) => entry.holdable).map((entry) => entry.key)
+  assert.deepEqual(heldKeys, ['ArrowLeft', 'ArrowRight', 'ArrowDown'], 'holdable=true 恰为引擎 held 三键')
+})
+
+test('r16: createTouchControls 工厂契约（缺 #touch-controls 元素抛错）', () => {
+  const g = G.createGame({ autoLoop: false, keyboard: false, autoPauseOnBlur: false, rng: function () { return 0 } })
+  // 与既有工厂（createBoardRenderer/createNextWellRenderer…）同惯例：缺必要元素 → 明确抛错
+  assert.throws(() => T.createTouchControls({ pad: null }, g), /#touch-controls/, 'pad=null → 抛「缺少 #touch-controls」语义错误')
+  assert.throws(() => T.createTouchControls({}, g), /#touch-controls/, 'els 无 pad 键 → 抛错')
+  g.dispose()
 })

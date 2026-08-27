@@ -34,6 +34,7 @@
 15. **设置弹层（v3.0）**：点击齿轮图标弹出毛玻璃风格设置弹层，所有设置项（音量/静音/幽灵块/BGM/踢墙/预览队列）按分组集中管理，弹层打开时游戏自动暂停（v3.0.1）。
 16. **消行动画（v3.1）**：消除行时播放 240ms ease-out-quart 亮度脉冲（1→1.25→0，1~4 行同步），动画期间时钟冻结、输入忽略、暂停冻结进度续播；reduced-motion 自动降级为即时消除。
 17. **多格预览队列（v3.2）**：信息面板「下一个」升级为 3 格预览队列，按出场顺序展示接下来 3 个方块；设置弹层提供「预览队列」开关（默认开启、持久化保存），关闭后仅隐藏队列显示，不影响实际出场顺序。
+18. **触屏控制（v3.3）**：触屏设备（手机/平板/触屏笔记本）自动显示 6 键虚拟按键（左移/右移/旋转/软降/硬降/Hold），逐键等效键盘：长按复用键盘同一 DAS/软降 repeat 时钟，多指互不串扰；键鼠桌面不显示触屏控件，操作体验不变。
 
 ## 操作说明
 
@@ -48,10 +49,22 @@
 | `回车` / `空格` | READY 态开始游戏；GAME OVER 态重新开始 |
 | `M` | 静音 / 取消静音（任意状态可用） |
 
+**触屏操作（触屏设备自动显示，v3.3）**：触屏设备（手机/平板/触屏笔记本）页面底部显示 6 个虚拟按键，按键行为与上方键盘说明**逐键等效**（长按复用同一 DAS/软降 repeat 时钟）：
+
+| 触屏键 | 动作 |
+|---|---|
+| `◀` 左 / `▶` 右 | 左移 / 右移 1 格（按住自动连续移动） |
+| `⟳` 旋转 | 顺时针旋转 90°（含踢墙，与 `↑`/`X` 一致） |
+| `▼` 软降 | 软降 1 格（按住连续软降，与 `↓` 一致） |
+| `⤓` 硬降 | 立即落底固定（**不加分**，与 `空格` 一致） |
+| `📦` Hold | Hold 暂存 / 交换（与 `C`/`Shift` 一致，每周期限 1 次） |
+
+> 触屏键按住的连续移动/软降速率与实体键盘同一时钟（DAS 170/100ms、软降 50ms），无第二套速率；多指可同时操作互不串扰。键鼠桌面不显示触屏控件，键盘说明原样适用。触屏设备上物理/蓝牙键盘仍完整可用。
+
 > 页面失焦或切换标签页时**自动暂停**；恢复焦点后需手动按 `P`/`Esc`/`空格` 或点击「继续」恢复。
 > 首次点击/按键后音效即激活（浏览器自动播放策略）；音量与静音设置在同一局会话内保持（刷新页面恢复默认 80%、未静音）。
 
-界面左侧为信息面板：**分数 / 等级 / 消除行数 / 预览队列（3 格）/ 音量控制 / 幽灵块开关 / BGM 开关 / 踢墙开关**，齿轮图标打开设置弹层；页头状态灯显示四态：`READY`（灰）→ `PLAYING`（绿）→ `PAUSED`（金）→ `GAME OVER`（红）。
+界面左侧为信息面板：**分数 / 等级 / 消除行数 / 预览队列（3 格）/ 音量控制 / 幽灵块开关 / BGM 开关 / 踢墙开关**，齿轮图标打开设置弹层；页头状态灯显示四态：`READY`（灰）→ `PLAYING`（绿）→ `PAUSED`（金）→ `GAME OVER`（红）。触屏设备页面底部另显示触屏六键操控区（见上「触屏操作」）。
 
 ## 如何运行
 
@@ -63,20 +76,20 @@
 ## 项目结构
 
 ```
-├── index.html         ← 入口（DOM 骨架 + 装配调用 TetrisUI.createUI）
-├── style.css          ← 科技玻璃风格全套（tokens / 布局 / 组件 / 降级）
+├── index.html         ← 入口（DOM 骨架 + 触屏操控区 #touch-controls + 装配调用 TetrisUI.createUI）
+├── style.css          ← 科技玻璃风格全套（tokens / 布局 / 组件 / 降级 / 触屏布局）
 ├── game.js            ← 核心引擎（状态机 + 时钟 + 7-bag + 踢墙 + 消行动画 + onSfx 事件）
-├── ui.js              ← UI 层（Canvas 渲染 / HUD / 消行脉冲 / 设置弹层 / 装配）
+├── ui.js              ← UI 层（Canvas 渲染 / HUD / 消行脉冲 / 设置弹层 / 触屏输入通道 / 装配）
 ├── audio.js           ← Web Audio 合成音效引擎（7 类音效 + BGM + 音量/静音，零外部文件）
 ├── persist.js         ← 持久化层（localStorage 读写 + 能力探测降级内存 Map）
 ├── scripts/
-│   ├── verify-game.cjs      ← 核心逻辑自检（74 项，node:test）
-│   ├── verify-audio.cjs     ← 音效引擎自检（23 项）
-│   ├── verify-ui.cjs        ← UI 层自检（12 项）
-│   ├── verify-persist.cjs   ← 持久化自检（11 项）
+│   ├── verify-game.cjs      ← 核心逻辑自检（97 项，node:test）
+│   ├── verify-audio.cjs     ← 音效引擎自检（24 项）
+│   ├── verify-ui.cjs        ← UI 层自检（20 项）
+│   ├── verify-persist.cjs   ← 持久化自检（15 项）
 │   ├── verify-constants.cjs ← 版本一致性自检（2 项）
 │   ├── assembly-check.cjs   ← 装配 + 自包含审计
-│   └── qa-e2e-jsdom.cjs     ← DOM 级 E2E（248 项）
+│   └── qa-e2e-jsdom.cjs     ← DOM 级 E2E（354 项）
 └── docs/              ← 产品文档（PRD / 设计 / 架构 / 技术方案 / QA 报告）
 ```
 
@@ -107,11 +120,11 @@
 **七套验证命令**（产品根下执行）：
 
 ```bash
-node scripts/verify-game.cjs          # 74 项
-node scripts/verify-audio.cjs         # 23 项
-node scripts/verify-ui.cjs            # 12 项
-node scripts/verify-persist.cjs       # 11 项
+node scripts/verify-game.cjs          # 97 项
+node scripts/verify-audio.cjs         # 24 项
+node scripts/verify-ui.cjs            # 20 项
+node scripts/verify-persist.cjs       # 15 项
 node scripts/verify-constants.cjs     # 2 项
 node scripts/assembly-check.cjs       # 装配 + 自包含审计
-node scripts/qa-e2e-jsdom.cjs         # 248 项（需 jsdom）
+node scripts/qa-e2e-jsdom.cjs         # 354 项（需 jsdom）
 ```

@@ -83,9 +83,11 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 12px;
+  --tpad-key: 3rem;      /* 触屏键尺寸【r16】：48px ≥ 44 最小可点击目标（AC-12） */
   --z-bg: 0;
   --z-board: 1;
   --z-panel: 2;
+  --z-touchpad: 5;       /* 触屏操控区【r16】：面板 2 之上、遮罩 10 之下 → 弹层必然盖住底栏 */
   --z-overlay-bg: 10;
   --z-overlay-card: 11;
   --z-toast: 20;
@@ -954,6 +956,194 @@ kbd {
     width: 95%;
     max-height: 85vh;
     padding: var(--sp-4);
+  }
+}
+
+/* ═══════════════ 5.5 触屏操控区（r16，移动端触屏控制） ═══════════════ */
+
+/* AC-13：触屏设备隐藏键盘图例（触屏键自带文字标签即图例，不显示误导性键盘文案） */
+html.has-touch .key-hints {
+  display: none;
+}
+
+/* AC-1/AC-14：默认隐藏 → 键鼠桌面零视觉变化；createUI 加 html.has-touch 才显示（纯 CSS 显隐，不重置对局） */
+.touchpad {
+  position: fixed;
+  z-index: var(--z-touchpad);
+  display: none;
+  touch-action: none;                      /* AC-8：不吃滚动/缩放手势 */
+  -webkit-tap-highlight-color: transparent; /* AC-8：按压态自有视觉，不吃系统灰色高亮 */
+  user-select: none;
+  -webkit-user-select: none;               /* AC-8：防长按文本选中 */
+}
+
+html.has-touch .touchpad {
+  display: flex;
+}
+
+/* 竖屏底栏（默认 / orientation: portrait，DESIGN §2.1）：单行 3+3，组间 gap 16、键间 gap --sp-2 */
+.touchpad {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4) calc(var(--sp-2) + env(safe-area-inset-bottom));
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border-top: 1px solid var(--line);       /* 玻璃底栏描边（DESIGN §4 容器规范） */
+  box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.35); /* 与毛玻璃面板同源浮起 */
+}
+
+/* 组距（DESIGN §2.1）：第 3 键（旋转）右侧补 --sp-2 → 组间 16px，拇指双区 [移动+旋转]┊[下落+Hold] */
+.touchpad .tkey:nth-child(3) {
+  margin-right: var(--sp-2);
+}
+
+/* 键组件 .tkey（DESIGN §2.3 三态：静态 / :active 按下 / 松手回静态；PAUSED/OVER 视觉不变，AC-2） */
+.tkey {
+  position: relative;                      /* ::before 辉光定位基准 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  width: var(--tpad-key);
+  height: var(--tpad-key);
+  min-width: var(--tpad-key);
+  min-height: var(--tpad-key);             /* 48px ≥ 44 最小可点击目标（AC-12） */
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: none;                      /* AC-8：按住不触发滚动/缩放 */
+  transition:
+    border-color 120ms ease-out,
+    color 120ms ease-out,
+    transform 60ms ease-out;
+}
+
+.tkey__icon {
+  font-size: var(--fs-lg);
+  line-height: 1;
+}
+
+.tkey__label {
+  font-size: var(--fs-md);                 /* 标签 15px（DESIGN §4） */
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* 辉光走 ::before opacity（不动画 box-shadow，对齐 .btn 约定 DESIGN §4.3） */
+.tkey::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--glow-primary);
+  opacity: 0;
+  transition: opacity 120ms ease-out;      /* reduced-motion 由 §6 全局裁剪 */
+  pointer-events: none;
+}
+
+/* 按压态（多信号：描边 primary + 标签 accent-hi + 辉光亮起 + scale 0.96） */
+.tkey:active {
+  border-color: var(--primary);
+  color: var(--accent-hi);
+  transform: scale(0.96);
+}
+
+.tkey:active::before {
+  opacity: 1;
+}
+
+/* hover 隔离（DESIGN §3）：仅 hover:hover 设备生效，防触屏粘滞态；触屏按压由 :active 表达 */
+@media (hover: hover) {
+  .tkey:hover {
+    border-color: var(--primary);
+    color: var(--accent-hi);
+  }
+
+  .tkey:hover::before {
+    opacity: 1;
+  }
+}
+
+/* 窄屏兜底（DESIGN §2.1 订正）：379px 及以下按键降为 44px（2.75rem），保 320px 不溢出；44 ≥ 44（AC-12） */
+@media (max-width: 379px) {
+  :root {
+    --tpad-key: 2.75rem; /* 44px */
+  }
+
+  .touchpad {
+    padding-right: var(--sp-3);
+    padding-left: var(--sp-3);
+  }
+}
+
+/* 横屏侧轨（orientation: landscape，DESIGN §2.2）：左 [左/右/旋转]、右 [软降/硬降/Hold]，
+   左右固定 72px（键 48 + 两侧 padding 12），中列容纳板框零遮挡（AC-12） */
+@media (orientation: landscape) {
+  .touchpad {
+    top: auto;
+    bottom: env(safe-area-inset-bottom);   /* 底部贴安全区（拇指自然位） */
+    left: 0;
+    right: 0;
+    height: calc(3 * var(--tpad-key) + 2 * var(--sp-2)); /* 单列 3 键 + 2 间距 */
+    flex-flow: column wrap;                /* 6 键折两列：4-6 自排右列 → 左/右轨 */
+    align-content: space-between;          /* 列 1 贴左、列 2 贴右 */
+    justify-content: space-between;        /* 列内 3 键均布 */
+    align-items: center;
+    gap: 0;
+    padding: 0;
+    background: transparent;               /* 中列留白不遮挡板框；玻璃侧轨走 ::before/::after */
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border: none;
+    box-shadow: none;
+  }
+
+  .touchpad .tkey {
+    position: relative;                    /* 盖在玻璃轨 ::before/::after 之上 */
+    margin: 0 var(--sp-3);                 /* 轨宽 72 = 键 48 + 两侧 padding 12 */
+  }
+
+  .touchpad .tkey:nth-child(3) {
+    margin-right: var(--sp-3);             /* 组距规则复位为统一键边距 */
+  }
+
+  /* 玻璃侧轨容器（DESIGN §4：--glass-bg + blur + --line 描边；两轨各 72px 宽） */
+  .touchpad::before,
+  .touchpad::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: calc(var(--tpad-key) + 2 * var(--sp-3)); /* 72px */
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    pointer-events: none;
+  }
+
+  .touchpad::before {
+    left: env(safe-area-inset-left);
+  }
+
+  .touchpad::after {
+    right: env(safe-area-inset-right);
   }
 }
 

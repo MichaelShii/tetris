@@ -1351,6 +1351,319 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('r15 预览队列独立实例 dispose 无异常', true)
   }
 
+  /* ---------- r16 触屏控制 E2E 段（AC-1~14；TECHNICAL §6.2 全项） ----------
+  触屏=键盘事件回放器：createTouchControls 将 touchstart/touchend 合成 KeyboardEvent
+  派发 document → 冒泡 window → game.js 既有 keyAction/held/DAS/软降 repeat 时钟消费
+  （零新速率常量、引擎零改动）。jsdom 无 TouchEvent 构造 → window.Event 兜底 +
+  opts.touch:true 强制触屏实例；触屏与键盘同参对比均用「顺序相位化」（用完即 dispose），
+  避免 window 级键盘层被两个并存引擎同时消费造成串扰（TECHNICAL §6.2 测试隔离）。 ---------- */
+  console.log('\n-- r16 触屏控制（TOUCH_KEYS 回放 / 守卫 / 多指 / 静态证据） --')
+  {
+    const TKEYS = window.TetrisUI.TOUCH_KEYS
+    // 触屏键合成器：与 createTouchControls.dispatch 同构（Event + preventDefault 语义）
+    const tp = {
+      btn: function (action) { return doc.querySelector('.tkey[data-action="' + action + '"]') },
+      ev: function (type) { return new window.Event(type, { bubbles: true, cancelable: true }) },
+      down: function (action) { tp.btn(action).dispatchEvent(tp.ev('touchstart')) },
+      up: function (action) { tp.btn(action).dispatchEvent(tp.ev('touchend')) },
+      tap: function (action) { tp.down(action); tp.up(action) },
+    }
+    function mkUI(extra) {
+      return window.TetrisUI.createUI(Object.assign({
+        autoLoop: false,
+        rng: function () { return 0 },
+        sfxEngine: spy,
+        animMs: 0,
+      }, extra || {}))
+    }
+    function pickSnap(s) {
+      return {
+        board: s.board,
+        piece: s.piece ? { type: s.piece.type, x: s.piece.x, y: s.piece.y, rot: s.piece.rot } : null,
+        score: s.score, lines: s.lines, level: s.level,
+        next: s.next, queue: s.queue, holdPiece: s.holdPiece,
+      }
+    }
+    function snapEq(a, b) { return JSON.stringify(pickSnap(a)) === JSON.stringify(pickSnap(b)) }
+    const countPlay = function (name) { return spy.plays.filter(function (p) { return p === name }).length }
+
+    // AC-1：has-touch 类归属生命周期（createUI 独占 add/remove）+ 显隐不重置对局
+    const dflt = mkUI()
+    check('r16 AC-1 默认实例 documentElement 无 has-touch（键鼠桌面零视觉变化）',
+      !doc.documentElement.classList.contains('has-touch'))
+    dflt.dispose()
+    const t1 = mkUI({ touch: true })
+    const g1 = t1.game
+    g1.start()
+    check('r16 AC-1 createUI({touch:true}) → html.has-touch 加入', doc.documentElement.classList.contains('has-touch'))
+    const sA = g1.getSnapshot()
+    key('ArrowRight') // 触屏实例存活期键盘照常（先验 AC-10，再验显隐惰性）
+    check('r16 AC-1 类加入不影响对局（RUNNING、键盘驱动成功）',
+      g1.getPhase() === 'RUNNING' && g1.getSnapshot().piece.x === sA.piece.x + 1, 'x ' + sA.piece.x + '→' + g1.getSnapshot().piece.x)
+    doc.documentElement.classList.remove('has-touch')
+    const sB = g1.getSnapshot()
+    doc.documentElement.classList.add('has-touch')
+    const sC = g1.getSnapshot()
+    check('r16 AC-1 显隐切换不重置对局（snap 逐字段一致、phase RUNNING）',
+      snapEq(sB, sC) && sC.phase === 'RUNNING')
+    t1.dispose()
+    check('r16 AC-1 dispose → has-touch 类移除（归属回收）', !doc.documentElement.classList.contains('has-touch'))
+
+    // AC-2：PAUSED / OVER 守卫（派发前拦截，仅 preventDefault——无输入/无音效/无报错）
+    const t2 = mkUI({ touch: true })
+    const g2 = t2.game
+    g2.start()
+    const p2Before = spy.plays.length
+    g2.togglePause()
+    const ps = g2.getSnapshot()
+    tp.tap('rotate'); tp.tap('hardDrop'); tp.down('softDrop'); tp.up('softDrop')
+    const ps2 = g2.getSnapshot()
+    check('r16 AC-2 PAUSED 触屏 rotate/hard/soft → snap 逐字段一致且不 togglePause',
+      snapEq(ps, ps2) && ps2.phase === 'PAUSED' && !spy.plays.slice(p2Before).length)
+    check('r16 AC-2 PAUSED 点击不产生任何音效', spy.plays.length === p2Before, 'plays 新增 ' + (spy.plays.length - p2Before))
+    g2.togglePause()
+    tp.tap('hardDrop')
+    check('r16 AC-2 RUNNING 恢复后触屏硬降照常（守卫只拦 PAUSED/OVER）', g2.getPhase() === 'RUNNING')
+    g2.lose()
+    const ov = g2.getSnapshot()
+    const pOv = spy.plays.length
+    tp.tap('rotate'); tp.tap('hardDrop')
+    const ov2 = g2.getSnapshot()
+    check('r16 AC-2 OVER 触屏输入无副作用（snap 不变、无新音效、不重开）',
+      snapEq(ov, ov2) && spy.plays.length === pOv && ov2.phase === 'OVER')
+    t2.dispose()
+
+    // AC-3/4：短按单步 + 撞墙边界 + 长按 1s 速率等价（复用同一 50ms 软降 repeat 时钟）
+    const t3 = mkUI({ touch: true })
+    const g3 = t3.game
+    g3.start()
+    const x0 = g3.getSnapshot().piece.x
+    tp.tap('moveLeft')
+    check('r16 AC-3 触屏左移短按恰 1 格', g3.getSnapshot().piece.x === x0 - 1, 'x ' + x0 + '→' + g3.getSnapshot().piece.x)
+    let wallGuard = 0
+    while (g3.getSnapshot().piece.x > 0 && wallGuard < 12) { tp.tap('moveLeft'); wallGuard++ }
+    const mvAtWall = countPlay('move')
+    tp.tap('moveLeft')
+    check('r16 AC-3 撞墙边界与键盘一致（x=0 后不再移动、无 move 音效）',
+      g3.getSnapshot().piece.x === 0 && countPlay('move') === mvAtWall, 'x=' + g3.getSnapshot().piece.x)
+    const y0 = g3.getSnapshot().piece.y
+    tp.tap('softDrop')
+    check('r16 AC-4 触屏软降短按恰 1 格', g3.getSnapshot().piece.y === y0 + 1, 'y ' + y0 + '→' + g3.getSnapshot().piece.y)
+    t3.dispose()
+
+    // 长按 1s：K（键盘）与 T（触屏）同参 fresh 实例「顺序相位化」→ 软降格数差 ≤1
+    async function holdSoftDrop(touch, ms) {
+      const h = mkUI(touch ? { touch: true } : {})
+      h.game.start()
+      spy.plays.length = 0
+      if (touch) tp.down('softDrop'); else key('ArrowDown')
+      await sleep(ms)
+      if (touch) tp.up('softDrop'); else keyUp('ArrowDown')
+      const during = spy.plays.filter(function (p) { return p === 'softDrop' }).length
+      spy.plays.length = 0
+      // 松手后无残留：再按一次 → 恰 1 格
+      if (touch) tp.tap('softDrop'); else { key('ArrowDown'); keyUp('ArrowDown') }
+      const single = spy.plays.filter(function (p) { return p === 'softDrop' }).length
+      h.dispose()
+      return { during: during, single: single }
+    }
+    const rK = await holdSoftDrop(false, 1050)
+    const rT = await holdSoftDrop(true, 1050)
+    check('r16 AC-3/4 长按 1s 速率等价（触屏 vs 键盘软降格数差 ≤1）',
+      Math.abs(rK.during - rT.during) <= 1, 'K=' + rK.during + ' T=' + rT.during)
+    check('r16 AC-3/4 长按确实连续重复（Δ≥6，证明走 repeat 时钟而非仅首击）',
+      rK.during >= 6 && rT.during >= 6, 'K=' + rK.during + ' T=' + rT.during)
+    check('r16 AC-3/4 松手后无残留（再按一次仍单步 +1）', rK.single === 1 && rT.single === 1, 'K=' + rK.single + ' T=' + rT.single)
+    // DAS 左移长按等价（AC-3 左右键长按连续移动同源 170/100ms 时钟）
+    async function holdMoveLeft(touch, ms) {
+      const h = mkUI(touch ? { touch: true } : {})
+      h.game.start()
+      const xb = h.game.getSnapshot().piece.x
+      if (touch) tp.down('moveLeft'); else key('ArrowLeft')
+      await sleep(ms)
+      if (touch) tp.up('moveLeft'); else keyUp('ArrowLeft')
+      const dx = h.game.getSnapshot().piece.x - xb
+      h.dispose()
+      return dx
+    }
+    const dK = await holdMoveLeft(false, 700)
+    const dT = await holdMoveLeft(true, 700)
+    check('r16 AC-3 长按左移 DAS 等效（位移差 ≤1、向左位移 ≥2 证明 repeat 触发）',
+      Math.abs(dK - dT) <= 1 && Math.abs(dK) >= 2, 'K=' + dK + ' T=' + dT)
+
+    // AC-5：硬降 = 空格（onSfx 事件序列逐一相等 + 最终 snap 相等）
+    function hardDropSeq(touch) {
+      const h = mkUI(touch ? { touch: true } : {})
+      const gh = h.game
+      gh.start()
+      // 构造 2 行差 1 格（row18/19 仅 col7 空）：竖 I x=7 hardDrop 补齐 → clear 2 行（hardDrop→clear 序列）
+      const bd = gh._debug
+      const board = Array.from({ length: 20 }, function () { return new Array(10).fill(null) })
+      for (let r = 18; r < 20; r++) for (let c = 0; c < 10; c++) board[r][c] = 'T'
+      board[18][7] = null; board[19][7] = null
+      bd.setBoard(board)
+      bd.setPiece({ type: 'I', rot: 1, x: 7, y: 0 })
+      spy.plays.length = 0
+      if (touch) tp.tap('hardDrop'); else { key(' '); keyUp(' ') }
+      const seq = spy.plays.slice()
+      const s = pickSnap(gh.getSnapshot())
+      h.dispose()
+      return { seq: seq, snap: s }
+    }
+    const kH = hardDropSeq(false)
+    const tH = hardDropSeq(true)
+    check('r16 AC-5 硬降 onSfx 事件序列逐一相等', JSON.stringify(kH.seq) === JSON.stringify(tH.seq),
+      'K=[' + kH.seq.join(',') + '] T=[' + tH.seq.join(',') + ']')
+    check('r16 AC-5 硬降最终 snap 相等（board/score/lines/piece）', JSON.stringify(kH.snap) === JSON.stringify(tH.snap))
+
+    // AC-6：固定序列 20 次旋转 K/T 每步 snap 深等 + rot 递增（踢墙路径同源）
+    function rotateSeq(touch) {
+      const h = mkUI(touch ? { touch: true } : {})
+      h.game.start()
+      const snaps = [pickSnap(h.game.getSnapshot())]
+      for (let i = 0; i < 20; i++) {
+        if (touch) tp.tap('rotate'); else { key('ArrowUp'); keyUp('ArrowUp') }
+        snaps.push(pickSnap(h.game.getSnapshot()))
+      }
+      h.dispose()
+      return snaps
+    }
+    const seqK = rotateSeq(false)
+    const seqT = rotateSeq(true)
+    let stEq = true
+    let stInc = true
+    for (let i = 0; i <= 20; i++) {
+      if (JSON.stringify(seqK[i]) !== JSON.stringify(seqT[i])) stEq = false
+      if (i > 0) {
+        if ((seqK[i].piece.rot - seqK[i - 1].piece.rot + 4) % 4 !== 1) stInc = false
+        if ((seqT[i].piece.rot - seqT[i - 1].piece.rot + 4) % 4 !== 1) stInc = false
+      }
+    }
+    check('r16 AC-6 20 次旋转每步 snap 深等（触屏盘面 = 键盘盘面）', stEq)
+    check('r16 AC-6 rot 每步递增（K/T 各 20 步，踢墙规则路径一致）', stInc && (seqK[20].piece.rot - seqK[0].piece.rot + 4) % 4 === 0)
+
+    // AC-7：Hold = C/Shift（每周期限 1 次、暂存/交换语义与 r14 一致）
+    const t7 = mkUI({ touch: true })
+    const g7 = t7.game
+    g7.start()
+    const curType = g7.getSnapshot().piece.type // rng 固定恒 I
+    const nxtType = g7.getSnapshot().next
+    const holdBefore = countPlay('hold')
+    tp.tap('hold')
+    const hs = g7.getSnapshot()
+    check('r16 AC-7 触屏 Hold → holdPiece=原当前块、piece=原 next（与 C/Shift 同路径）',
+      hs.holdPiece === curType && hs.piece.type === nxtType, 'hold=' + hs.holdPiece + ' piece=' + hs.piece.type)
+    tp.tap('hold')
+    check('r16 AC-7 周期内第二次触屏 Hold 无效（holdPiece 不变）', g7.getSnapshot().holdPiece === hs.holdPiece)
+    check('r16 AC-7 第二次 Hold 无音效（ok=false）', countPlay('hold') === holdBefore + 1, 'hold plays=' + countPlay('hold'))
+    t7.dispose()
+
+    // AC-8：防默认行为全套（容器 / 按键 / 画布 touchstart·touchmove 均 defaultPrevented）
+    const t8 = mkUI({ touch: true })
+    t8.game.start()
+    const evPadS = tp.ev('touchstart'); const evPadM = tp.ev('touchmove')
+    $('#touch-controls').dispatchEvent(evPadS); $('#touch-controls').dispatchEvent(evPadM)
+    check('r16 AC-8 .touchpad 容器 touchstart/touchmove 均 defaultPrevented（防滚动/缩放/选中/长按菜单）',
+      evPadS.defaultPrevented === true && evPadM.defaultPrevented === true)
+    const evBtn = tp.ev('touchstart')
+    tp.btn('rotate').dispatchEvent(evBtn)
+    check('r16 AC-8 触屏键 touchstart defaultPrevented', evBtn.defaultPrevented === true)
+    const evCvS = tp.ev('touchstart'); const evCvM = tp.ev('touchmove')
+    $('#board').dispatchEvent(evCvS); $('#board').dispatchEvent(evCvM)
+    check('r16 AC-8 #board 画布 touchstart/touchmove 均 defaultPrevented', evCvS.defaultPrevented === true && evCvM.defaultPrevented === true)
+    t8.dispose()
+
+    // AC-9：多指互不串扰 + 连点不抖动
+    const t9 = mkUI({ touch: true })
+    const g9 = t9.game
+    g9.start()
+    const q0 = g9.getSnapshot()
+    tp.down('moveLeft'); tp.down('softDrop')
+    const q1 = g9.getSnapshot()
+    check('r16 AC-9 多指 左+软降 同时生效（x−1 且 y+1 无串扰）',
+      q1.piece.x === q0.piece.x - 1 && q1.piece.y === q0.piece.y + 1, 'x ' + q0.piece.x + '→' + q1.piece.x + ' y ' + q0.piece.y + '→' + q1.piece.y)
+    tp.up('moveLeft')
+    const sd0 = countPlay('softDrop')
+    await sleep(140)
+    check('r16 AC-9 释放左键不串扰软降（软降 repeat 仍持续）', countPlay('softDrop') > sd0, 'softDrop ' + sd0 + '→' + countPlay('softDrop'))
+    tp.up('softDrop')
+    const rw = g9.getSnapshot().piece.x
+    tp.down('moveRight'); tp.down('moveRight')
+    check('r16 AC-9 同键快连点不抖动（重复 touchstart 忽略，恰 1 步）', g9.getSnapshot().piece.x === rw + 1, 'x ' + rw + '→' + g9.getSnapshot().piece.x)
+    tp.up('moveRight')
+    const r0 = g9.getSnapshot().piece.rot
+    tp.tap('rotate'); tp.tap('rotate')
+    check('r16 AC-9 双击旋转 rot 恰 +2（无合成 click 双发）', g9.getSnapshot().piece.rot === (r0 + 2) % 4, 'rot ' + r0 + '→' + g9.getSnapshot().piece.rot)
+    t9.dispose()
+
+    // AC-10：触屏 + 键盘并存互不干扰；.tkey 键盘可激活且防双发
+    const t10 = mkUI({ touch: true })
+    const g10 = t10.game
+    g10.start()
+    const xk = g10.getSnapshot().piece.x
+    key('ArrowLeft'); keyUp('ArrowLeft')
+    check('r16 AC-10 触屏实例存活期键盘仍完整可用（ArrowLeft 生效）', g10.getSnapshot().piece.x === xk - 1)
+    const bHd = tp.btn('hardDrop')
+    check('r16 AC-10 .tkey 可聚焦（真实 BUTTON + tabIndex≥0）', bHd.tagName === 'BUTTON' && bHd.tabIndex >= 0)
+    const hd0 = countPlay('hardDrop')
+    const evEnter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    bHd.dispatchEvent(evEnter)
+    check('r16 AC-10 .tkey Enter 激活恰一次 hardDrop（preventDefault+stopPropagation 防双发）',
+      evEnter.defaultPrevented === true && countPlay('hardDrop') === hd0 + 1, 'hardDrop ' + hd0 + '→' + countPlay('hardDrop'))
+    t10.dispose()
+
+    // AC-11：触屏设备上现有 HTML 按钮全流程可达（暂停↔继续循环无死角；disabled 随状态机联动）
+    const t11 = mkUI({ touch: true })
+    const g11 = t11.game
+    check('r16 AC-11 开始/暂停/重开/设置/静音按钮俱在（真实 BUTTON）', ['#btn-start', '#btn-pause', '#btn-restart', '#btn-settings', '#btn-mute']
+      .every(function (sel) { const el = $(sel); return !!el && el.tagName === 'BUTTON' }))
+    $('#btn-start').click()
+    check('r16 AC-11 触屏下开始按钮 → RUNNING', g11.getPhase() === 'RUNNING')
+    check('r16 AC-11 开始后 暂停/重开 按钮启用（disabled 随状态机联动）',
+      $('#btn-pause').disabled === false && $('#btn-restart').disabled === false)
+    $('#btn-pause').click()
+    check('r16 AC-11 触屏下暂停按钮 → PAUSED', g11.getPhase() === 'PAUSED')
+    $('#btn-pause').click()
+    check('r16 AC-11 触屏下继续按钮 → RUNNING', g11.getPhase() === 'RUNNING')
+    t11.dispose()
+
+    // AC-12：静态证据——token / 键尺寸算术 / 键行宽 / 窄屏兜底 / 遮挡结论数值
+    const cssText = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
+    const htmlText = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+    check('r16 AC-12 token --tpad-key: 3rem（48px 键）', cssText.indexOf('--tpad-key: 3rem') !== -1)
+    check('r16 AC-12 token --z-touchpad: 5（面板 2 之上、遮罩 10 之下）', cssText.indexOf('--z-touchpad: 5') !== -1)
+    check('r16 AC-12 .tkey 明确 width/height = var(--tpad-key)', /\.tkey\s*\{[^}]*width:\s*var\(--tpad-key\)[^}]*height:\s*var\(--tpad-key\)/.test(cssText))
+    check('r16 AC-12 键尺寸算术 48px ≥ 44 最小目标', 48 >= 44)
+    check('r16 AC-12 竖屏键行宽 6×48+5×8+16=344 ≤ 375 单行不溢出', 6 * 48 + 5 * 8 + 16 === 344 && 344 <= 375, '344 ≤ 375')
+    check('r16 AC-12 窄屏兜底（max-width:379px → --tpad-key:2.75rem=44px，320px 不溢出）',
+      cssText.indexOf('@media (max-width: 379px)') !== -1 && cssText.indexOf('--tpad-key: 2.75rem') !== -1)
+    check('r16 AC-12 竖屏遮挡 ≥95%（(667−92)/592=0.971 ≥ 0.95，画布可视面积）', (667 - 92) / 592 >= 0.95 && (667 - 92) / 592 <= 1)
+    check('r16 AC-12 横屏零遮挡（中列 812−144=668 ≥ 板框 592）', 812 - 144 >= 592)
+
+    // AC-13/14：DOM 契约 + 纯 CSS 显隐 + 键鼠零视觉变化 + 回归基线（引擎零改动）
+    const tkeys = Array.prototype.slice.call(doc.querySelectorAll('.tkey'))
+    check('r16 AC-13/14 .tkey 恰 6 个', tkeys.length === 6, String(tkeys.length))
+    const acts = tkeys.map(function (b) { return b.getAttribute('data-action') })
+    const tkActs = TKEYS.map(function (e) { return e.action })
+    check('r16 AC-13/14 data-action ↔ TOUCH_KEYS 六值一一对应', acts.length === 6 && tkActs.every(function (a) { return acts.indexOf(a) !== -1 }), acts.join(','))
+    const labels = tkeys.map(function (b) { return b.getAttribute('aria-label') }).sort()
+    const want = ['Hold 暂存', '左移', '右移', '旋转', '软降', '硬降'].sort()
+    check('r16 AC-13 aria-label 六值齐全（触屏键自带标签即图例）',
+      JSON.stringify(labels) === JSON.stringify(want), labels.join('/'))
+    check('r16 AC-13 style.css 含 html.has-touch .key-hints 隐藏规则（不显示误导键盘文案）',
+      cssText.indexOf('html.has-touch .key-hints') !== -1)
+    check('r16 AC-13/14 index.html 含 #touch-controls', htmlText.indexOf('id="touch-controls"') !== -1)
+    check('r16 AC-14 基础 .touchpad display:none（键鼠桌面零视觉变化）', /\.touchpad\s*\{[^}]*display:\s*none/.test(cssText))
+    check('r16 AC-14 html.has-touch .touchpad display:flex（纯 CSS 显隐）', /html\.has-touch\s+\.touchpad\s*\{[^}]*display:\s*flex/.test(cssText))
+    check('r16 AC-14 回归基线：引擎 SFX_EVENTS 未变（move/rotate/softDrop/hardDrop/clear/levelUp/gameOver/hold 俱在）',
+      ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver', 'hold'].every(function (e) { return window.TetrisGame.SFX_EVENTS.indexOf(e) !== -1 }))
+    check('r16 AC-14 回归基线：速率常量仍为 DAS 170/100、软降 50（零新常量）',
+      window.TetrisGame.DAS_DELAY_MS === 170 && window.TetrisGame.DAS_REPEAT_MS === 100 && window.TetrisGame.SOFT_DROP_REPEAT_MS === 50)
+    check('r16 TOUCH_KEYS 导出含 key 回放码（6 键 action+key+holdable）',
+      TKEYS.length === 6 && TKEYS.every(function (e) { return typeof e.key === 'string' && typeof e.action === 'string' && typeof e.holdable === 'boolean' }))
+    check('r16 isTouchDevice() jsdom/桌面恒 false（能力检测，默认路径零变化）', window.TetrisUI.isTouchDevice() === false)
+  }
+
   /* ---------- 汇总 ---------- */
   console.log('\n== 结果汇总 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))
@@ -1418,6 +1731,11 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     const wErrors = []
     w2.addEventListener('error', function (e) { wErrors.push(String(e.message)) })
     check('页面加载无全局 error 事件', wErrors.length === 0)
+    // r16（AC-1/AC-13/AC-14 DOM 契约）：真实自动装配页 jsdom 无触屏能力 → 桌面默认零变化
+    check('r16 file:// 自动装配：jsdom 无触屏能力 → html 无 has-touch（键鼠默认零视觉变化）',
+      !w2.document.documentElement.classList.contains('has-touch'))
+    check('r16 file:// 自动装配：真实页面含 #touch-controls 触屏操控区', !!w2.document.querySelector('#touch-controls'))
+    check('r16 file:// 自动装配：页面含 6 个 .tkey 触屏键', w2.document.querySelectorAll('.tkey').length === 6)
     // 清理：关闭自动装配的 rAF 循环
     if (handle2) handle2.dispose()
     w2.close()

@@ -10,7 +10,8 @@
  *   - v2.0 例外：静音是"设置"而非"游戏态"，M 键与首次交互解锁（AudioContext）由
  *     本文件独立监听（任意游戏态生效，AC-10.2/AC-09.6），与 game.js 键盘无冲突。
  *   - 本文件拥有：唯一游戏 Canvas 逐帧渲染、迷你预览、HUD 数值/状态灯/按钮矩阵、
- *     三态遮罩（焦点管理）、LEVEL UP toast、音量/静音控件、窗口 resize 适配。
+ *     三态遮罩（焦点管理）、LEVEL UP toast、音量/静音控件、窗口 resize 适配、
+ *     触屏操控通道（r16：合成键盘事件回放器，见下）。
  *
  * 对外契约（浏览器）：window.TetrisUI；Node/CommonJS 下同时 module.exports。
  *   TetrisUI.createUI(options?) → { game, dispose }   （一键装配，含游戏实例）
@@ -20,6 +21,10 @@
  *   TetrisUI.createNextQueueRenderer(canvas)          （r15 多格预览队列 48×80，签名同 createNextWellRenderer）
  *   TetrisUI.createHud(els) / createOverlay(els) / createFeedback(els)
  *                                                      （签名对齐 TECHNICAL §3.5）
+ *   TetrisUI.TOUCH_KEYS                               （r16 触屏六键回放表，单一事实来源）
+ *   TetrisUI.isTouchDevice()                          （r16 触屏能力检测，Node 恒 false）
+ *   TetrisUI.createTouchControls(els, game, opts?)    （r16 触屏输入控制器 → { dispose }，
+ *                                                      签名风格同 createHud/createAudioPanel）
  *
  * 自动装配：ui.js 加载后若检测到应用 DOM（#board 存在），将在 DOMContentLoaded
  * 时自动 createUI() 并把句柄写入 window.__tetris（双击 index.html 即玩，AC-01）。
@@ -45,6 +50,7 @@
  *   │   │       ├─ #overlay[hidden] > #overlay-card > #overlay-title / #overlay-sub / #overlay-btn
  *   │   │       └─ #feedback-toast[hidden]（LEVEL UP 胶囊）
  *   │   └─ #panel-right.panel > #key-hints + #controls(#btn-start / #btn-pause / #btn-restart)
+ *   └─ #touch-controls.touchpad（可选，r16）> 6 × .tkey[data-action]   （触屏操控区，html.has-touch 下才渲染，AC-1）
  *   遮罩/反馈必须作为 #board-frame 子节点（覆盖游戏板区域，非全页，DESIGN §3.2）。
  *   游戏键盘由 game.js 内部处理；按钮仅作辅助入口（点击后 blur 防空格二次触发，E9）；
  *   v2.0：M 键与 AudioContext 解锁由本文件独立监听（设置/兼容性职责，非游戏态）。
@@ -953,6 +959,156 @@
     }
 
     /* ======================================================================
+     * 3b. 触屏输入通道（r16，AC-1~14；依据 PRD §5.1 / TECHNICAL §3.3）
+     *     触屏不是第二套输入逻辑，而是"键盘事件的回放器"：touch down/up 合成为与
+     *     实体键相同 key 码、bubbles:true 的 KeyboardEvent 派发，复走 game.js 既有
+     *     held/startKeyRepeat/updateHeld（DAS/软降时钟）与 keyAction 分发表——
+     *     零新速率常量（PRD §8 红线）、引擎零改动。"逐键等效"由构造保证而非口头承诺。
+     * ==================================================================== */
+
+    // 触屏六键回放表（action ↔ 合成键码；.action 与 index.html .tkey[data-action] 六值
+    // 一一对应，verify-ui.cjs 交叉断言防漂移）。'c'（Hold）在 game.js keyAction 无映射
+    // （null），由本文件 onHoldKey window 监听消费——触屏键与 C/Shift 同一路径。
+    const TOUCH_KEYS = [
+      { action: 'moveLeft', key: 'ArrowLeft', holdable: true },
+      { action: 'moveRight', key: 'ArrowRight', holdable: true },
+      { action: 'rotate', key: 'ArrowUp', holdable: false },
+      { action: 'softDrop', key: 'ArrowDown', holdable: true },
+      { action: 'hardDrop', key: ' ', holdable: false },
+      { action: 'hold', key: 'c', holdable: false },
+    ]
+
+    // 触屏能力检测（TECHNICAL §5.8）：Node（window 未定义）恒 false；
+    // jsdom 恒 false——其将事件处理属性初始化为 null 而浏览器为 undefined（jsdom#2429），
+    // 故 `'ontouchstart' in window` 需叠加 `ontouchstart !== null` 才为真（真实触屏设备
+    // 该值为 undefined）。保既有 E2E 默认路径零变化；opts.touch:true 强制注入测试。
+    function isTouchDevice() {
+      if (typeof window === 'undefined') return false
+      try {
+        if ('ontouchstart' in window && window.ontouchstart !== null) return true
+        if (typeof window.navigator === 'object' && window.navigator && window.navigator.maxTouchPoints > 0) return true
+        if (typeof window.matchMedia === 'function') {
+          const mq = window.matchMedia('(pointer: coarse)')
+          return !!(mq && mq.matches)
+        }
+      } catch (e) {
+        /* 检测失败按非触屏处理，不抛（兜底不中断） */
+      }
+      return false
+    }
+
+    /**
+     * createTouchControls(els, game, opts?) → { dispose }（r16）
+     * els:  { pad }  #touch-controls 触屏操控区元素（缺失抛错：缺少 #touch-controls）
+     * game: createGame 实例（getPhase() RUNNING 守卫；合成事件由窗口级键盘层消费）
+     * opts: { root? } 合成事件派发目标（默认 document；事件 bubbles:true 冒泡到 window）
+     *
+     * 每键四类输入源 → 同一"发声点"（TECHNICAL §3.3）：
+     *   touchstart       → preventDefault + RUNNING 守卫 + activeKeys 注册 + 派发合成 keydown
+     *   touchend/cancel  → preventDefault + activeKeys 释放 + 派发合成 keyup
+     *   keydown(Enter/Space 聚焦键) → preventDefault + stopPropagation + tap()
+     *   click（鼠标/笔，混合设备）  → tap()
+     * tap() = RUNNING 守卫 + keydown + keyup（短按单步：keydown 注册 held 后即释放 → 恰好 1 格）
+     * 长按由 touchstart 只派 keydown → game.js held Map 注册 → 既有 DAS/软降 repeat 时钟驱动。
+     */
+    function createTouchControls(els, game, opts) {
+      if (!els || !els.pad) {
+        throw new Error('TetrisUI.createTouchControls: 缺少 #touch-controls（触屏操控区元素，见 index.html DOM 契约）')
+      }
+      const pad = els.pad
+      const root = (opts && opts.root) || (typeof document !== 'undefined' ? document : null)
+      const activeKeys = new Set() // action 级激活集合：多指各键独立、同键重复忽略（AC-9）
+
+      // 合成键盘事件（与 qa-e2e 既有 key()/keyUp() 辅助器同构，行为逐字节等于真实按键）
+      function dispatch(type, key) {
+        if (!root) return
+        let ev = null
+        try {
+          ev = new KeyboardEvent(type, { key: key, bubbles: true, cancelable: true })
+        } catch (e) {
+          // jsdom/老旧环境兜底：无 key 字段则以 defineProperty 补足（不抛）
+          if (typeof window !== 'undefined' && typeof window.Event === 'function') {
+            ev = new window.Event(type, { bubbles: true, cancelable: true })
+          }
+        }
+        if (ev && typeof ev.key === 'undefined') {
+          try { Object.defineProperty(ev, 'key', { value: key }) } catch (e2) { /* 忽略 */ }
+        }
+        if (ev) root.dispatchEvent(ev)
+      }
+
+      // AC-2 守卫：仅 RUNNING 下派发（PAUSED/OVER 点击无输入、无副作用、无音效）；
+      // 空格在此不会被 game.js PAUSED 表映射 togglePause——触屏键=游戏输入，
+      // 暂停恢复仍由现有按钮/P 键负责（避免语义偏差）。
+      function isRunning() {
+        return typeof game === 'object' && game !== null && typeof game.getPhase === 'function' && game.getPhase() === 'RUNNING'
+      }
+
+      // 短按单步：keydown 注册 held（holdable 键首击 + startKeyRepeat）后立即 keyup 释放 → 恰好 1 格
+      function tap(key) {
+        if (!isRunning()) return
+        dispatch('keydown', key)
+        dispatch('keyup', key)
+      }
+
+      // 容器级防默认行为（AC-8）：.touchpad 无交互子节点区域一律 preventDefault（防滚动/缩放/选中/长按菜单）
+      const onPadTouch = function (e) {
+        if (e && typeof e.preventDefault === 'function') e.preventDefault()
+      }
+      pad.addEventListener('touchstart', onPadTouch, { passive: false })
+      pad.addEventListener('touchmove', onPadTouch, { passive: false })
+
+      const handles = TOUCH_KEYS.map(function (entry) {
+        const keyBtn = pad.querySelector('.tkey[data-action="' + entry.action + '"]')
+        if (!keyBtn) {
+          throw new Error('TetrisUI.createTouchControls: 缺少触屏键 .tkey[data-action=' + entry.action + ']（见 index.html DOM 契约）')
+        }
+        const onTouchStart = function (e) {
+          if (e && typeof e.preventDefault === 'function') e.preventDefault() // AC-8 + 抑制合成 click（AC-9 连点不双发）
+          if (activeKeys.has(entry.action)) return // 同键已激活（快连点/多指同键）→ 忽略，防抖动式重复（TECHNICAL §5.2）
+          if (!isRunning()) return // AC-2：PAUSED/OVER 仅 preventDefault，不派发
+          activeKeys.add(entry.action)
+          dispatch('keydown', entry.key) // 合成 keydown → held 注册 + 首击；长按由既有时钟驱动
+        }
+        const onTouchEnd = function (e) {
+          if (e && typeof e.preventDefault === 'function') e.preventDefault()
+          if (!activeKeys.has(entry.action)) return
+          activeKeys.delete(entry.action)
+          dispatch('keyup', entry.key) // 释放 → held 删除 + stopKeyRepeat（window blur 后为无害 no-op）
+        }
+        const onKeyDown = function (e) {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          e.preventDefault() // 取消默认按钮激活（不产生 click 双发）
+          e.stopPropagation() // 阻断冒泡到 window，防 game.js 键盘层二次吸收同一按键（AC-10 细化）
+          tap(entry.key)
+        }
+        const onClick = function () {
+          tap(entry.key) // 仅鼠标/笔（混合设备）；触屏路径已被 touchstart/touchend preventDefault 抑制
+        }
+        keyBtn.addEventListener('touchstart', onTouchStart, { passive: false })
+        keyBtn.addEventListener('touchend', onTouchEnd, { passive: false })
+        keyBtn.addEventListener('touchcancel', onTouchEnd, { passive: false })
+        keyBtn.addEventListener('keydown', onKeyDown)
+        keyBtn.addEventListener('click', onClick)
+        return { btn: keyBtn, onTouchStart: onTouchStart, onTouchEnd: onTouchEnd, onKeyDown: onKeyDown, onClick: onClick }
+      })
+
+      function dispose() {
+        pad.removeEventListener('touchstart', onPadTouch)
+        pad.removeEventListener('touchmove', onPadTouch)
+        handles.forEach(function (h) {
+          h.btn.removeEventListener('touchstart', h.onTouchStart)
+          h.btn.removeEventListener('touchend', h.onTouchEnd)
+          h.btn.removeEventListener('touchcancel', h.onTouchEnd)
+          h.btn.removeEventListener('keydown', h.onKeyDown)
+          h.btn.removeEventListener('click', h.onClick)
+        })
+        activeKeys.clear()
+      }
+      return { dispose: dispose }
+    }
+
+    /* ======================================================================
      * 4. 装配 createUI —— 一键接入 game.js（持有渲染/UI 全部副作用）
      * ==================================================================== */
 
@@ -1019,6 +1175,17 @@
       const hud = createHud(hudEls)
       const overlay = createOverlay(overlayEls)
       const feedback = createFeedback({ toast: toastEl, boardFrame: boardFrame })
+
+      /* ---- 触屏操控区装配（r16，AC-1 显隐；TECHNICAL §2.2） ----
+         #touch-controls 可选：缺失不抛错、不建控制器，既有宿主零影响；
+         has-touch 类由 createUI 独占 add/remove（归属计数），多实例/测试隔离不互踩。 ---- */
+      const touchPadEl = root.querySelector ? root.querySelector('#touch-controls') : null
+      const touchDevice = opts.touch !== undefined ? !!opts.touch : isTouchDevice()
+      let touchClassOwned = false
+      if (touchDevice && typeof document !== 'undefined' && document.documentElement) {
+        document.documentElement.classList.add('has-touch')
+        touchClassOwned = true
+      }
 
       let disposed = false
       let prevSnapshot = null
@@ -1500,6 +1667,23 @@
       game.setWallKickEnabled(wallKickEnabled)
       game.setHoldEnabled(holdEnabled) // r14：Hold 暂存开关同步到引擎
 
+      /* ---- 触屏控制器与画布防默认（r16） ----
+         触屏控制器在 pad 存在时创建（合成键盘事件，复走键盘层时钟/语义，引擎零改动）；
+         游戏板画布级 touchstart/touchmove 均 preventDefault（AC-8）——只挂 canvas
+         （无交互子节点），不挂 #board-frame 容器（避免误伤遮罩/按钮点击）。 ---- */
+      let touchControls = null
+      if (touchPadEl) {
+        touchControls = createTouchControls({ pad: touchPadEl }, game, { root: root })
+      }
+      let canvasTouchGuard = null
+      if (touchDevice) {
+        canvasTouchGuard = function (e) {
+          e.preventDefault()
+        }
+        boardCanvas.addEventListener('touchstart', canvasTouchGuard, { passive: false })
+        boardCanvas.addEventListener('touchmove', canvasTouchGuard, { passive: false })
+      }
+
       // 单例句柄：宿主手动装配（window.__tetris = createUI()）可抑制自动装配；
       // 自动装配路径在此写入，供后续 createUI 调用/测试读取。
       if (typeof window !== 'undefined' && !window.__tetris) {
@@ -1581,6 +1765,15 @@
         mousedownGuards.forEach(function (entry) {
           entry.btn.removeEventListener('mousedown', entry.guard)
         })
+        // r16：触屏控制器对称解绑 + 画布防默认守卫移除 + has-touch 类归属回收（谁加谁删）
+        if (touchControls) touchControls.dispose()
+        if (canvasTouchGuard) {
+          boardCanvas.removeEventListener('touchstart', canvasTouchGuard)
+          boardCanvas.removeEventListener('touchmove', canvasTouchGuard)
+        }
+        if (touchClassOwned && typeof document !== 'undefined' && document.documentElement) {
+          document.documentElement.classList.remove('has-touch')
+        }
         boardRenderer.dispose()
         holdWell.dispose()
         nextWell.dispose()
@@ -1646,6 +1839,10 @@
       createOverlay: createOverlay,
       createFeedback: createFeedback,
       createAudioPanel: createAudioPanel, // v2.0：音量/静音控件（AC-10，签名对齐 TECHNICAL §3.3）
+      // r16：触屏输入通道（TOUCH_KEYS 单一事实来源 / 能力检测 / 输入控制器，签名对齐 TECHNICAL §3.1/§3.3）
+      TOUCH_KEYS: TOUCH_KEYS,
+      isTouchDevice: isTouchDevice,
+      createTouchControls: createTouchControls,
     }
   }
 )
