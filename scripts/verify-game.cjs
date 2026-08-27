@@ -11,7 +11,8 @@
  *
  * 覆盖：PRD §5 数值 100% 钉死（AC-06.5）、方块/旋转/碰撞/消行、状态机迁移
  * 矩阵全遍历、会话集成（AC-02/03/04/05/06 关键路径）、键盘映射 keyAction 矩阵
- * 与恢复节拍差值续算（v2.1，AC-11；TECHNICAL §7.1）。
+ * 与恢复节拍差值续算（v2.1，AC-11；TECHNICAL §7.1）；r15 多格预览队列
+ * （§13，AC-1/2/3/5/9/10/11；TECHNICAL §4/§7.2）。
  */
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -1610,5 +1611,159 @@ test('Hold ⑭: SFX_EVENTS 包含 hold（8 项）（AC-16）', () => {
   assert.equal(T.SFX_EVENTS.length, 8, 'SFX_EVENTS 共 8 项')
   assert.ok(T.SFX_EVENTS.includes('hold'), 'SFX_EVENTS 包含 hold')
   assert.deepEqual(T.SFX_EVENTS, ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver', 'hold'], 'SFX_EVENTS 排序与值正确')
+})
+
+/* ---------- 13. r15 多格预览队列（v3.2，AC-1/2/3/5/9/10/11；TECHNICAL §4/§7.2） ---------- */
+
+test('r15 队列 ①: NEXT_QUEUE_SIZE 导出 = 3（AC-10）', () => {
+  assert.equal(typeof T.NEXT_QUEUE_SIZE, 'number', 'NEXT_QUEUE_SIZE 导出存在')
+  assert.equal(T.NEXT_QUEUE_SIZE, 3, '预览队列恒长 3（数值单一事实来源）')
+})
+
+test('r15 队列 ②: createQueue.peekN 契约——边界/非消耗/跨袋序列一致（AC-10）', () => {
+  // n≤0 / 非数值 → []（不抛错、不消耗）
+  const q0 = T.createQueue(() => 0.5)
+  assert.deepEqual(q0.peekN(0), [])
+  assert.deepEqual(q0.peekN(-3), [])
+  assert.deepEqual(q0.peekN('x'), [])
+  assert.equal(q0.peek(), q0.peekN(1)[0], '边界调用后队列未消耗，peek 首项不变')
+
+  // 跨袋序列一致性：固定 rng，next()×6 后 peekN(3) = 本袋余 1 + 下袋前 2
+  const q = T.createQueue(() => 0.5)
+  for (let k = 0; k < 6; k++) q.next() // 消费 bag0 前 6 块
+  const cross = q.peekN(3)
+  assert.equal(cross.length, 3, 'peekN(3) 长度 3')
+  for (const t of cross) assert.ok(T.TYPES.includes(t), '跨袋项均为合法类型')
+
+  // 非消耗：连续两次 peekN 返回相同序列；返回项 = 随后逐次 next() 消费序
+  assert.deepEqual(q.peekN(3), cross, 'peekN 非消耗：重复调用序列一致')
+  for (let k = 0; k < 3; k++) assert.equal(q.next(), cross[k], 'next() 第 ' + (k + 1) + ' 次 = peekN 第 ' + (k + 1) + ' 项')
+
+  // 跨袋读取后同袋余块（bag1 剩余 5 块）互不重复：7-bag 完整性未被 peekN 破坏
+  const rest = [q.next(), q.next(), q.next(), q.next(), q.next()]
+  assert.equal(new Set(rest).size, 5, '跨袋后同袋余块 5 项互不重复（袋界完整性保持）')
+})
+
+test('r15 队列 ③: READY 快照 queue 恒长 3 且 queue[0]===next（AC-1/AC-10）', () => {
+  const g = mk({ rng: () => 0.5 })
+  const s = g.getSnapshot()
+  assert.ok(Array.isArray(s.queue), '快照含 queue 数组')
+  assert.equal(s.queue.length, T.NEXT_QUEUE_SIZE, 'READY queue 恒长 NEXT_QUEUE_SIZE(3)')
+  assert.equal(s.queue[0], s.next, 'queue[0] === next（队首 = 下一出生块）')
+  for (const t of s.queue) assert.ok(T.TYPES.includes(t), '每格为合法方块类型')
+})
+
+test('r15 队列 ④: start 出生首块 = READY queue[0]，队列前移（AC-3）', () => {
+  const g = mk({ rng: () => 0.5 })
+  const ready = g.getSnapshot()
+  g.start()
+  const s = g.getSnapshot()
+  assert.equal(s.piece.type, ready.queue[0], '首块 = READY 时队首')
+  assert.equal(s.queue[0], ready.queue[1], '新队首 = 前置 queue[1]（队首被消费、尾部补位前移）')
+  assert.equal(s.queue.length, 3, 'start 后 queue 仍恒长 3')
+})
+
+test('r15 队列 ⑤: AC-2 固定序列 20 次出生 100% 一致（rng=0.5 打桩，无错位缺漏）', () => {
+  const g = mk({ rng: () => 0.5 })
+  g.start()
+  for (let i = 1; i <= 20; i++) {
+    const before = g.getSnapshot()
+    const r = g.hardDrop()
+    assert.equal(r.ok, true, '第 ' + i + ' 次硬降成功')
+    assert.equal(g.getPhase(), 'RUNNING', '第 ' + i + ' 次出生未结束')
+    const after = g.getSnapshot()
+    assert.equal(after.piece.type, before.queue[0], '第 ' + i + ' 次出生块 === 上一快照 queue[0]（与固定序列严格一致）')
+    assert.equal(after.queue[0], before.queue[1], '第 ' + i + ' 次前移：新队首 === 前置 queue[1]')
+    assert.equal(after.queue.length, 3, '第 ' + i + ' 次 queue 恒长 3')
+    // 每轮清空棋盘，仅保留队列推进语义（0.5 打桩的中央堆塔 ~12 次即触顶，清板只保证 20 次出生存活）
+    g._debug.setBoard(T.createBoard())
+  }
+})
+
+test('r15 队列 ⑥: PAUSED 冻结——多快照 + tick 后 queue 不变（AC-5）', () => {
+  const { g } = freshGame({ rng: () => 0.5 })
+  g.start()
+  g.hardDrop()
+  assert.equal(g.togglePause().ok, true)
+  assert.equal(g.getPhase(), 'PAUSED')
+  const p1 = g.getSnapshot().queue
+  const p2 = g.getSnapshot().queue
+  g.tick(10000)
+  const p3 = g.getSnapshot().queue
+  assert.deepEqual(p3, p1, '暂停期多次快照 + tick 后 queue 恒不变')
+  assert.deepEqual(p3, p2, '暂停期快照间 queue 一致')
+  // 恢复后队列按原序列继续推进：不消耗、不丢块、不错位
+  assert.equal(g.togglePause().ok, true)
+  const q = g.getSnapshot().queue
+  assert.equal(g.hardDrop().ok, true)
+  const s = g.getSnapshot()
+  assert.equal(s.piece.type, q[0], '恢复后队首消费正常（暂停无副作用）')
+})
+
+test('r15 队列 ⑦: restart 重建队列——长度 3、内容随新袋（AC-5）', () => {
+  const { g } = freshGame({ rng: () => 0.5 })
+  g.start()
+  g.hardDrop()
+  g.hardDrop()
+  assert.equal(g.getSnapshot().queue.length, 3, '锁定推进后 queue 恒长 3')
+  assert.equal(g.restart().ok, true)
+  const s = g.getSnapshot()
+  assert.equal(s.queue.length, 3, 'restart 后 queue 恒长 3')
+  assert.equal(s.queue[0], s.next, 'restart 后 queue[0] === next')
+  for (const t of s.queue) assert.ok(T.TYPES.includes(t), 'restart 后每格为合法类型')
+  // 重启后前 7 个出生块 = 完整新袋（7-bag 完整性：queue 派生与 next 消费同一流）
+  const seen = [s.queue[0]]
+  for (let k = 0; k < 6; k++) {
+    assert.equal(g.hardDrop().ok, true)
+    seen.push(g.getSnapshot().queue[0])
+  }
+  assert.equal(new Set(seen).size, 7, 'restart 后前 7 出生块 = 完整新袋（无重复缺漏）')
+})
+
+test('r15 队列 ⑧: GAME_OVER 最终队列长度 3、稳定不变（AC-5）', () => {
+  const { g, events } = freshGame({ rng: () => 0.5 })
+  g.start()
+  // 出生区用「部分行遮蔽」(1,4)(1,5) 而非整行：整行会在锁定消行判定中被清除（cleared>0），
+  // 部分遮蔽对 7 型出生格全覆盖且不成满行 → 下一次 spawn 必然碰撞 → OVER
+  const b = T.createBoard()
+  b[1][4] = 'J'
+  b[1][5] = 'J'
+  g._debug.setBoard(b)
+  g._debug.setPiece({ type: 'O', rot: 0, x: 4, y: 18 })
+  const r = g.hardDrop()
+  assert.equal(r.gameOver, true)
+  assert.equal(g.getPhase(), 'OVER')
+  assert.equal(g.getSnapshot().piece, null, '结束态无活动块')
+  const s = g.getSnapshot()
+  assert.equal(s.queue.length, 3, 'OVER 最终队列恒长 3')
+  assert.equal(s.queue[0], s.next, 'OVER 期 queue[0] === next（队列保持最终值）')
+  for (const t of s.queue) assert.ok(T.TYPES.includes(t), '结束后每格为合法类型')
+  assert.deepEqual(g.getSnapshot().queue, s.queue, 'OVER 后多快照队列稳定不变')
+  g.tick(10000)
+  assert.deepEqual(g.getSnapshot().queue, s.queue, 'OVER 期 tick 不推进队列')
+  assert.equal(events.gameOver.length, 1)
+})
+
+test('r15 队列 ⑨: Hold 共存——暂存消费队首/交换不消耗/关闭不触队列（AC-11/AC-9）', () => {
+  const g = mk({ rng: () => 0.5 })
+  g.start()
+  // 空槽暂存：next 成为当前方块 = 消费队列队首（AC-11 空槽分支）
+  const q0 = g.getSnapshot().queue
+  assert.deepEqual(g.hold(), { ok: true })
+  const s1 = g.getSnapshot()
+  assert.equal(s1.piece.type, q0[0], '暂存后当前方块 = 旧 queue[0]（队首被消费）')
+  assert.equal(s1.queue[0], q0[1], '新队首 = 旧 queue[1]（队列前移）')
+  assert.equal(s1.queue.length, 3, '暂存消费后 queue 仍恒长 3')
+  // 交换分支：next 不变 → queue 内容与顺序不变（AC-11 交换不消耗）
+  assert.equal(g.hardDrop().ok, true) // 重置 holdUsed
+  const q2 = g.getSnapshot().queue
+  assert.deepEqual(g.hold(), { ok: true }, '交换成功')
+  assert.deepEqual(g.getSnapshot().queue, q2, '交换不消耗队列（queue 恒等）')
+  // holdEnabled=false：hold 被拒不触队列（AC-9 引擎侧无预览开关，队列照常维护）
+  assert.equal(g.hardDrop().ok, true)
+  g.setHoldEnabled(false)
+  const q4 = g.getSnapshot().queue
+  assert.deepEqual(g.hold(), { ok: false, reason: 'disabled' })
+  assert.deepEqual(g.getSnapshot().queue, q4, 'hold 禁用被拒后队列不变')
 })
 

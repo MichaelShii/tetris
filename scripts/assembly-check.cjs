@@ -50,6 +50,7 @@ const sel = ['#board','#next-well','#board-frame','#overlay','#feedback-toast',
   '#bgm-control','#btn-bgm',   // v2.5：背景音乐 BGM 开关（AC-15）
   '#wallkick-control','#btn-wallkick', // v2.9：踢墙旋转开关（AC-19.7）
   '#hold-well','#hold-control','#btn-hold', // v3.2：Hold 暂存方块预览与开关（AC-23）
+  '#preview-queue-control','#btn-preview-queue', // r15：多格预览队列开关（纯显示层）
   '#stat-hi','#hi-score',      // v2.6：HUD 最高分元素（持久化回读钩子，AC-16）
   '#btn-settings','#settings-modal','.settings-modal__card','.settings-modal__close'] // v3.0：设置弹层（AC-01~06）
 for (const s of sel) {

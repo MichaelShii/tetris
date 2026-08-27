@@ -54,6 +54,9 @@
     // audio.js 参数表 / 装配（ui.js onSfx→play）/ 测试统一引用，杜绝字符串漂移
     const SFX_EVENTS = ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver', 'hold']
 
+    // 多格预览队列（r15，AC-10；PRD §5 数值单一事实来源）：Next 预览区格数（恒 3）
+    const NEXT_QUEUE_SIZE = 3
+
     // 踢墙旋转偏移表（v2.9，AC-19.2：固定次序/固定值，不可由玩家配置——Guideline 简化单点表）
     // 开关=开 时，旋转碰撞依次尝试：左移 → 右移 → 上移，各 1 格；全部失败则保持原位
     const WALL_KICK_OFFSETS = [
@@ -293,7 +296,10 @@
      * 每 7 块为一轮（bag）：将全部 7 种方块放入袋中并 Fisher-Yates 洗牌，
      * 依次发完后再创建新袋。确保每 7 块中每种方块恰好出现一次。
      * rng 可注入（默认 Math.random）便于确定性测试。
-     * peek() 不消耗；next() 返回当前并补新值。
+     * peek() / peekN(n) 不消耗；next() 返回队首并移除（补新值）。
+     * r15（AC-10）：重构为 FIFO 物化流——items[] 耗尽时整袋补入（ensure），
+     * 构造期预填首袋使 rand 消耗时点与旧 lazy 模型逐点一致（含状态型 rng）；
+     * peek/next 公开语义等价，新增 peekN(n) 非消耗、可跨袋读取（n ≤ 0 → []）。
      */
     function createQueue(rng) {
       const rand = typeof rng === 'function' ? rng : Math.random
@@ -308,30 +314,24 @@
 
       function newBag() { return shuffle(TYPES.slice()) }
 
-      var bag = newBag()
-      var idx = 0
-      var peeked = false
-      var peekVal = null
+      // 已物化的后续方块 FIFO；耗尽时整袋补入，保证袋内排列与袋间顺序 = 标准 7-bag
+      const items = []
+      function ensure(n) {
+        while (items.length < n) {
+          const b = newBag()
+          for (let i = 0; i < b.length; i++) items.push(b[i])
+        }
+      }
+      ensure(1) // 构造期预填首袋：rand 消耗时点与旧模型（构造时 newBag）逐点一致
 
       return {
-        peek: function () {
-          if (!peeked) {
-            if (idx >= bag.length) { bag = newBag(); idx = 0 }
-            peekVal = bag[idx]
-            peeked = true
-          }
-          return peekVal
+        peek: function () { ensure(1); return items[0] },
+        peekN: function (n) {
+          const k = typeof n === 'number' && n > 0 ? Math.floor(n) : 0
+          ensure(k)
+          return items.slice(0, k)
         },
-        next: function () {
-          if (peeked) {
-            peeked = false
-            var v = peekVal
-            idx++
-            return v
-          }
-          if (idx >= bag.length) { bag = newBag(); idx = 0 }
-          return bag[idx++]
-        },
+        next: function () { ensure(1); return items.shift() },
       }
     }
 
@@ -481,6 +481,9 @@
           board: state.board.map(function (row) { return row.slice() }),
           piece: state.piece ? { type: state.piece.type, rot: state.piece.rot, x: state.piece.x, y: state.piece.y } : null,
           next: state.next,
+          // r15：多格预览队列（AC-1/AC-3/AC-10）：恒长 NEXT_QUEUE_SIZE；首格 = 下一出生块。
+          // peekN 非消耗（derive 只读，不推进队列），队列内容与后续逐次 next() 消费序严格一致
+          queue: [state.next].concat(state.queue.peekN(NEXT_QUEUE_SIZE - 1)),
           score: state.score,
           level: state.level,
           lines: state.lines,
@@ -1073,6 +1076,7 @@
       PHASES: PHASES.slice(),
       PHASE_ALIAS: Object.assign({}, PHASE_ALIAS),
       SFX_EVENTS: SFX_EVENTS.slice(), // v2.0：音效事件集（audio.js/装配/测试统一引用）
+      NEXT_QUEUE_SIZE: NEXT_QUEUE_SIZE, // r15：多格预览队列格数（AC-10，恒 3）
       LINE_SCORES: LINE_SCORES.slice(),
       LOCK_DELAY_MS: LOCK_DELAY_MS,
       DAS_DELAY_MS: DAS_DELAY_MS,
