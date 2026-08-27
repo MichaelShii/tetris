@@ -15,6 +15,9 @@
  * r16（触屏控制）：TOUCH_KEYS 六键回放表 ↔ game.js keyAction 交叉校验（防触屏映射漂移
  *   工程护栏；'c'→Hold 特例由 ui.js onHoldKey 消费）、isTouchDevice/createTouchControls
  *   导出、工厂缺 #touch-controls 元素抛错、Node 加载 isTouchDevice()=false 零 DOM 副作用。
+ * r17（响应式重排）：+3 断点源结构断言——S/M 四档 media 存在性与 L 基座不动、
+ *   .stat-grid 包裹契约（四统计块原序 + viewport-fit=cover）、--dock-h 单一事实来源 calc 形状；
+ *   只读 style.css/index.html 源文本，Node 零 DOM（PRD R4：jsdom 无法验证真实视口几何）。
  * 浏览器行为（毛玻璃/霓虹/逐帧渲染/FPS）按 PRD AC-07 手测。
  */
 const test = require('node:test')
@@ -285,4 +288,87 @@ test('r16: createTouchControls 工厂契约（缺 #touch-controls 元素抛错�
   assert.throws(() => T.createTouchControls({ pad: null }, g), /#touch-controls/, 'pad=null → 抛「缺少 #touch-controls」语义错误')
   assert.throws(() => T.createTouchControls({}, g), /#touch-controls/, 'els 无 pad 键 → 抛错')
   g.dispose()
+})
+
+/* ======================================================================
+ * r17 响应式重排 —— 断点源结构断言（T3；TECHNICAL §3.3/§7.2）
+ * 布局 = 派生样式而非状态：断点切换零 JS、零引擎触达（AC-8 构造保证），
+ * 档位不进快照/持久化/JS 闭包。PRD R4 明确 jsdom 无法验证真实视口几何 →
+ * 本段沿用 r16「Node 契约 + 交叉校验」先例，只读 style.css / index.html
+ * 源文本做结构断言（防实现漂移）；真实几何（包围盒/中心带/滚动位移）落
+ * QA 真机清单。三条断言分别钳制：断点 media 存在性与 L 基座不动、
+ * .stat-grid 包裹契约、--dock-h 单一事实来源 calc 形状。
+ * 注：CSS_FILE/HTML_FILE 可用 DSH_VERIFY_UI_CSS/DSH_VERIFY_UI_HTML 覆盖
+ * （测试钩子：T5 收口 / 本任务自检可注入合成源做 dry-run）。
+ * ==================================================================== */
+const fs = require('node:fs')
+const path = require('node:path')
+const CSS_FILE = process.env.DSH_VERIFY_UI_CSS || path.join(__dirname, '..', 'style.css')
+const HTML_FILE = process.env.DSH_VERIFY_UI_HTML || path.join(__dirname, '..', 'index.html')
+
+test('r17: 断点框架源结构——S/M 四档 media + 派生样式锚点存在，L 基座在媒体查询外（AC-7 零改动证据）', () => {
+  const css = fs.readFileSync(CSS_FILE, 'utf8')
+  // ① S/M 四档互斥媒体查询（TECHNICAL §3.2 表：S 竖屏 / S 横屏变体 / M 窄版 / M 宽版；
+  //    L ≥1024 零新增规则 → 断点全部在源序追加区，覆盖既有 ≤1100 堆叠）
+  for (const mq of [
+    '@media (max-width: 599px)',
+    '@media (max-width: 599px) and (orientation: landscape)',
+    '@media (min-width: 600px) and (max-width: 767px)',
+    '@media (min-width: 768px) and (max-width: 1023px)'
+  ]) {
+    assert.ok(css.includes(mq), 'style.css 缺断点 media：' + mq)
+  }
+  // ② 派生样式锚点：--dock-h（多档重声明的单一事实来源）、display:contents
+  //    （S 档跨面板摊平；§6.2 警告：order 挂在 display:contents 无盒会静默失效 → 防该漂移）
+  assert.ok(css.includes('--dock-h'), 'style.css 缺 --dock-h 自定义属性')
+  assert.match(css, /display\s*:\s*contents/, 'style.css 缺 display: contents（S 档卡片流摊平）')
+  // ③ L 档零改动证据：基座 #main grid 规则仍在首个 @media 之前（媒体查询外）
+  //    → L ≥1024 无新选择器，r16 基线几何快照天然通过
+  const baseGrid = css.indexOf('grid-template-columns: 240px 340px 240px')
+  const firstMedia = css.indexOf('@media')
+  assert.ok(baseGrid !== -1, 'style.css 缺 L 档基座 grid-template-columns: 240px 340px 240px')
+  assert.ok(firstMedia !== -1, 'style.css 无 @media（与 ① 矛盾）')
+  assert.ok(baseGrid < firstMedia, '基座规则须在首个 @media 之前（媒体查询外，L 档零改动证据）')
+})
+
+test('r17: index.html .stat-grid 包裹契约——四统计块原序包入 + viewport-fit=cover（AC-1/AC-3）', () => {
+  const html = fs.readFileSync(HTML_FILE, 'utf8')
+  // ① 包裹层：唯一新增 DOM 层（无样式 div 组织语义；DOM 顺序 = L 档 grid 基线，禁重排，TECHNICAL §4.1）
+  const gridOpen = html.indexOf('<div class="stat-grid"')
+  assert.ok(gridOpen !== -1, 'index.html 缺 <div class="stat-grid"> 包裹层')
+  // ② 四统计块原序包入：stat-grid < stat-score < stat-hi < stat-level < stat-lines
+  const statIds = ['id="stat-score"', 'id="stat-hi"', 'id="stat-level"', 'id="stat-lines"']
+  let prev = gridOpen
+  for (const id of statIds) {
+    const idx = html.indexOf(id)
+    assert.ok(idx !== -1 && idx > prev, id + ' 须在包裹层之后按原序出现（idx=' + idx + ' > ' + prev + '）')
+    prev = idx
+  }
+  // ③ 包裹闭合先于 .hold-well / .next-well：四块确实被包入（非仅前置）
+  const gridClose = html.indexOf('</div>', prev)
+  assert.ok(gridClose !== -1 && gridClose > prev, 'stat-lines 后缺包裹层闭合 </div>')
+  for (const cls of ['class="hold-well"', 'class="next-well"']) {
+    const idx = html.indexOf(cls)
+    assert.ok(idx !== -1 && idx > gridClose, cls + ' 须在包裹层闭合之后（idx=' + idx + ' > ' + gridClose + '）')
+  }
+  // ④ viewport-fit=cover：iOS safe-area-inset-bottom 非零前提，缺它 AC-3 恒 0 无法验证
+  assert.match(html, /viewport-fit=cover/, 'index.html viewport meta 缺 viewport-fit=cover（AC-3）')
+})
+
+test('r17: --dock-h 单一事实来源——S 两行 dock calc 形状 + #main 引用 + .touchpad 两行（AC-2/AC-6）', () => {
+  const css = fs.readFileSync(CSS_FILE, 'utf8')
+  const sStart = css.indexOf('@media (max-width: 599px)')
+  const sLand = css.indexOf('@media (max-width: 599px) and (orientation: landscape)')
+  assert.ok(sStart !== -1 && sLand > sStart, 'S 竖屏块须先于 S 横屏块（可切片）')
+  const sPortrait = css.slice(sStart, sLand)
+  // ① S 两行 dock 的 --dock-h = 2×键 + 行距 + 2×内边距 + inset（§6.3：禁 ui.js/常量表硬编码数值副本）
+  assert.match(sPortrait, /--dock-h\s*:\s*calc\(\s*2\s*\*\s*var\(--tpad-key\)/,
+    'S --dock-h calc 缺 2*var(--tpad-key)（两行 dock）')
+  assert.match(sPortrait, /env\(safe-area-inset-bottom\)/, 'S 档 dock 缺 env(safe-area-inset-bottom)（AC-3 渐进增强）')
+  // ② #main 预留必须引用 var(--dock-h)（而非数值字面量——否则与 dock 高度两处漂移）
+  assert.match(sPortrait, /#main\s*\{[^}]*padding-bottom\s*:\s*var\(--dock-h\)/,
+    'S 档 #main 缺 padding-bottom: var(--dock-h) 引用')
+  // ③ .touchpad 两行 dock：flex-wrap 换行 + min-height:max( 中心带 16.5vh 抬升（§6.4）
+  assert.match(sPortrait, /\.touchpad\s*\{[^}]*flex-wrap/, 'S 档 .touchpad 缺 flex-wrap（两行 dock）')
+  assert.match(sPortrait, /min-height\s*:\s*max\(/, 'S 档缺 min-height: max(（16.5vh 中心带抬升）')
 })

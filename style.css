@@ -1183,3 +1183,165 @@ html.has-touch .touchpad {
     display: none;
   }
 }
+
+/* ═══════════════ 7. 响应式断点框架（r17 响应式重排，PRD AC-1~12） ═══════════════
+ * 断点 = 派生样式而非状态：断点切换零 JS、零引擎触达（AC-8 由构造保证）。
+ * 档位：S 竖屏单列 <600px（§7.1）/ S 横屏变体 <600px 且横屏（§7.2）/
+ *      M 平板 600–767 两列（§7.3）· 768–1023 三列（§7.4）/ L 桌面 ≥1024 零新增规则（§7.5）。
+ * DOM 顺序 = L 档 grid 自动放置基线，S/M 视觉重排全走 display:contents + order，
+ * 不重排 DOM（DESIGN §0.3 / TECHNICAL §5）。全部新规则源序追加，压过既有 ≤1100 堆叠。
+ */
+
+/* 7.0 基座（非媒体查询，唯一一条）：.stat-grid 包裹复刻 #panel-left 原 flex gap(20px)——
+   无此规则则包裹后四个 .stat 失去间距，L 档快照漂移（AC-7 保真锚点，TECHNICAL §5.0） */
+.stat-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* 7.1 S 竖屏单列卡片流（<600px 且 h≥w；AC-1/2/3/4/10/11）
+ * 单列 flex + display:contents 摊平两面板，使子块跨面板参与 order：
+ * 标题→HUD→设置→预览→棋盘→Hold→按钮（PRD US-1 信息流，AC-1） */
+@media (max-width: 599px) {
+  /* 底部预留单一事实来源：两行 dock 净高 = 2×键 + 行距16 + 上下内边距 2×16 + safe insets，
+     与下方 .touchpad 净高同算式 → 滚底时最后一块卡停在 dock 上沿，0 重叠（AC-2）。
+     env() 渐进增强：不支持 env 的旧内核整条作废 → 先写无 env 兜底行、再写 env 行 */
+  :root {
+    --dock-h: calc(2 * var(--tpad-key) + var(--sp-4) + 2 * var(--sp-4));
+    --dock-h: calc(2 * var(--tpad-key) + var(--sp-4) + 2 * var(--sp-4) + env(safe-area-inset-bottom));
+  }
+
+  #main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-bottom: var(--dock-h);   /* 滚底时最后一块卡停在 dock 上沿（AC-2 零重叠） */
+  }
+  #panel-left,
+  #panel-right { display: contents; }  /* 摊平：子块参与 #main flex 的 order 排序 */
+
+  /* 列序（ORDER 表 = PRD US-1 信息流：标题→统计→设置→预览→棋盘→Hold→按钮） */
+  .stat-grid    { order: 10; }
+  #btn-settings { order: 20; }
+  .next-well    { order: 30; }
+  #board-col    { order: 40; }
+  .hold-well    { order: 50; }
+  .key-hints    { order: 60; }
+  #controls     { order: 70; }
+
+  /* 卡片化（玻璃卡：--glass-bg + blur + 1px --line + --radius-md + --sp-3 内距 --sp-4 外距） */
+  .stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls {
+    width: 100%;
+    max-width: 420px;                 /* 320~430 样本下不撑满、不溢出（AC-1） */
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    backdrop-filter: blur(20px) saturate(140%);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: var(--sp-3);
+    margin: var(--sp-2) 0;
+  }
+  #board-col { padding: 0; }          /* 板框自带 16px 内距，卡化不叠加 */
+
+  /* HUD 2×2（AC-1/AC-10） */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--sp-3);
+  }
+
+  /* 两行 dock（AC-2/3/4/11）：仅容器 flex-wrap，.tkey 组件零改动。
+     整块收口 portrait：dock 覆盖规则不得触达横屏——横屏须保持 r16 (orientation:landscape)
+     侧轨原样（flex-flow:column wrap / align-content:space-between / gap:0 / padding:0 /
+     固定 height calc，其源序在本档之前），若置于本档则同特异性源序反超侧轨 →
+     键位内移/列距/内距漂移破坏 72px 轨几何（DESIGN §3.2「侧轨零改动」，TECH §5.2 本档不适用两行 dock） */
+  @media (orientation: portrait) {
+    .touchpad {
+      flex-wrap: wrap;
+      align-content: center;            /* 行间空间均分，中心带见 TECHNICAL §6.4 表 */
+      gap: var(--sp-4) var(--sp-2);     /* 行距 16 ≥8、键距 8（AC-11） */
+      padding: var(--sp-4) var(--sp-4) var(--sp-4);
+      padding: var(--sp-4) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom));
+      min-height: max(calc(2 * var(--tpad-key) + var(--sp-4) + 2 * var(--sp-4)), 16.5vh);
+      min-height: max(calc(2 * var(--tpad-key) + var(--sp-4) + 2 * var(--sp-4) + env(safe-area-inset-bottom)), 16.5vh);
+    }
+    /* r16 组距规则（第 3 键右补 8px）在新两行布局破坏行对齐 → 竖屏复位（横屏侧轨由 r16 接管） */
+    .touchpad .tkey:nth-child(3) { margin-right: 0; }
+  }
+
+  /* AC-4：触屏下 S 档全部可点元素 ≥44（按钮 40px 基座抬高到 44） */
+  html.has-touch .btn { min-height: 44px; }
+}
+
+/* 7.2 S 横屏变体（<600px 且 h<w，如 568×320 / 640×360；AC-4/9）
+ * 主区横排 + HUD 横带 + 棋盘 CSS 等比缩放（显示层，不碰画布分辨率/渲染逻辑，DESIGN §3.2）；
+ * 触屏侧轨沿用 r16 (orientation:landscape) 规则零改动 */
+@media (max-width: 599px) and (orientation: landscape) {
+  #main {
+    flex-direction: row;              /* 覆盖 §7.1 的 column 与既有 ≤1100 堆叠（源序胜出） */
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 0;                /* 竖屏两行 dock 预留对本档无意义（本档走 r16 侧轨） */
+  }
+  #panel-left,
+  #panel-right { display: flex; }     /* 复位 display:contents → 正常横排（DOM 序：左面板|棋盘|右面板） */
+  #panel-left, #panel-right { width: auto; flex: 0 0 auto; }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));  /* HUD 横带（AC-9） */
+    gap: var(--sp-2);
+  }
+  #title { font-size: var(--fs-xl); } /* 标题压缩 36→24（省空间，DESIGN §3.2） */
+  /* 棋盘 CSS 等比缩放：280:560 内核比例自动保持；renderer.resize() 写入的 inline 尺寸需
+     !important 覆盖；max-height 预留量 = header + #main 纵向 padding + 卡片余量，
+     以 568×320 / 640×360 双样本对拍（320−48−52≈220 可用高 → 预留 150 保 1:2 全显） */
+  #board {
+    width: auto !important;
+    height: auto !important;
+    max-height: calc(100vh - 150px);
+  }
+  html.has-touch .btn { min-height: 44px; }
+}
+
+/* 7.3 M 平板两列（600–767px；AC-6 棋盘主区 + 信息列 0 重叠） */
+@media (min-width: 600px) and (max-width: 767px) {
+  :root {
+    /* 底部预留单一事实来源（M 档单行底栏 64+inset）：与 r16 单行 dock 净高同算式 */
+    --dock-h: calc(var(--tpad-key) + 2 * var(--sp-2));
+    --dock-h: calc(var(--tpad-key) + 2 * var(--sp-2) + env(safe-area-inset-bottom));
+  }
+  #main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;  /* 棋盘主区 | 信息列 */
+    gap: var(--sp-6);
+    align-items: start;
+    padding-bottom: var(--dock-h);                /* AC-6：与棋盘 0 重叠 */
+  }
+  #board-col   { grid-column: 1; grid-row: 1 / span 2; }
+  #panel-left  { grid-column: 2; grid-row: 1; }
+  #panel-right { grid-column: 2; grid-row: 2; }
+  html.has-touch .btn { min-height: 44px; }
+}
+
+/* 7.4 M 平板三列（768–1023px；AC-6 信息分居两侧 ≥2 列分布）
+ * 算术订正（D4）：768 处每侧 minmax(180px,1fr) 实算 190px——DESIGN 印刷 200|340|200=688 系
+ * 误算（740+48=788>768 会溢出），改 minmax 吸收 → AC-6 无横向滚动（TECHNICAL §5.4） */
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root {
+    --dock-h: calc(var(--tpad-key) + 2 * var(--sp-2));
+    --dock-h: calc(var(--tpad-key) + 2 * var(--sp-2) + env(safe-area-inset-bottom));
+  }
+  #main {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) 340px minmax(180px, 1fr); /* 768: (768−340−48)/2=190 ✓ */
+    gap: var(--sp-6);
+    align-items: start;
+    padding-bottom: var(--dock-h);
+  }
+  /* 三子块 grid 自动放置 = 左面板 | 棋盘 | 右面板（DOM 序即 L 档基线序） */
+  html.has-touch .btn { min-height: 44px; }
+}
+
+/* 7.5 L 桌面 ≥1024px：零新增规则。既有基座三列 240|340|240 + 既有 ≤1100px 单列堆叠 +
+    r16 触屏规则全部原样（AC-7 快照即证据；1024–1100 维持既有降级堆叠） */
