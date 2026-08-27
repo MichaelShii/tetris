@@ -92,6 +92,19 @@
     </section>
   </main>
 
+  <!-- 触屏操控区（r16，AC-1~14）：触屏虚拟按键六键（左/右/旋转/软降/硬降/Hold）。
+       契约：data-action 与触屏键映射表 TOUCH_KEYS.action 六值一一对应（verify-ui 交叉断言防漂移）；
+       显隐：默认 CSS display:none，仅 html.has-touch（触屏设备）下显示——纯 CSS 显隐不重置对局（AC-1）；
+       位置：位于设置弹层之前（createUI 装配期同步查找元素，与设置弹层同一约束） -->
+  <div id="touch-controls" class="touchpad" aria-label="触屏操控区">
+    <button type="button" class="tkey" data-action="moveLeft" aria-label="左移"><span class="tkey__icon">◀</span><span class="tkey__label">左</span></button>
+    <button type="button" class="tkey" data-action="moveRight" aria-label="右移"><span class="tkey__icon">▶</span><span class="tkey__label">右</span></button>
+    <button type="button" class="tkey" data-action="rotate" aria-label="旋转"><span class="tkey__icon">⟳</span><span class="tkey__label">旋转</span></button>
+    <button type="button" class="tkey" data-action="softDrop" aria-label="软降"><span class="tkey__icon">▼</span><span class="tkey__label">软降</span></button>
+    <button type="button" class="tkey" data-action="hardDrop" aria-label="硬降"><span class="tkey__icon">⤓</span><span class="tkey__label">硬降</span></button>
+    <button type="button" class="tkey" data-action="hold" aria-label="Hold 暂存"><span class="tkey__icon">📦</span><span class="tkey__label">Hold</span></button>
+  </div>
+
   <!-- v3.0 设置弹层（AC-01~06：齿轮图标触发的毛玻璃风格模态框）。
        注意：必须位于脚本之前——createUI 装配期立即校验全部必需元素（#btn-mute 等），
        若置于脚本之后，真实浏览器解析时同步执行 createUI 会因弹层未入 DOM 而装配失败。 -->
