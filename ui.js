@@ -17,6 +17,7 @@
  *   TetrisUI.createBoardRenderer(canvas, opts?)        （签名对齐 TECHNICAL §3.4）
  *   TetrisUI.createNextWellRenderer(canvas)            （签名对齐 TECHNICAL §3.4）
  *   TetrisUI.createHoldWellRenderer(canvas)           （r14 暂存预览，签名同 createNextWellRenderer）
+ *   TetrisUI.createNextQueueRenderer(canvas)          （r15 多格预览队列 48×80，签名同 createNextWellRenderer）
  *   TetrisUI.createHud(els) / createOverlay(els) / createFeedback(els)
  *                                                      （签名对齐 TECHNICAL §3.5）
  *
@@ -35,7 +36,7 @@
  *   │   │   ├─ #stat-level.stat    > .stat__label + .stat__value.stat__value--num
  *   │   │   ├─ #stat-lines.stat    > .stat__label + .stat__value.stat__value--num
  *   │   │   ├─ .hold-well > .stat__label + #hold-well（4×2 迷你 Canvas，r14 Hold 暂存）
- *   │   │   ├─ .next-well > .stat__label + #next-well（4×2 迷你 Canvas）
+ *   │   │   ├─ .next-well > .stat__label + #next-well（48×80 三格队列 Canvas，r15）
  *   │   │   └─ #audio-controls.audio-controls（v2.0 音量控件）
  *   │   │       ├─ #btn-mute（aria-pressed 静音切换）
  *   │   │       └─ .audio-controls__row > #btn-vol-down + #vol-value + #btn-vol-up
@@ -74,6 +75,12 @@
     const WELL_COLS = 4
     const WELL_ROWS = 2
     const WELL_CELL = 12
+
+    // r15 多格预览队列：3 槽纵向队列窗（单 Canvas 48×80）；槽 = 既有 4×2 迷你槽位，
+    // 槽间距 var(--sp-1)=4px；NEXT_SLOTS 对齐 game.js NEXT_QUEUE_SIZE 导出（AC-10）
+    const QUEUE_SLOT_GAP = 4
+    const NEXT_SLOTS = (typeof TetrisGame !== 'undefined' && TetrisGame.NEXT_QUEUE_SIZE) || 3
+    const QUEUE_CSS_H = NEXT_SLOTS * WELL_ROWS * WELL_CELL + (NEXT_SLOTS - 1) * QUEUE_SLOT_GAP // 3*24+2*4=80
 
     // 动效时长（DESIGN §4.3）
     const FLASH_MS = 140   // 消行闪白
@@ -458,6 +465,53 @@
       return { render: render, resize: resize, dispose: dispose }
     }
 
+    /** r15 抽取共享：迷你格绘制（含顶部高光），px/py = 格左上角（css px）。
+     *  自 createNextWellRenderer/createHoldWellRenderer 逐格绘制体抽取，行为逐字节等价。 */
+    function drawMiniCell(ctx, fill, px, py) {
+      roundRectPath(ctx, px + 0.5, py + 0.5, WELL_CELL - 1, WELL_CELL - 1, 2)
+      ctx.fillStyle = fill
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.28)'
+      ctx.lineWidth = 1
+      ctx.stroke()
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)'
+      ctx.beginPath()
+      ctx.moveTo(px + 2, py + 1.5)
+      ctx.lineTo(px + WELL_CELL - 2, py + 1.5)
+      ctx.stroke()
+    }
+
+    /** r15 抽取共享：单槽 rot0 迷你方块绘制。ox/oy = 槽内原点（css px）；
+     *  水平/垂直居中逻辑为既有实现原样保留；两既有渲染器以 (0, 0) 调用，行为逐字节等价。 */
+    function drawMiniPieceAt(ctx, type, ox, oy) {
+      if (!type || !TetrisGame.SHAPES[type]) return
+      const shape = TetrisGame.SHAPES[type][0]
+      // 计算实际非零区域边界（避免矩阵空行导致偏移量为负、方块被裁剪）
+      let minR = shape.length, maxR = -1, minC = shape[0].length, maxC = -1
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            if (r < minR) minR = r
+            if (r > maxR) maxR = r
+            if (c < minC) minC = c
+            if (c > maxC) maxC = c
+          }
+        }
+      }
+      const actualW = maxC - minC + 1
+      const actualH = maxR - minR + 1
+      const baseX = Math.floor((WELL_COLS - actualW) / 2)
+      const baseY = Math.floor((WELL_ROWS - actualH) / 2)
+      const fill = TetrisGame.COLORS[type].fill
+      for (let r = minR; r <= maxR; r++) {
+        const row = shape[r]
+        for (let c = minC; c <= maxC; c++) {
+          if (!row[c]) continue
+          drawMiniCell(ctx, fill, ox + (baseX + c - minC) * WELL_CELL, oy + (baseY + r - minR) * WELL_CELL)
+        }
+      }
+    }
+
     /** 下一个方块迷你预览（签名对齐 TECHNICAL §3.4）：4×2、12px；琥珀金描边由 CSS 提供 */
     function createNextWellRenderer(canvas) {
       if (!canvas || typeof canvas.getContext !== 'function') {
@@ -479,19 +533,7 @@
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       }
 
-      function drawMiniCell(fill, px, py) {
-        roundRectPath(ctx, px + 0.5, py + 0.5, WELL_CELL - 1, WELL_CELL - 1, 2)
-        ctx.fillStyle = fill
-        ctx.fill()
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.28)'
-        ctx.lineWidth = 1
-        ctx.stroke()
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)'
-        ctx.beginPath()
-        ctx.moveTo(px + 2, py + 1.5)
-        ctx.lineTo(px + WELL_CELL - 2, py + 1.5)
-        ctx.stroke()
-      }
+      
 
       /** render(type | null)：READY 态传 null（空预览）；旋转态 0、水平居中、垂直居中 */
       function render(type) {
@@ -514,32 +556,8 @@
         }
         ctx.stroke()
 
-        if (!type || !TetrisGame.SHAPES[type]) return
-        const shape = TetrisGame.SHAPES[type][0]
-        // 计算实际非零区域边界（避免矩阵空行导致偏移量为负、方块被裁剪）
-        let minR = shape.length, maxR = -1, minC = shape[0].length, maxC = -1
-        for (let r = 0; r < shape.length; r++) {
-          for (let c = 0; c < shape[r].length; c++) {
-            if (shape[r][c]) {
-              if (r < minR) minR = r
-              if (r > maxR) maxR = r
-              if (c < minC) minC = c
-              if (c > maxC) maxC = c
-            }
-          }
-        }
-        const actualW = maxC - minC + 1
-        const actualH = maxR - minR + 1
-        const ox = Math.floor((WELL_COLS - actualW) / 2)
-        const oy = Math.floor((WELL_ROWS - actualH) / 2)
-        const fill = TetrisGame.COLORS[type].fill
-        for (let r = minR; r <= maxR; r++) {
-          const row = shape[r]
-          for (let c = minC; c <= maxC; c++) {
-            if (!row[c]) continue
-            drawMiniCell(fill, (ox + c - minC) * WELL_CELL, (oy + r - minR) * WELL_CELL)
-          }
-        }
+        // r15：逐格绘制体抽取为共享 drawMiniPieceAt（(0, 0) 调用，行为逐字节等价）
+        drawMiniPieceAt(ctx, type, 0, 0)
       }
 
       function dispose() {
@@ -571,20 +589,6 @@
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       }
 
-      function drawMiniCell(fill, px, py) {
-        roundRectPath(ctx, px + 0.5, py + 0.5, WELL_CELL - 1, WELL_CELL - 1, 2)
-        ctx.fillStyle = fill
-        ctx.fill()
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.28)'
-        ctx.lineWidth = 1
-        ctx.stroke()
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)'
-        ctx.beginPath()
-        ctx.moveTo(px + 2, py + 1.5)
-        ctx.lineTo(px + WELL_CELL - 2, py + 1.5)
-        ctx.stroke()
-      }
-
       /** render(type | null)：null = 空预览；旋转态 0、水平居中、垂直居中 */
       function render(type) {
         if (disposed) return
@@ -606,30 +610,52 @@
         }
         ctx.stroke()
 
-        if (!type || !TetrisGame.SHAPES[type]) return
-        const shape = TetrisGame.SHAPES[type][0]
-        let minR = shape.length, maxR = -1, minC = shape[0].length, maxC = -1
-        for (let r = 0; r < shape.length; r++) {
-          for (let c = 0; c < shape[r].length; c++) {
-            if (shape[r][c]) {
-              if (r < minR) minR = r
-              if (r > maxR) maxR = r
-              if (c < minC) minC = c
-              if (c > maxC) maxC = c
-            }
-          }
-        }
-        const actualW = maxC - minC + 1
-        const actualH = maxR - minR + 1
-        const ox = Math.floor((WELL_COLS - actualW) / 2)
-        const oy = Math.floor((WELL_ROWS - actualH) / 2)
-        const fill = TetrisGame.COLORS[type].fill
-        for (let r = minR; r <= maxR; r++) {
-          const row = shape[r]
-          for (let c = minC; c <= maxC; c++) {
-            if (!row[c]) continue
-            drawMiniCell(fill, (ox + c - minC) * WELL_CELL, (oy + r - minR) * WELL_CELL)
-          }
+        // r15：逐格绘制体抽取为共享 drawMiniPieceAt（(0, 0) 调用，行为逐字节等价）
+        drawMiniPieceAt(ctx, type, 0, 0)
+      }
+
+      function dispose() {
+        disposed = true
+      }
+
+      resize()
+      return { render: render, dispose: dispose }
+    }
+
+    /** 多格预览队列渲染器（r15，签名对齐 createNextWellRenderer）：单 Canvas
+     *  WELL_COLS×12 × QUEUE_CSS_H（默认 48×80，3 槽 y 偏移 0/28/56）；
+     *  canvas 透明——板底/描边/辉光由 .next-well 容器承担（DESIGN 裁决 A 案）。
+     *  render(queue|null)：queue 可含 null 空槽（不绘制，容器板底留白，AC-4）；
+     *  READY 态亦渲染初始 3 格（AC-1，取代基线单格空预览）。 */
+    function createNextQueueRenderer(canvas) {
+      if (!canvas || typeof canvas.getContext !== 'function') {
+        throw new Error('TetrisUI.createNextQueueRenderer: 需要 <canvas> 元素')
+      }
+      const maybeCtx = canvas.getContext('2d')
+      if (!maybeCtx) throw new Error('TetrisUI.createNextQueueRenderer: 无法获取 2d 上下文')
+      const ctx = maybeCtx
+      let disposed = false
+
+      function resize() {
+        const cssW = WELL_COLS * WELL_CELL
+        const cssH = QUEUE_CSS_H
+        canvas.style.width = cssW + 'px'
+        canvas.style.height = cssH + 'px'
+        const dpr = Math.min(typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1, DPR_CAP)
+        canvas.width = Math.round(cssW * dpr)
+        canvas.height = Math.round(cssH * dpr)
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      }
+
+      /** render(queue | null)：每槽绘制 rot0 迷你块；槽 y = i*(槽高+间距) → 0/28/56 */
+      function render(queue) {
+        if (disposed) return
+        ctx.clearRect(0, 0, WELL_COLS * WELL_CELL, QUEUE_CSS_H)
+        if (!queue) return
+        for (let i = 0; i < NEXT_SLOTS; i++) {
+          const type = queue[i] || null
+          if (type) drawMiniPieceAt(ctx, type, 0, i * (WELL_ROWS * WELL_CELL + QUEUE_SLOT_GAP))
+          // 空槽：不绘制 → 容器板底色自然留白（AC-4）
         }
       }
 
@@ -989,7 +1015,7 @@
 
       const boardRenderer = createBoardRenderer(boardCanvas)
       const holdWell = createHoldWellRenderer(holdCanvas)
-      const nextWell = createNextWellRenderer(nextCanvas)
+      const nextWell = createNextQueueRenderer(nextCanvas) // r15：单格预览 → 3 格队列窗（48×80）
       const hud = createHud(hudEls)
       const overlay = createOverlay(overlayEls)
       const feedback = createFeedback({ toast: toastEl, boardFrame: boardFrame })
@@ -1135,6 +1161,30 @@
         blurElement(this)
       }
       holdBtn.addEventListener('click', onHoldToggle)
+
+      /* ---- 预览队列开关（r15，AC-6/7/8/9） ----
+         纯显示层开关：仅控制 .next-well 整区显隐与队列渲染，引擎无开关（AC-9）；
+         复用 ghost/hold 开关三信号模式（aria-pressed + aria-label + 文案）；
+         状态会话内保持、刷新按持久化恢复（AC-8）；切换即时重绘（AC-7，同步无动效）。 ---- */
+      const previewQueueBtn = must('#btn-preview-queue')
+      let previewQueueEnabled = true // 默认开（AC-6）；队列由引擎无条件维护
+
+      function syncPreviewQueueBtn() {
+        previewQueueBtn.setAttribute('aria-pressed', previewQueueEnabled ? 'true' : 'false')
+        previewQueueBtn.setAttribute('aria-label', '预览队列：' + (previewQueueEnabled ? '开启' : '关闭'))
+        previewQueueBtn.textContent = previewQueueEnabled ? '👁 预览队列：开' : '👁 预览队列：关'
+      }
+      syncPreviewQueueBtn()
+
+      function onPreviewQueueToggle() {
+        previewQueueEnabled = !previewQueueEnabled
+        syncPreviewQueueBtn()
+        persistSettings()
+        blurElement(this)
+        // AC-7：切换即时生效——立即以当前快照重绘（≤200ms 同步路径），不依赖下一次按键/重力步
+        renderAll(game.getSnapshot())
+      }
+      previewQueueBtn.addEventListener('click', onPreviewQueueToggle)
 
       /* ---- Hold 暂存按键（r14，C/Shift → game.hold()） ----
          与 M 键同层：设置级操作（holdEnabled guard），不走 game.js keyAction 表。 ---- */
@@ -1324,6 +1374,7 @@
             bgmEnabled: bgmEnabled,
             wallKickEnabled: wallKickEnabled,
             holdEnabled: holdEnabled,
+            previewQueueEnabled: previewQueueEnabled,
           })
         } catch (e) { /* 持久化层契约不 throw；再兜底一层保证永不中断游戏 */ }
       }
@@ -1347,6 +1398,8 @@
             if (typeof st.wallKickEnabled === 'boolean') wallKickEnabled = st.wallKickEnabled
             // r14 Hold 暂存：恢复开关态
             if (typeof st.holdEnabled === 'boolean') holdEnabled = st.holdEnabled
+            // r15 预览队列：恢复开关态
+            if (typeof st.previewQueueEnabled === 'boolean') previewQueueEnabled = st.previewQueueEnabled
           }
         }
         audioPanel.sync() // 音量/静音 DOM 镜像
@@ -1354,6 +1407,7 @@
         syncBgmBtn()
         syncWallKickBtn()
         syncHoldBtn()
+        syncPreviewQueueBtn()
         updateHiScoreEl()
       }
 
@@ -1389,7 +1443,13 @@
           if (fl) fx = { flashLines: fl }
         }
         boardRenderer.render(s, fx, ghostEnabled)
-        nextWell.render(s.phase === 'READY' ? null : s.next)
+        // r15 多格预览队列（AC-1/3/5/11）：恒长 3 的 snapshot.queue 直接渲染（READY 亦显示初始 3 格）；
+        // 关闭时隐藏整区（含标签，AC-7）+ 渲染 null（AC-9：引擎照常维护队列）
+        const nextWellContainer = nextCanvas ? nextCanvas.parentElement : null
+        if (nextWellContainer) {
+          nextWellContainer.style.display = previewQueueEnabled ? '' : 'none'
+        }
+        nextWell.render(previewQueueEnabled ? s.queue : null)
         // r14 Hold 暂存预览（AC-13）：holdEnabled 关闭时隐藏容器、渲染 null
         const holdWellContainer = holdCanvas ? holdCanvas.parentElement : null
         if (holdWellContainer) {
@@ -1515,6 +1575,7 @@
         bgmBtn.removeEventListener('click', onBgmToggle)
         wallKickBtn.removeEventListener('click', onWallKickToggle)
         holdBtn.removeEventListener('click', onHoldToggle) // r14
+        previewQueueBtn.removeEventListener('click', onPreviewQueueToggle) // r15
         if (typeof window !== 'undefined') window.removeEventListener('keydown', onHoldKey) // r14
         closeSettingsModal() // 关闭弹层并清理内部事件（ESC keydown / 焦点陷阱）
         mousedownGuards.forEach(function (entry) {
@@ -1580,6 +1641,7 @@
       createBoardRenderer: createBoardRenderer,
       createNextWellRenderer: createNextWellRenderer,
       createHoldWellRenderer: createHoldWellRenderer, // r14：暂存预览渲染器（签名同 createNextWellRenderer）
+      createNextQueueRenderer: createNextQueueRenderer, // r15：多格预览队列渲染器（签名同 createNextWellRenderer）
       createHud: createHud,
       createOverlay: createOverlay,
       createFeedback: createFeedback,

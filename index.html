@@ -47,7 +47,7 @@
       </div>
       <div class="next-well">
         <span class="stat__label">下一个</span>
-        <canvas id="next-well" width="48" height="24" aria-label="下一个方块预览"></canvas>
+        <canvas id="next-well" width="48" height="80" aria-label="下一个方块预览队列"></canvas>
       </div>
       <!-- v3.0 设置入口（齿轮图标按钮）：点击打开设置弹层（AC-01） -->
       <button type="button" id="btn-settings" class="btn btn--secondary"
@@ -147,6 +147,12 @@
               <span class="stat__label">Hold 暂存</span>
               <button type="button" id="btn-hold" class="btn btn--secondary btn--audio"
                       aria-pressed="true" aria-label="Hold 暂存：开启">📦 Hold 暂存：开</button>
+            </div>
+            <!-- 预览队列开关（r15，AC-6） -->
+            <div id="preview-queue-control" class="ghost-control" role="group" aria-label="预览队列开关">
+              <span class="stat__label">预览队列</span>
+              <button type="button" id="btn-preview-queue" class="btn btn--secondary btn--audio"
+                      aria-pressed="true" aria-label="预览队列：开启">👁 预览队列：开</button>
             </div>
           </div>
         </div>

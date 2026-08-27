@@ -22,7 +22,7 @@
    │   │   ├─ #stat-score.stat  > .stat__label + .stat__value.stat__value--score
    │   │   ├─ #stat-level.stat  > .stat__label + .stat__value.stat__value--num
    │   │   ├─ #stat-lines.stat  > .stat__label + .stat__value.stat__value--num
-   │   │   └─ .next-well > .stat__label + #next-well（4×2 迷你 Canvas，琥珀金描边）
+   │   │   └─ .next-well > .stat__label + #next-well（48×80 队列 Canvas；边框/板底/辉光由容器承载）
    │   ├─ #board-col > #board-frame（position:relative；tabindex="-1"）
    │   │       ├─ #board（10×20 主 Canvas）
    │   │       ├─ #overlay[hidden] > #overlay-card > #overlay-title / #overlay-sub / #overlay-btn
@@ -375,20 +375,23 @@ canvas {
   }
 }
 
-/* ── 下一个方块预览（DESIGN §3.5：迷你 4×2、12px、琥珀金描边） ── */
+/* ── 下一个方块预览队列（v3.2：3 格队列窗；「一个队列窗口」三段同框由 .next-well
+      容器承载，canvas 透明只画格，DESIGN §3.5） ── */
 
 .next-well {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-}
-
-#next-well {
-  align-self: flex-start;
+  align-self: flex-start; /* 队列窗随 Canvas 收缩，不撑满面板宽 */
+  padding: var(--sp-1);   /* 内边距：格位与窗框留白 */
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   background: var(--board-bg);
-  box-shadow: 0 0 8px rgba(255, 217, 92, 0.18);
+  box-shadow: 0 0 8px rgba(255, 217, 92, 0.18); /* 琥珀金描边辉光（沿用旧 canvas 值） */
+}
+
+#next-well {
+  /* 队列 Canvas（48×80）：透明只画格，窗框样式由 .next-well 容器承载 */
 }
 
 .hold-well {
@@ -517,6 +520,22 @@ canvas {
 }
 
 #btn-hold[aria-pressed='false'] {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+/* 预览队列开关（v3.2，AC-6：复制 #btn-hold 同款科技玻璃按钮风格与 aria-pressed 双态描边） */
+#btn-preview-queue {
+  width: 100%;
+  white-space: nowrap;
+}
+
+#btn-preview-queue[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+
+#btn-preview-queue[aria-pressed='false'] {
   border-color: var(--muted);
   color: var(--muted);
 }
@@ -945,8 +964,7 @@ kbd {
   outline-offset: 2px;
 }
 
-#board:focus-visible,
-#next-well:focus-visible {
+#board:focus-visible {
   outline-offset: 4px;
 }
 

@@ -10,6 +10,8 @@
  *   2. 状态灯 / 遮罩规格覆盖 game.js 全部四个 phase；
  *   3. 渲染/UI 组件工厂签名存在（对齐 TECHNICAL §3.4/§3.5）；
  *   4. Node 环境加载不触碰 window/document（顶层零 DOM）。
+ * r15（多格预览队列）：createNextQueueRenderer 导出+签名（缺 canvas 抛错），
+ *   且 createNextWellRenderer/createHoldWellRenderer 契约保持（drawMiniPieceAt 抽取复用回归）。
  * 浏览器行为（毛玻璃/霓虹/逐帧渲染/FPS）按 PRD AC-07 手测。
  */
 const test = require('node:test')
@@ -21,6 +23,7 @@ test('exports: 模块导出齐全，Node 加载零 DOM 副作用', () => {
   assert.equal(typeof T.createUI, 'function')
   assert.equal(typeof T.createBoardRenderer, 'function')
   assert.equal(typeof T.createNextWellRenderer, 'function')
+  assert.equal(typeof T.createNextQueueRenderer, 'function') // r15：3 格预览队列渲染器（48×80，AC-4）
   assert.equal(typeof T.createHud, 'function')
   assert.equal(typeof T.createOverlay, 'function')
   assert.equal(typeof T.createFeedback, 'function')
@@ -135,6 +138,23 @@ test('r13: pulseBrightness 包络数值断言（端点/峰值/值域）', () => 
 test('v3.2: createHoldWellRenderer 导出/签名断言（AC-13）', () => {
   assert.equal(typeof T.createHoldWellRenderer, 'function', 'createHoldWellRenderer 导出存在')
   // 签名同 createNextWellRenderer：需要 <canvas> 元素
+  assert.throws(() => T.createHoldWellRenderer(null), /需要 <canvas> 元素/)
+  assert.throws(() => T.createHoldWellRenderer(undefined), /需要 <canvas> 元素/)
+})
+
+test('r15: createNextQueueRenderer 导出/签名断言（AC-4 队列渲染器装配面）', () => {
+  assert.equal(typeof T.createNextQueueRenderer, 'function', 'createNextQueueRenderer 导出存在')
+  // 签名对齐 createNextWellRenderer：入参 <canvas>，缺失抛 /需要 <canvas> 元素/（TECHNICAL §5.2）
+  assert.throws(() => T.createNextQueueRenderer(null), /需要 <canvas> 元素/)
+  assert.throws(() => T.createNextQueueRenderer(undefined), /需要 <canvas> 元素/)
+})
+
+test('r15: createNextWellRenderer/createHoldWellRenderer 契约不回归（AC-4 复用回归）', () => {
+  // T5 抽取 drawMiniPieceAt 三渲染器共享后，旧两渲染器对外导出/报错契约必须保持
+  assert.equal(typeof T.createNextWellRenderer, 'function', 'createNextWellRenderer 导出保持')
+  assert.equal(typeof T.createHoldWellRenderer, 'function', 'createHoldWellRenderer 导出保持')
+  assert.throws(() => T.createNextWellRenderer(null), /需要 <canvas> 元素/)
+  assert.throws(() => T.createNextWellRenderer(undefined), /需要 <canvas> 元素/)
   assert.throws(() => T.createHoldWellRenderer(null), /需要 <canvas> 元素/)
   assert.throws(() => T.createHoldWellRenderer(undefined), /需要 <canvas> 元素/)
 })
