@@ -2,7 +2,9 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- r17：viewport-fit=cover（AC-3）——iOS 下 env(safe-area-inset-bottom) 非零的前提；
+       缺它刘海/底部条设备 safe-area 避让恒 0 无法验证（TECHNICAL §4.1） -->
   <meta name="description" content="俄罗斯方块（Tetris）简化版 — 自包含静态 Web 应用，双击即玩，零构建、零外部依赖。" />
   <title>TETRIS · 俄罗斯方块</title>
   <!-- 本地样式（AC-08.1：index.html + 本地 css/js，无任何外部引用） -->
@@ -25,21 +27,27 @@
   <main id="main">
     <!-- 左信息面板：分数 / 等级 / 行数 / 下一个预览（DESIGN §2.2） -->
     <section id="panel-left" class="panel" aria-label="信息面板">
-      <div id="stat-score" class="stat">
-        <span class="stat__label">分数</span>
-        <output id="score" class="stat__value stat__value--score" aria-live="polite">0</output>
-      </div>
-      <div id="stat-hi" class="stat">
-        <span class="stat__label">最高分</span>
-        <output id="hi-score" class="stat__value stat__value--score stat__value--hi" aria-live="polite">0</output>
-      </div>
-      <div id="stat-level" class="stat">
-        <span class="stat__label">等级</span>
-        <output id="level" class="stat__value stat__value--num" aria-live="polite">1</output>
-      </div>
-      <div id="stat-lines" class="stat">
-        <span class="stat__label">消除行数</span>
-        <output id="lines" class="stat__value stat__value--num" aria-live="polite">0</output>
+      <!-- r17：四统计块归一包裹（T1）。.stat-grid = S 档 2×2 HUD 卡的数据来源；
+           DOM 顺序恒为 L 档 grid 自动放置基线（禁重排），基座 .stat-grid 复刻
+           #panel-left 原 flex gap(20px) 防 L 档快照漂移（AC-7）；后代选择器
+           #stat-score .stat__value 等全部仍命中（assembly-check 正例） -->
+      <div class="stat-grid" role="group" aria-label="对局统计">
+        <div id="stat-score" class="stat">
+          <span class="stat__label">分数</span>
+          <output id="score" class="stat__value stat__value--score" aria-live="polite">0</output>
+        </div>
+        <div id="stat-hi" class="stat">
+          <span class="stat__label">最高分</span>
+          <output id="hi-score" class="stat__value stat__value--score stat__value--hi" aria-live="polite">0</output>
+        </div>
+        <div id="stat-level" class="stat">
+          <span class="stat__label">等级</span>
+          <output id="level" class="stat__value stat__value--num" aria-live="polite">1</output>
+        </div>
+        <div id="stat-lines" class="stat">
+          <span class="stat__label">消除行数</span>
+          <output id="lines" class="stat__value stat__value--num" aria-live="polite">0</output>
+        </div>
       </div>
       <div class="hold-well">
         <span class="stat__label">Hold 暂存</span>

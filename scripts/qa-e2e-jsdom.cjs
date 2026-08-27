@@ -15,6 +15,8 @@
  *   - r15（v3.2）：3 格多格预览队列——READY 三格渲染、开关三信号默认开、关闭整区
  *     隐藏（含标签）+ 游戏不受影响、重开即时恢复与 snapshot.queue 一致、关闭期多次
  *     hardDrop 后重开不错位、二次装载持久化恢复、与 Hold 并存（AC-1/3/6/7/8/9/11）
+ *   - r17（v3.4）：响应式断点——AC-8 跨档 resize 5 轮快照逐字段不变（无重载无重置）、
+ *     AC-5 has-touch 显隐复用、断点框架静态证据（S 列序/--dock-h/M media/按钮 44/stat-grid 基座）
  *   - 装配契约：canvas 尺寸、渲染调用、按钮矩阵、焦点管理、dispose 清理
  *
  * 运行：node scripts/qa-e2e-jsdom.cjs
@@ -1664,6 +1666,94 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('r16 isTouchDevice() jsdom/桌面恒 false（能力检测，默认路径零变化）', window.TetrisUI.isTouchDevice() === false)
   }
 
+  /* ---------- r17 响应式重排（AC-8 跨档 resize / AC-5 显隐复用 / 静态证据） ---------- */
+  console.log('\n-- r17 响应式重排（AC-8 跨档 resize / AC-5 显隐 / AC-7 静态证据） --')
+  {
+    // AC-8：断点切换 = 派生样式而非状态（PRD R2）——布局档位不进入 JS 状态机。
+    // jsdom 无布局引擎，CSS 断点几何不可验证（PRD R4，几何入 QA 真机清单）；可行为验证的是：
+    // 向 window 连续派发不同宽度 resize（ui.js onResize 仅重烘焙 DPR，零档位感知）→ 引擎快照
+    // 逐字段不变、phase 保持 RUNNING、无重载信号（hash/history 未变）。5 轮覆盖 S/M/L 跨档与
+    // 横竖屏形态，之后再 tick 仍可继续游玩（构造性保证：JS 不感知档位，TECHNICAL §7.3/§6.1）。
+    const pick8 = function (s) {
+      return {
+        board: s.board,
+        piece: s.piece ? { type: s.piece.type, x: s.piece.x, y: s.piece.y, rot: s.piece.rot } : null,
+        score: s.score, lines: s.lines, level: s.level,
+        next: s.next, queue: s.queue, holdPiece: s.holdPiece,
+      }
+    }
+    const snapEq8 = function (a, b) { return JSON.stringify(pick8(a)) === JSON.stringify(pick8(b)) }
+    const t8 = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 0,
+      touch: true,
+    })
+    const g8 = t8.game
+    g8.start()
+    key('ArrowRight') // 先产生一次输入，快照非平凡（piece 与初始态不同）
+    const snap8 = g8.getSnapshot()
+    const hash0 = window.location.hash
+    const hist0 = window.history.length
+    // S/M/L 跨档 + 横竖屏形态（320 含 568×320 / 844 含 390×844 典型样本）
+    const widths8 = [390, 768, 1024, 320, 844]
+    let resizeOk = true
+    let resizeDetail = ''
+    widths8.forEach(function (w, i) {
+      // jsdom 无布局引擎：innerWidth 为纯标记，resize 事件驱动 ui.js 的 DPR 重烘焙路径；
+      // 断点命中与否由真实浏览器 CSS 兑现（AC-8 只保证 JS 不感知）
+      try { Object.defineProperty(window, 'innerWidth', { value: w, configurable: true, writable: true }) } catch (e) { /* 只读属性时跳过宽度标记 */ }
+      window.dispatchEvent(new window.Event('resize'))
+      const s = g8.getSnapshot()
+      if (!snapEq8(s, snap8) || s.phase !== 'RUNNING' || window.location.hash !== hash0 || window.history.length !== hist0) {
+        resizeOk = false
+        resizeDetail = '第 ' + (i + 1) + ' 轮 w=' + w + ' 快照/hash/history 漂移'
+      }
+    })
+    check('r17 AC-8 跨档 resize 5 轮（390/768/1024/320/844）快照逐字段不变 + phase RUNNING + 无重载信号',
+      resizeOk, resizeDetail || 'hash=' + hash0 + ' historyLen=' + hist0)
+    // 轮换后仍可游玩：再 tick 一次（软降恰 1 格）
+    key('ArrowDown')
+    check('r17 AC-8 resize 风暴后引擎仍可游玩（软降恰 1 格）',
+      g8.getSnapshot().piece.y === snap8.piece.y + 1, 'y ' + snap8.piece.y + '→' + g8.getSnapshot().piece.y)
+
+    // AC-5：has-touch 显隐切换不重置对局（r16 AC-1 同款复用，r17 覆盖各档语义）
+    const sBefore8 = g8.getSnapshot()
+    doc.documentElement.classList.remove('has-touch')
+    const sMid8 = g8.getSnapshot()
+    doc.documentElement.classList.add('has-touch')
+    check('r17 AC-5 增删 has-touch 不重置对局（snap 逐字段一致、phase RUNNING）',
+      snapEq8(sBefore8, sMid8) && sMid8.phase === 'RUNNING')
+    t8.dispose()
+    check('r17 AC-5 dispose → has-touch 类移除（r16 归属回收保持）', !doc.documentElement.classList.contains('has-touch'))
+  }
+
+  /* ---------- r17 静态证据（cssText/htmlText 源结构：jsdom 不可达几何以结构断言表达，r16 段同款先例） ---------- */
+  console.log('\n-- r17 静态证据（cssText/htmlText 源结构，AC-7/AC-4 保真锚点） --')
+  {
+    const css17 = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
+    const html17 = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+    const sP17 = css17.slice(css17.indexOf('@media (max-width: 599px)'), css17.indexOf('@media (max-width: 599px) and (orientation: landscape)'))
+    check('r17 静态 S 竖屏单列：flex-direction: column + order 列序表（卡片流，AC-1）',
+      /#main\s*\{[^}]*flex-direction\s*:\s*column/.test(sP17) &&
+      /\.stat-grid\s*\{[^}]*order:\s*10/.test(sP17) && /#board-col\s*\{[^}]*order:\s*40/.test(sP17) &&
+      /#controls\s*\{[^}]*order:\s*70/.test(sP17))
+    check('r17 静态 --dock-h 单一事实来源：#main padding-bottom 引用 + .touchpad flex-wrap 两行 + 16.5vh 中心带',
+      /padding-bottom:\s*var\(--dock-h\)/.test(sP17) && /\.touchpad\s*\{[^}]*flex-wrap/.test(sP17) &&
+      /min-height:\s*max\([^;]*16\.5vh/.test(sP17))
+    check('r17 静态 M 档 media 存在（两列 600-767 / 三列 768-1023 minmax 吸收，AC-6）',
+      css17.indexOf('@media (min-width: 600px) and (max-width: 767px)') !== -1 &&
+      css17.indexOf('@media (min-width: 768px) and (max-width: 1023px)') !== -1 &&
+      css17.indexOf('minmax(180px, 1fr) 340px minmax(180px, 1fr)') !== -1)
+    check('r17 静态 AC-4：S/M 档 html.has-touch .btn min-height:44px（L 保持 r16 40px 基座）',
+      /html\.has-touch\s+\.btn\s*\{[^}]*min-height:\s*44px/.test(css17))
+    check('r17 静态 AC-7 保真锚点：.stat-grid 基座 gap:var(--sp-5) 复刻 L 间距',
+      /\.stat-grid\s*\{[^}]*gap:\s*var\(--sp-5\)/.test(css17))
+    check('r17 静态 index.html：.stat-grid 包裹 + viewport-fit=cover（TECHNICAL §4.1）',
+      html17.indexOf('<div class="stat-grid"') !== -1 && html17.indexOf('viewport-fit=cover') !== -1)
+  }
+
   /* ---------- 汇总 ---------- */
   console.log('\n== 结果汇总 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))
@@ -1736,6 +1826,15 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       !w2.document.documentElement.classList.contains('has-touch'))
     check('r16 file:// 自动装配：真实页面含 #touch-controls 触屏操控区', !!w2.document.querySelector('#touch-controls'))
     check('r16 file:// 自动装配：页面含 6 个 .tkey 触屏键', w2.document.querySelectorAll('.tkey').length === 6)
+    // r17（AC-1/AC-7 DOM 契约）：真实自动装配页 .stat-grid 包裹四统计块 + HUD 渲染不受包裹影响
+    check('r17 file:// 自动装配：.stat-grid 包裹层存在且含四块 .stat', (function () {
+      const g = w2.document.querySelector('.stat-grid')
+      return !!g && g.querySelectorAll('.stat').length === 4 && !!g.querySelector('#stat-score')
+    })())
+    check('r17 file:// 自动装配：HUD 经包裹层照常渲染（#score/#level/#lines 初始值）',
+      w2.document.getElementById('score').textContent === '0' &&
+      w2.document.getElementById('level').textContent === '1' &&
+      w2.document.getElementById('lines').textContent === '0')
     // 清理：关闭自动装配的 rAF 循环
     if (handle2) handle2.dispose()
     w2.close()

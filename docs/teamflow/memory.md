@@ -7,6 +7,7 @@
 
 - **形态**：零构建自包含静态 Web 应用（双击 `index.html` 即玩，离线可用）；UMD 模块 `game.js`（引擎）/ `ui.js`（装配+渲染）/ `audio.js`（音效+BGM）/ `persist.js`（持久化），index.html 内联装配。
 - **视觉**：科技玻璃风（DESIGN §5 token）；信息面板开关控件统一交互模式（幽灵块 AC-13 / BGM AC-15 / 踢墙 AC-19 对齐）。
+- **布局（2026-08-28 r17 起）**：响应式三档断点 —— S 竖屏单列 <600px（含 <600px 且高<宽的横屏变体，底部固定触控操作区、safe-area-inset 避让）/ M 平板 600–1023px 多列 / L 桌面 ≥1024px 保持基线；触控区仅 `has-touch` 设备显示；断点实现纯 CSS 媒体查询，布局改动只落 `index.html`/`style.css`/`ui.js`，不触达引擎状态（详见 r17 任务夹 PRD）。
 - **持久化**：`persist.js` 是唯一事实来源（localStorage 键 `tetris.*` 前缀，能力探测失败降级内存 Map 绝不 throw）；`ui.js` 只消费 `load/saveHighScore/saveSettings`，禁止直接 setItem/getItem。
 - **验证**：七套脚本 = `verify-game` / `verify-audio` / `verify-ui` / `verify-persist` / `verify-constants` / `assembly-check` / `qa-e2e-jsdom`；回归出口标准 = 七套全绿、不加后门。
 - **版本号语义（2026-08-25 起）**：模块头部 `VERSION` 是**发布版本**——仅对外发版时统一升位；流水线迭代不碰代码头版本，文档迭代以任务夹为单位（不再使用全局递增版本号管理文档）。
@@ -34,11 +35,13 @@
 | v2.7 | 2026-08-24 | 7-bag 随机算法（AC-17）：袋内 Fisher-Yates、每 7 块全覆盖 | ✅ 通过（tf-mt417ope，56 用例含 7-bag 契约组） |
 | v2.9 | 2026-08-25 | 踢墙旋转开关（AC-19）：默认开=踢墙偏移表，关=v2.8 行为 + 开关持久化 | ✅ 通过（tf-mt85o5jj，197/197 e2e）；P3：verify-constants 存量漂移（见待办） |
 | v3.0 | 2026-08-25 | 设置弹层毛玻璃风格（AC-1~8）：设置项从左面板移出至齿轮图标触发的模态框，按分组展示 | ✅ 通过（r9 + 人工热修后全绿：装配时序修复 + E2E 五缺陷收口，236/236） |
+| v3.4 | 2026-08-28 | 全面响应式重排（r17）：S/M/L 三档断点 + S 竖屏单列卡片流 + 底部固定触控区（两行 dock、safe-area-inset 避让、中心带 16.5vh）+ 触屏按钮 44px 保底 | ✅ 已验收（tf-mtbtl6gk-vuwx4p：七套全绿 97/24/23/15/2/ALL/366；P3 D1/D2/D3 见待办；真机几何随人工补测） |
 
 ## 已知待办
 
-- **verify-constants 版本断言对齐**：脚本硬编码 `EXPECTED_VERSION='2.3.0'`，而 TECHNICAL §2.2 已随 v2.9 重写为踢墙偏移表（场外既有漂移，非某轮引入）。建议一次性裁定发布版本号（如统一升 '2.9.0' 并同步三模块头部 + TECHNICAL §2.2 + 脚本期望值），使七套回归全绿。
+- **verify-constants 版本断言对齐**：脚本硬编码 `EXPECTED_VERSION='2.3.0'`，而 TECHNICAL §2.2 已随 v2.9 重写为踢墙偏移表（场外既有漂移，非某轮引入）。建议一次性裁定发布版本号（如统一升 '2.9.0' 并同步三模块头部 + TECHNICAL §2.2 + 脚本期望值），使七套回归全绿。**【2026-08-28 r17 复核注记（D6 裁定）】**：维持不升——升号须动 game/audio 代码头，违反 r17 0-diff 红线；verify-constants 零改动仍全绿，登记 v3.4 走文档层迭代索引；待「对外发版」统一裁定发布版本号时一并处理。
 - **TECHNICAL.md 补 BGM 契约章节**（v2.5 遗留文档缺口）：BGM_DEFS（bpm96/triangle/peak0.16/14 音 C 大调/lookahead 调度/独立 bgmVoices 池/masterGain 汇入/dispose 无泄漏）落盘供追溯。
+- **r17 响应式重排遗留（P3，不阻塞）**：D1 — M 档 600–676px 子区间板框 min-content 312px > 轨道余量 236px，视觉溢出被 `body{overflow-x:hidden}` 裁剪（无横向滚动）；下轮建议 M 档轨道改 `minmax(312px,1fr)` 或 M 下界上调 676px，真机对拍后裁决。D3 — verify-ui 补 M 档 `--dock-h` 64+inset 自动化断点断言。D2（S 横屏棋盘 max-height 150px 占位量真机校准）随下方人工补测汇总处理。
 - **人工补测汇总（环境限制非缺陷）**：各轮 QA-REPORT §6/§7 清单——音效听感/时序、B1~B9 听感视觉读屏、幽灵块暗色可辨识度/双分辨率、开关可访问性与即时性、快捷键时序等，待有真实浏览器环境时集中补测。
 - **测试增强（P3 建议）**：qa-e2e 补 AC-09.6 显式断言（首次交互后 AudioContext resume 恰好 1 次）；`#btn-mute` 静音态 aria-label 动态切换「取消静音」。
 - ~~**qa-e2e 测试桩缺口（v3.0）**~~ ✅ 已收口（人工热修，2026-08-25）：spy 补 startBgm/stopBgm 代理；key() 改 document 派发（贴近真实冒泡链）；is-open 动画类断言等待 rAF；弹层 ESC 加 stopPropagation（不误触游戏暂停）+ 打开动画帧取消；file:// 管线新增 console.error「装配失败」回归断言；修复后 236/236 全绿。
