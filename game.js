@@ -52,7 +52,7 @@
 
     // 音效事件集（v2.0，AC-09；TECHNICAL §2.1 单一事实来源）：
     // audio.js 参数表 / 装配（ui.js onSfx→play）/ 测试统一引用，杜绝字符串漂移
-    const SFX_EVENTS = ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver']
+    const SFX_EVENTS = ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver', 'hold']
 
     // 踢墙旋转偏移表（v2.9，AC-19.2：固定次序/固定值，不可由玩家配置——Guideline 简化单点表）
     // 开关=开 时，旋转碰撞依次尝试：左移 → 右移 → 上移，各 1 格；全部失败则保持原位
@@ -456,6 +456,8 @@
         queue: null,
         // r13 消行动画（AC-1）：clearing 子阶段（仅在 RUNNING 下存在；初始 null，见 §2.2）
         clearing: null,
+        // r14 Hold 暂存槽（AC-1）：null 或 { type: string }（仅存 type，rot/x/y 由 spawn 重置）
+        holdPiece: null,
       }
       state.queue = createQueue(rng)
       state.next = state.queue.next()
@@ -464,6 +466,10 @@
       let lastPhase = state.phase
       // 踢墙旋转开关（v2.9，AC-19.1：默认开；仅 rotate 内自判读取，UI 经 setWallKickEnabled 同步）
       let wallKickEnabled = opts.wallKickEnabled !== false
+      // r14 Hold 暂存开关（AC-11）：默认开；UI 经 setHoldEnabled 同步
+      let holdEnabled = opts.holdEnabled !== false
+      // r14 Hold 使用限制（AC-5）：每个方块下落周期内是否已使用过 hold
+      let holdUsed = false
       // 消行动画时长（r13，AC-1/AC-9）：默认 240ms（容差 160~320）；0 = 即时消除（与 reduced-motion 等价，AC-7）；
       // 强制布尔/负值兜底为默认值（对齐 wallKickEnabled 的 opts 解析风格）；构造期只读，无运行期 setter
       const animMs = typeof opts.animMs === 'number' && opts.animMs >= 0 ? opts.animMs : 240
@@ -481,6 +487,8 @@
           // r13（AC-10，additive）：动画期附加快照字段；非动画期恒 null（不影响既有消费方对比）
           clearedIndices: state.clearing ? state.clearing.indices.slice() : null,
           animProgress: state.clearing ? Math.min(1, state.clearing.elapsed / animMs) : null,
+          // r14 Hold 暂存槽类型（null 或 type 字符串）
+          holdPiece: state.holdPiece ? state.holdPiece.type : null,
         }
       }
 
@@ -514,6 +522,10 @@
         state.piece = null
         state.lockTimer = 0
         state.gravityAcc = 0
+        // r14 AC-15：holdEnabled 关闭时，当前方块锁定后清空暂存槽
+        if (!holdEnabled && state.holdPiece !== null) {
+          state.holdPiece = null
+        }
         if (res.cleared > 0 && animMs > 0) {
           // → clearing 子阶段：保持含满行棋盘（视觉静止），动画结束帧才塌缩
           state.board = merged
@@ -564,6 +576,7 @@
           return { ok: true, locked: true, cleared: cleared, levelUp: levelUp, gameOver: true }
         }
         state.piece = p
+        holdUsed = false // r14 AC-5：新方块出生后重置 hold 使用限制
         emit()
         if (levelUp && cb.onLevelUp) cb.onLevelUp(state.level)
         if (levelUp) sfx('levelUp')
@@ -607,6 +620,8 @@
         state.next = state.queue.next()
         state.piece = null
         state.clearing = null // r13（AC-6/§2.2）：restart 强制清空动画状态（防宿主异常调用留脏）
+        state.holdPiece = null // r14：restart 清空暂存槽
+        holdUsed = false // r14：restart 重置 hold 使用限制（与 spawnFirst 后新方块出生同语义）
         state.phase = transition(state.phase, 'restart') // 任意态 → RUNNING
         spawnFirst()
         emit()
@@ -716,6 +731,53 @@
         state.piece = { type: state.piece.type, rot: state.piece.rot, x: state.piece.x, y: state.piece.y + d }
         sfx('hardDrop') // 每次硬降恰好 1 次（落点计算后、lockFlow 前，E-SFX-04 顺序首项）
         return lockFlow() // 硬降立即固定，不走缓冲
+      }
+
+      /**
+       * Hold 暂存操作（r14，AC-1 ~ AC-6）。
+       * @returns {{ ok: boolean, reason?: string }}
+       *   ok=true  → 暂存/交换成功（UI 应播放 hold 音效）
+       *   ok=false → 被拒（UI 不播放音效）
+       *   reason: 'disabled' | 'illegal-phase' | 'clearing' | 'already-used' | 'no-piece'
+       */
+      function hold() {
+        if (disposed) return { ok: false, reason: 'illegal-phase' }
+        if (state.phase !== 'RUNNING') return { ok: false, reason: 'illegal-phase' }
+        if (state.clearing) return { ok: false, reason: 'clearing' }
+        if (!holdEnabled) return { ok: false, reason: 'disabled' }
+        if (!state.piece) return { ok: false, reason: 'no-piece' }
+        if (holdUsed) return { ok: false, reason: 'already-used' }
+
+        const currentType = state.piece.type
+
+        if (state.holdPiece === null) {
+          // 暂存槽为空：当前方块 → 暂存槽，next → 当前方块
+          state.holdPiece = { type: currentType }
+          const nextType = state.next
+          state.next = state.queue.next()
+          state.piece = spawn(nextType)
+        } else {
+          // 暂存槽非空：交换当前方块与暂存槽
+          const heldType = state.holdPiece.type
+          state.holdPiece = { type: currentType }
+          state.piece = spawn(heldType)
+          // next 不变——交换暂存槽不消耗队列
+        }
+
+        // 出生碰撞检测（AC-4 重置出生点后可能碰撞 → GAME OVER）
+        if (spawnCollides(state.board, state.piece)) {
+          state.phase = transition(state.phase, 'lose')
+          stopLoop()
+          emit()
+          if (cb.onGameOver) cb.onGameOver(state.score)
+          sfx('gameOver')
+          return { ok: true } // 返回 ok=true 因为 hold 操作本身成功（音效由 hold 驱动，gameOver 由 sfx 驱动）
+        }
+
+        holdUsed = true
+        emit()
+        sfx('hold')
+        return { ok: true }
       }
 
       /** 手动时钟驱动：宿主在 autoLoop:false 时每帧调用（dt 单位 ms，内部 clamp ≤ 250） */
@@ -949,6 +1011,15 @@
           return true
         },
         getWallKickEnabled: function () { return wallKickEnabled },
+        // r14 Hold 暂存开关读写（UI 装配期同步；钳制为布尔，实时生效）
+        setHoldEnabled: function (enabled) {
+          if (disposed) return false
+          holdEnabled = enabled === true
+          return true
+        },
+        getHoldEnabled: function () { return holdEnabled },
+        getHoldPiece: function () { return state.holdPiece ? state.holdPiece.type : null },
+        hold: hold,
         softDrop: softDrop,
         hardDrop: hardDrop,
         tick: tick,

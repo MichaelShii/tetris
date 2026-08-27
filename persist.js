@@ -1,7 +1,7 @@
 /* ============================================================================
  * persist.js — Tetris 应用层统一持久化基础设施（v2.6）
  *
- * 职责：把「最高分」与「音量/静音/幽灵块/BGM/踢墙」五设置持久化到 localStorage。
+ * 职责：把「最高分」与「音量/静音/幽灵块/BGM/踢墙/暂存」六设置持久化到 localStorage。
  *   - createStorage(): localStorage 能力探测 → 不可用自动降级为内存 Map，绝不 throw
  *   - createPersistence(): 返回 load() / saveHighScore(n) / saveSettings(s) / dispose()
  *   - sanitize(value, schema): 纯函数清洗，highScore 非负整数、volume 收敛 0~1 浮点、
@@ -40,7 +40,7 @@
 
     // 最高分默认 0（无历史时 HUD 显示 0，后续调用 saveHighScore 只增不减）
     const DEFAULT_HIGH_SCORE = 0
-    // 四设置布尔白名单默认值（对齐 ui.js 现状：音量→audio 用 0~1，此处存布尔开关语义见说明）
+    // 五设置布尔白名单默认值（对齐 ui.js 现状：音量→audio 用 0~1，此处存布尔开关语义见说明）
     const DEFAULT_VOLUME = 0.8
     const DEFAULT_SETTINGS = {
       volume: DEFAULT_VOLUME,
@@ -48,6 +48,7 @@
       ghostEnabled: true,
       bgmEnabled: false, // v2.4 信息面板 BGM 开关默认关（AC-BGM）
       wallKickEnabled: true, // v2.9 信息面板踢墙开关默认开（AC-19.1）
+      holdEnabled: true, // v3.2 暂存方块开关默认开（AC-14）
     }
 
     /* ======================================================================
@@ -58,7 +59,7 @@
      * 清洗单值。schema 形如：
      *   { type: 'integer', min: 0, max: Infinity, def: 0 }   // 非负整数（最高分）
      *   { type: 'float', min: 0, max: 1, def: 0.8 }           // 收敛浮点（音量），超界收敛上界
-     *   { type: 'boolean', def: true }                        // 布尔白名单（其余三设置）
+     *   { type: 'boolean', def: true }                        // 布尔白名单（其余五设置）
      * @param {*} value   待清洗值（任意）
      * @param {object} schema  清洗规则
      * @returns {*} 清洗后的安全值（绝不抛异常）
@@ -273,6 +274,7 @@
             ghostEnabled: sanitize(settings.ghostEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.ghostEnabled }),
             bgmEnabled: sanitize(settings.bgmEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.bgmEnabled }),
             wallKickEnabled: sanitize(settings.wallKickEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.wallKickEnabled }),
+            holdEnabled: sanitize(settings.holdEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.holdEnabled }),
           },
         }
       }
@@ -291,6 +293,7 @@
               ghostEnabled: state.settings.ghostEnabled,
               bgmEnabled: state.settings.bgmEnabled,
               wallKickEnabled: state.settings.wallKickEnabled,
+              holdEnabled: state.settings.holdEnabled,
             },
           })
         } catch (_e) {

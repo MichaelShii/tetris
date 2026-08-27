@@ -132,6 +132,35 @@ test('r13: pulseBrightness 包络数值断言（端点/峰值/值域）', () => 
   }
 })
 
+test('v3.2: createHoldWellRenderer 导出/签名断言（AC-13）', () => {
+  assert.equal(typeof T.createHoldWellRenderer, 'function', 'createHoldWellRenderer 导出存在')
+  // 签名同 createNextWellRenderer：需要 <canvas> 元素
+  assert.throws(() => T.createHoldWellRenderer(null), /需要 <canvas> 元素/)
+  assert.throws(() => T.createHoldWellRenderer(undefined), /需要 <canvas> 元素/)
+})
+
+test('v3.2: game.hold API 存在（引擎 hold 方法导出契约）', () => {
+  const g = G.createGame({ autoLoop: false, keyboard: false, autoPauseOnBlur: false, rng: function () { return 0 } })
+  assert.equal(typeof g.hold, 'function', 'hold 方法导出存在')
+  assert.equal(typeof g.setHoldEnabled, 'function', 'setHoldEnabled 导出存在')
+  assert.equal(typeof g.getHoldEnabled, 'function', 'getHoldEnabled 导出存在')
+  assert.equal(typeof g.getHoldPiece, 'function', 'getHoldPiece 导出存在')
+  assert.equal(g.getHoldEnabled(), true, '默认 holdEnabled 开启')
+  g.dispose()
+})
+
+test('v3.2: setHoldEnabled 实时生效（开关切换断言）', () => {
+  const g = G.createGame({ autoLoop: false, keyboard: false, autoPauseOnBlur: false, rng: function () { return 0 } })
+  assert.equal(g.getHoldEnabled(), true, '初始 holdEnabled = true')
+  assert.equal(g.setHoldEnabled(false), true, '关闭 holdEnabled')
+  assert.equal(g.getHoldEnabled(), false, '关闭生效')
+  assert.equal(g.setHoldEnabled(true), true, '重新开启')
+  assert.equal(g.getHoldEnabled(), true, '开启生效')
+  // hold piece 初始为 null
+  assert.equal(g.getHoldPiece(), null, '初始 holdPiece = null')
+  g.dispose()
+})
+
 test('r13: pulseBrightness 渐亮段帧增量单调递减（ease-out-quart 可判据）', () => {
   // 渐亮段 0 → ANIM_PEAK_T（N=16 点）：相邻亮度差严格递减（ease-out-quart 的导数性质）
   const N = 16

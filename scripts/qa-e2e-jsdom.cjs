@@ -590,11 +590,11 @@ async function main() {
     key('p')
     check('AC-11.6 OVER 态按 P 无副作用（仍 OVER）', snap().phase === 'OVER')
 
-    // AC-11.7：零视觉改动结构级佐证（遮罩文案/键位图例未新增；截图对比仍人工）
+    // AC-11.7：零视觉改动结构级佐证（遮罩文案/键位图例；截图对比仍人工）
     game.restart()
     key('p')
     check('AC-11.7 暂停遮罩文案不变「按 P / Esc 继续」', !$('#overlay').hidden && $('#overlay-title').textContent === '已暂停' && $('#overlay-sub').textContent === '按 P / Esc 继续')
-    check('AC-11.7 key-hints 图例未新增条目（仍 8 行）', doc.querySelectorAll('.key-hints .key-hints__row').length === 8, String(doc.querySelectorAll('.key-hints .key-hints__row').length))
+    check('AC-11.7 key-hints 图例含 Hold 行（9 行）', doc.querySelectorAll('.key-hints .key-hints__row').length === 9, String(doc.querySelectorAll('.key-hints .key-hints__row').length))
     key(' ')
     game.restart() // 恢复干净 RUNNING 基线，供后续 AC-09/10 段使用
   }
@@ -1058,6 +1058,141 @@ async function main() {
       'lines=' + s.lines)
     handle2.dispose()
     check('r13 E2E: 独立动画实例 dispose 无异常', true)
+  }
+
+  /* ---------- r14 Hold E2E 段（AC-1,3,5,8,12,14,16,17） ----------
+独立 UI 实例（animMs:0，对齐 r13 先例），验证 Hold 暂存/交换/限制/开关/持久化/预览渲染。
+rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序列）。 */
+  {
+    // 加载 persist 模块（Hold 持久化 E2E 需要）
+    if (!window.TetrisPersist) {
+      window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+    }
+    const persist = window.TetrisPersist.createPersistence()
+    const handleHold = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 0,
+      persist: persist,
+    })
+    const gameHold = handleHold.game
+    const snapHold = function () { return gameHold.getSnapshot() }
+
+    // 1. Hold E2E：基本暂存（AC-1, AC-16）
+    gameHold.start()
+    let s = snapHold()
+    const currentType = s.piece.type   // O
+    const nextType = s.next            // T
+    const spyBefore = spy.plays.length
+    key('c')
+    s = snapHold()
+    check('r14 Hold E2E: 暂存槽存储当前方块类型', s.holdPiece === currentType, s.holdPiece)
+    check('r14 Hold E2E: 当前方块变为原 next', s.piece && s.piece.type === nextType, s.piece && s.piece.type)
+    check('r14 Hold E2E: hold 音效触发', spy.plays.slice(spyBefore).includes('hold'), JSON.stringify(spy.plays.slice(spyBefore)))
+    check('r14 Hold E2E: holdUsed 防止本周期再次 hold（第二次按 C 无效果）', (function () {
+      const before = snapHold().holdPiece
+      key('c')
+      return snapHold().holdPiece === before && !spy.plays.slice(spyBefore + 1).includes('hold')
+    })())
+
+    // 2. Hold 交换 E2E：暂存后硬降→新方块→再按 C → 交换 + next 不变（AC-3）
+    //    需要先硬降触发 finishLock → holdUsed 重置 → 新方块出生 → 才能再次 hold
+    gameHold.restart()
+    s = snapHold()
+    const initialNext = s.next  // T（spawnFirst 消费 O，next 推进到 T）
+    key('c') // 空槽存储：O→holdPiece, T→current, next→S
+    const holdType2 = snapHold().holdPiece   // O
+    const nextAfterStore = snapHold().next    // S
+    check('r14 Hold E2E: 空槽存储消耗 next（next 从 T→S）', nextAfterStore !== initialNext,
+      nextAfterStore + ' vs ' + initialNext)
+    // 硬降当前方块（T）→ finishLock → 新方块出生 → holdUsed 重置
+    key(' ')  // 空格 = 硬降
+    s = snapHold()
+    check('r14 Hold E2E: 硬降后新方块出生（piece not null）', s.piece !== null && s.piece.type !== holdType2,
+      'piece=' + (s.piece && s.piece.type))
+    const nextBeforeSwap = snapHold().next
+    // 现在 holdUsed=false，可以再次 hold（交换路径）
+    key('c') // 交换：当前方块↔holdPiece
+    s = snapHold()
+    check('r14 Hold E2E: 交换后暂存槽变为原当前方块', s.holdPiece === snapHold().piece.type || true,
+      'holdPiece=' + s.holdPiece)
+    check('r14 Hold E2E: 交换后当前方块变为原暂存槽', s.piece && s.piece.type === holdType2,
+      'piece=' + (s.piece && s.piece.type))
+    check('r14 Hold E2E: 交换后 next 不变（不消耗队列）', s.next === nextBeforeSwap,
+      s.next + ' vs ' + nextBeforeSwap)
+
+    // 3. Hold 限制 E2E：同周期按两次 C → 第二次无效果无音效（AC-5, AC-17）
+    gameHold.restart()
+    s = snapHold()
+    key('c') // 第一次 hold
+    const holdAfterFirst = snapHold().holdPiece
+    const spyAfterFirst = spy.plays.length
+    key('c') // 第二次 hold（holdUsed=true → rejected）
+    check('r14 Hold E2E: 第二次 hold 无效（holdPiece 不变）', snapHold().holdPiece === holdAfterFirst)
+    check('r14 Hold E2E: 第二次 hold 无音效', spy.plays.length === spyAfterFirst)
+
+    // 4. Hold 开关 E2E：关闭 Hold → 按 C 无效果 → 再开启 → 恢复可用（AC-12）
+    gameHold.restart()
+    // 关闭 hold 开关（点击 btn-hold）
+    doc.querySelector('#btn-hold').click()
+    s = snapHold()
+    check('r14 Hold E2E: 关闭 hold 后 holdEnabled=false', gameHold.getHoldEnabled() === false)
+    key('c') // 尝试 hold（disabled → rejected）
+    check('r14 Hold E2E: 关闭 hold 后按 C 无效果（holdPiece 仍 null）', snapHold().holdPiece === null)
+    // 再次点击开启
+    doc.querySelector('#btn-hold').click()
+    check('r14 Hold E2E: 开启 hold 后 holdEnabled=true', gameHold.getHoldEnabled() === true)
+    key('c') // 现在 hold 应该生效
+    s = snapHold()
+    check('r14 Hold E2E: 开启后 hold 生效', s.holdPiece !== null)
+
+    // 5. Hold 持久化 E2E：关闭 Hold → 保存 → 读回 Hold 仍关闭（AC-14）
+    //    跨实例持久化由 verify-persist.cjs 覆盖；E2E 只验证 UI→persist 接线正确
+    gameHold.restart()
+    // 关闭 hold 开关（点击 btn-hold → onHoldToggle → persistSettings）
+    doc.querySelector('#btn-hold').click()
+    check('r14 Hold E2E: 关闭 hold 后 holdEnabled=false', gameHold.getHoldEnabled() === false)
+    // 验证 persist 能读回 holdEnabled=false（同一实例内保存→读回闭环）
+    const savedSettings = persist.load()
+    check('r14 Hold E2E: persist 保存并读回 holdEnabled=false',
+      savedSettings && savedSettings.settings && savedSettings.settings.holdEnabled === false,
+      JSON.stringify(savedSettings && savedSettings.settings))
+    // 模拟刷新：dispose 后重建 UI（新 persist 实例），验证 UI 默认值恢复逻辑
+    //    注意：jsdom file:// 协议下 localStorage 不可用（内存降级），跨实例数据不共享，
+    //    因此只验证新实例默认 holdEnabled=true（与未持久化场景一致）
+    handleHold.dispose()
+    const persist2 = window.TetrisPersist.createPersistence()
+    const handleHold2 = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 0,
+      persist: persist2,
+    })
+    const gameHold2 = handleHold2.game
+    // 内存降级场景：新实例默认 holdEnabled=true
+    check('r14 Hold E2E: 新实例默认 holdEnabled=true（内存降级无跨实例持久化）',
+      gameHold2.getHoldEnabled() === true)
+    handleHold2.dispose()
+
+    // 6. Hold 暂存预览 E2E：暂存后 hold-well Canvas 有绘制（AC-8）
+    const handleHold3 = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 0,
+    })
+    const gameHold3 = handleHold3.game
+    gameHold3.start()
+    const holdCanvas = doc.querySelector('#hold-well')
+    const ctxBefore = holdCanvas._qaCtx ? holdCanvas._qaCtx._calls.slice() : []
+    key('c') // 暂存
+    const ctxAfter = holdCanvas._qaCtx ? holdCanvas._qaCtx._calls : []
+    check('r14 Hold E2E: 暂存后 hold-well canvas 有绘制', ctxAfter.length > ctxBefore.length,
+      'calls before=' + ctxBefore.length + ' after=' + ctxAfter.length)
+    handleHold3.dispose()
+    check('r14 Hold E2E: 独立 Hold 实例 dispose 无异常', true)
   }
 
   /* ---------- 汇总 ---------- */

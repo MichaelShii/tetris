@@ -18,7 +18,7 @@ for (const k of needAudio) { if (k in A) ok(`TetrisAudio.${k}`); else bad(`MISSI
 {
   const defKeys = Object.keys(A.SFX_DEFS).sort().join(',')
   const eventKeys = (T.SFX_EVENTS || []).slice().sort().join(',')
-  if (defKeys === eventKeys && defKeys === 'clear,gameOver,hardDrop,levelUp,move,rotate,softDrop') ok('SFX_DEFS 键与 SFX_EVENTS 一致（7 事件）')
+  if (defKeys === eventKeys && defKeys === 'clear,gameOver,hardDrop,hold,levelUp,move,rotate,softDrop') ok('SFX_DEFS 键与 SFX_EVENTS 一致（8 事件）')
   else bad('SFX_DEFS/ SFX_EVENTS 事件集不一致：' + defKeys + ' vs ' + eventKeys)
 }
 
@@ -49,6 +49,7 @@ const sel = ['#board','#next-well','#board-frame','#overlay','#feedback-toast',
   '#ghost-control','#btn-ghost', // v2.3：幽灵块辅助开关（AC-13）
   '#bgm-control','#btn-bgm',   // v2.5：背景音乐 BGM 开关（AC-15）
   '#wallkick-control','#btn-wallkick', // v2.9：踢墙旋转开关（AC-19.7）
+  '#hold-well','#hold-control','#btn-hold', // v3.2：Hold 暂存方块预览与开关（AC-23）
   '#stat-hi','#hi-score',      // v2.6：HUD 最高分元素（持久化回读钩子，AC-16）
   '#btn-settings','#settings-modal','.settings-modal__card','.settings-modal__close'] // v3.0：设置弹层（AC-01~06）
 for (const s of sel) {

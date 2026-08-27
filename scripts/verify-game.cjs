@@ -78,8 +78,8 @@ test('exports: window 无关、模块导出齐全', () => {
   assert.deepEqual(T.PHASES, ['READY', 'RUNNING', 'PAUSED', 'OVER'])
 })
 
-test('SFX_EVENTS: v2.0 音效事件集 7 值（AC-09，audio.js/装配/测试统一引用）', () => {
-  assert.deepEqual(T.SFX_EVENTS, ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver'])
+test('SFX_EVENTS: v2.0 音效事件集 8 值（AC-09，audio.js/装配/测试统一引用；r14 新增 hold）', () => {
+  assert.deepEqual(T.SFX_EVENTS, ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver', 'hold'])
 })
 
 test('常量与 PRD §5 一致', () => {
@@ -1407,5 +1407,208 @@ test('r13 消行动画 ⑧: createGame() 默认 animMs>0 → 消行默认进入 
   g2._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
   g2.hardDrop()
   assert.ok(g2.getSnapshot().clearedIndices !== null, '非法 animMs 兜底为默认 240 → clearing')
+})
+
+/* ---------- 12. Hold 暂存方块（r14，§9.1 ①~⑭） ---------- */
+
+test('Hold ①: 空槽存入 + next 成为当前方块（AC-1/AC-2）', () => {
+  const sfx = []
+  const g = mk({ rng: () => 0, onSfx: (n) => sfx.push(n) }) // rng=0 → queue 恒 I
+  g.start()
+  const snap0 = g.getSnapshot()
+  const firstType = snap0.piece.type
+  assert.ok(firstType, '游戏启动有当前方块')
+  const nextType = snap0.next
+  const r = g.hold()
+  assert.deepEqual(r, { ok: true })
+  const snap1 = g.getSnapshot()
+  assert.equal(snap1.holdPiece, firstType, '暂存槽存入原当前方块类型')
+  assert.equal(snap1.piece.type, nextType, 'next 成为新当前方块')
+  assert.deepEqual(sfx, ['hold'], '暂存成功发射 hold 音效')
+})
+
+test('Hold ②: 非空槽交换 + next 不变（AC-3）', () => {
+  const g = mk({ rng: () => 0 })
+  g.start()
+  // 第一次 hold：空槽存入
+  const t1 = g.getSnapshot().piece.type
+  g.hold()
+  const snap1 = g.getSnapshot()
+  assert.equal(snap1.holdPiece, t1, '空槽存入原当前')
+  const nextAfterFirstHold = snap1.next
+  // hardDrop 重置 holdUsed
+  g.hardDrop()
+  // 第二次 hold：交换
+  const t2 = g.getSnapshot().piece.type
+  const nextBeforeSwap = g.getSnapshot().next
+  const r = g.hold()
+  assert.deepEqual(r, { ok: true }, '交换成功')
+  const snap2 = g.getSnapshot()
+  assert.equal(snap2.holdPiece, t2, '交换后暂存槽变为原当前')
+  assert.equal(snap2.piece.type, t1, '交换后当前方块=原暂存')
+  assert.equal(snap2.next, nextBeforeSwap, '交换不消耗队列（next 不变）')
+})
+
+test('Hold ③: 交换后 rot=0、出生点位置（AC-4）', () => {
+  const g = mk({ rng: () => 0 })
+  g.start()
+  // 先旋转当前块
+  g.rotate()
+  const snap0 = g.getSnapshot()
+  assert.notEqual(snap0.piece.rot, 0, '旋转后 rot≠0')
+  g.hold() // 空槽存入（rot 不影响，仅存 type）
+  g.hardDrop() // 重置 holdUsed
+  g.restart()
+  // 用非空槽交换测试：存入 → restart → 存入另一块 → 交换取出
+  const g2 = mk({ rng: () => 0 })
+  g2.start()
+  g2.hold() // 存入 I
+  g2.hardDrop() // 重置 holdUsed
+  const tHeld = g2.getSnapshot().holdPiece
+  // 交换取出
+  g2.hold()
+  const snap2 = g2.getSnapshot()
+  assert.equal(snap2.piece.type, tHeld, '交换取出暂存块类型正确')
+  assert.equal(snap2.piece.rot, 0, '交换取出 rot=0（出生重置）')
+  // 出生点：x = Math.floor((COLS - width) / 2), y = 0
+  const width = T.SHAPES[tHeld][0][0].length
+  assert.equal(snap2.piece.x, Math.floor((10 - width) / 2), '交换取出 x=出生居中')
+  assert.equal(snap2.piece.y, 0, '交换取出 y=0（顶部出生）')
+})
+
+test('Hold ④: 每周期仅 1 次，第二次返回 already-used（AC-5）', () => {
+  const g = mk({ rng: () => 0 })
+  g.start()
+  const r1 = g.hold()
+  assert.deepEqual(r1, { ok: true }, '第一次 hold 成功')
+  const r2 = g.hold()
+  assert.deepEqual(r2, { ok: false, reason: 'already-used' }, '同周期第二次 hold 被拒')
+})
+
+test('Hold ⑤: 非 RUNNING 返回 illegal-phase（AC-6）', () => {
+  const g = mk({ rng: () => 0 })
+  // READY 态
+  assert.deepEqual(g.hold(), { ok: false, reason: 'illegal-phase' }, 'READY 态被拒')
+  g.start()
+  // PAUSED 态
+  g.togglePause()
+  assert.deepEqual(g.hold(), { ok: false, reason: 'illegal-phase' }, 'PAUSED 态被拒')
+  // OVER 态：用 lose() 强制结束（最可靠的方式）
+  g.restart()
+  g.lose()
+  assert.equal(g.getPhase(), 'OVER', '确认进入 OVER')
+  assert.deepEqual(g.hold(), { ok: false, reason: 'illegal-phase' }, 'OVER 态被拒')
+})
+
+test('Hold ⑥: clearing 期间返回 clearing（AC-6）', () => {
+  const sfx = []
+  const g = mk({ animMs: 240, rng: () => 0, onSfx: (n) => sfx.push(n) })
+  g.start()
+  // 填满底行除一列
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  g._debug.setBoard(b)
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  g.hardDrop()
+  // animMs=240 > 0 → 进入 clearing 子阶段
+  const snap = g.getSnapshot()
+  assert.ok(snap.clearedIndices !== null, '确认进入 clearing')
+  assert.deepEqual(g.hold(), { ok: false, reason: 'clearing' }, 'clearing 期间被拒')
+})
+
+test('Hold ⑦: holdEnabled=false 返回 disabled（AC-12）', () => {
+  const g = mk({ rng: () => 0 })
+  g.start()
+  g.setHoldEnabled(false)
+  assert.equal(g.getHoldEnabled(), false)
+  assert.deepEqual(g.hold(), { ok: false, reason: 'disabled' }, 'holdEnabled=false 被拒')
+})
+
+test('Hold ⑧: piece=null 返回 no-piece', () => {
+  const g = mk({ rng: () => 0 })
+  g.start()
+  g._debug.setPiece(null)
+  assert.deepEqual(g.hold(), { ok: false, reason: 'no-piece' }, 'piece=null 被拒')
+})
+
+test('Hold ⑨: finishLock 重置 holdUsed（AC-5）', () => {
+  const g = mk({ rng: () => 0 })
+  g.start()
+  g.hold() // 第一次 hold，holdUsed=true
+  assert.deepEqual(g.hold(), { ok: false, reason: 'already-used' }, 'holdUsed 已锁')
+  // hardDrop → lockFlow → finishLock → holdUsed=false
+  g.hardDrop()
+  const r = g.hold()
+  assert.deepEqual(r, { ok: true }, '锁定后 holdUsed 重置，可再次 hold')
+})
+
+test('Hold ⑩: 暂存后出生碰撞 → GAME OVER（AC-4）', () => {
+  const events = { gameOver: [], sfx: [] }
+  const g = mk({
+    rng: () => 0,
+    onGameOver: (s) => events.gameOver.push(s),
+    onSfx: (n) => events.sfx.push(n),
+  })
+  g.start()
+  g.hold() // 存入当前块，holdUsed=true
+  g.hardDrop() // 重置 holdUsed，新方块出生
+  // 堆满棋盘顶部两行（出生区域），使 swap 取出时 spawn 碰撞
+  const b = T.createBoard()
+  for (let c = 0; c < 10; c++) b[0][c] = 'I'
+  for (let c = 0; c < 10; c++) b[1][c] = 'I'
+  g._debug.setBoard(b)
+  g._debug.setNext('T')
+  // 交换取出 → spawn(heldType) → y=0 碰撞 → GAME OVER
+  const r = g.hold()
+  assert.deepEqual(r, { ok: true }, 'hold 操作本身成功（即使 gameOver）')
+  assert.equal(g.getPhase(), 'OVER', '出生碰撞 → GAME OVER')
+  assert.equal(events.gameOver.length, 1, 'onGameOver 回调 1 次')
+  assert.ok(events.sfx.includes('hold'), 'hold 音效仍发射')
+  assert.ok(events.sfx.includes('gameOver'), 'gameOver 音效发射')
+})
+
+test('Hold ⑪: restart 清空暂存槽', () => {
+  const g = mk({ rng: () => 0 })
+  g.start()
+  g.hold()
+  assert.ok(g.getSnapshot().holdPiece !== null, '暂存槽非空')
+  g.restart()
+  assert.equal(g.getSnapshot().holdPiece, null, 'restart 后暂存槽清空')
+})
+
+test('Hold ⑫: holdEnabled setter/getter（AC-11）', () => {
+  const g = mk({ rng: () => 0 })
+  g.start()
+  assert.equal(g.getHoldEnabled(), true, '默认 holdEnabled=true')
+  g.setHoldEnabled(false)
+  assert.equal(g.getHoldEnabled(), false, 'setHoldEnabled(false) 实时生效')
+  g.setHoldEnabled(true)
+  assert.equal(g.getHoldEnabled(), true, 'setHoldEnabled(true) 恢复')
+  // 钳制：非布尔值
+  g.setHoldEnabled(0)
+  assert.equal(g.getHoldEnabled(), false, 'setHoldEnabled(0) 钳制为 false')
+  g.setHoldEnabled('yes')
+  assert.equal(g.getHoldEnabled(), false, 'setHoldEnabled("yes") 钳制为 false')
+  g.setHoldEnabled(1)
+  assert.equal(g.getHoldEnabled(), false, 'setHoldEnabled(1) 钳制为 false（仅 === true）')
+})
+
+test('Hold ⑬: 快照含 holdPiece 字段', () => {
+  const g = mk({ rng: () => 0 })
+  g.start()
+  const snap0 = g.getSnapshot()
+  assert.ok('holdPiece' in snap0, '快照包含 holdPiece 键')
+  assert.equal(snap0.holdPiece, null, '初始 holdPiece=null')
+  g.hold()
+  const snap1 = g.getSnapshot()
+  assert.equal(snap1.holdPiece, snap0.piece.type, '暂存后 holdPiece=原方块类型')
+})
+
+test('Hold ⑭: SFX_EVENTS 包含 hold（8 项）（AC-16）', () => {
+  assert.ok(Array.isArray(T.SFX_EVENTS), 'SFX_EVENTS 是数组')
+  assert.equal(T.SFX_EVENTS.length, 8, 'SFX_EVENTS 共 8 项')
+  assert.ok(T.SFX_EVENTS.includes('hold'), 'SFX_EVENTS 包含 hold')
+  assert.deepEqual(T.SFX_EVENTS, ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver', 'hold'], 'SFX_EVENTS 排序与值正确')
 })
 

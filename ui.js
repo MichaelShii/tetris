@@ -16,6 +16,7 @@
  *   TetrisUI.createUI(options?) → { game, dispose }   （一键装配，含游戏实例）
  *   TetrisUI.createBoardRenderer(canvas, opts?)        （签名对齐 TECHNICAL §3.4）
  *   TetrisUI.createNextWellRenderer(canvas)            （签名对齐 TECHNICAL §3.4）
+ *   TetrisUI.createHoldWellRenderer(canvas)           （r14 暂存预览，签名同 createNextWellRenderer）
  *   TetrisUI.createHud(els) / createOverlay(els) / createFeedback(els)
  *                                                      （签名对齐 TECHNICAL §3.5）
  *
@@ -33,6 +34,7 @@
  *   │   │   ├─ #stat-score.stat    > .stat__label + .stat__value.stat__value--score
  *   │   │   ├─ #stat-level.stat    > .stat__label + .stat__value.stat__value--num
  *   │   │   ├─ #stat-lines.stat    > .stat__label + .stat__value.stat__value--num
+ *   │   │   ├─ .hold-well > .stat__label + #hold-well（4×2 迷你 Canvas，r14 Hold 暂存）
  *   │   │   ├─ .next-well > .stat__label + #next-well（4×2 迷你 Canvas）
  *   │   │   └─ #audio-controls.audio-controls（v2.0 音量控件）
  *   │   │       ├─ #btn-mute（aria-pressed 静音切换）
@@ -548,6 +550,97 @@
       return { render: render, dispose: dispose }
     }
 
+    /** Hold 暂存方块迷你预览（r14，签名同 createNextWellRenderer）：4×2、12px；琥珀金描边由 CSS 提供 */
+    function createHoldWellRenderer(canvas) {
+      if (!canvas || typeof canvas.getContext !== 'function') {
+        throw new Error('TetrisUI.createHoldWellRenderer: 需要 <canvas> 元素')
+      }
+      const maybeCtx = canvas.getContext('2d')
+      if (!maybeCtx) throw new Error('TetrisUI.createHoldWellRenderer: 无法获取 2d 上下文')
+      const ctx = maybeCtx
+      let disposed = false
+
+      function resize() {
+        const cssW = WELL_COLS * WELL_CELL
+        const cssH = WELL_ROWS * WELL_CELL
+        canvas.style.width = cssW + 'px'
+        canvas.style.height = cssH + 'px'
+        const dpr = Math.min(typeof window !== 'undefined' && window.devicePixelRatio ? window.devicePixelRatio : 1, DPR_CAP)
+        canvas.width = Math.round(cssW * dpr)
+        canvas.height = Math.round(cssH * dpr)
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      }
+
+      function drawMiniCell(fill, px, py) {
+        roundRectPath(ctx, px + 0.5, py + 0.5, WELL_CELL - 1, WELL_CELL - 1, 2)
+        ctx.fillStyle = fill
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.28)'
+        ctx.lineWidth = 1
+        ctx.stroke()
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)'
+        ctx.beginPath()
+        ctx.moveTo(px + 2, py + 1.5)
+        ctx.lineTo(px + WELL_CELL - 2, py + 1.5)
+        ctx.stroke()
+      }
+
+      /** render(type | null)：null = 空预览；旋转态 0、水平居中、垂直居中 */
+      function render(type) {
+        if (disposed) return
+        ctx.clearRect(0, 0, WELL_COLS * WELL_CELL, WELL_ROWS * WELL_CELL)
+        ctx.fillStyle = WELL_BG
+        ctx.fillRect(0, 0, WELL_COLS * WELL_CELL, WELL_ROWS * WELL_CELL)
+        ctx.strokeStyle = WELL_GRID
+        ctx.lineWidth = 1
+        ctx.beginPath()
+        for (let c = 1; c < WELL_COLS; c++) {
+          const x = c * WELL_CELL + 0.5
+          ctx.moveTo(x, 0)
+          ctx.lineTo(x, WELL_ROWS * WELL_CELL)
+        }
+        for (let r = 1; r < WELL_ROWS; r++) {
+          const y = r * WELL_CELL + 0.5
+          ctx.moveTo(0, y)
+          ctx.lineTo(WELL_COLS * WELL_CELL, y)
+        }
+        ctx.stroke()
+
+        if (!type || !TetrisGame.SHAPES[type]) return
+        const shape = TetrisGame.SHAPES[type][0]
+        let minR = shape.length, maxR = -1, minC = shape[0].length, maxC = -1
+        for (let r = 0; r < shape.length; r++) {
+          for (let c = 0; c < shape[r].length; c++) {
+            if (shape[r][c]) {
+              if (r < minR) minR = r
+              if (r > maxR) maxR = r
+              if (c < minC) minC = c
+              if (c > maxC) maxC = c
+            }
+          }
+        }
+        const actualW = maxC - minC + 1
+        const actualH = maxR - minR + 1
+        const ox = Math.floor((WELL_COLS - actualW) / 2)
+        const oy = Math.floor((WELL_ROWS - actualH) / 2)
+        const fill = TetrisGame.COLORS[type].fill
+        for (let r = minR; r <= maxR; r++) {
+          const row = shape[r]
+          for (let c = minC; c <= maxC; c++) {
+            if (!row[c]) continue
+            drawMiniCell(fill, (ox + c - minC) * WELL_CELL, (oy + r - minR) * WELL_CELL)
+          }
+        }
+      }
+
+      function dispose() {
+        disposed = true
+      }
+
+      resize()
+      return { render: render, dispose: dispose }
+    }
+
     /* ======================================================================
      * 3. UI 组件（签名对齐 TECHNICAL §3.5）
      * ==================================================================== */
@@ -867,6 +960,7 @@
       }
 
       const boardCanvas = must('#board')
+      const holdCanvas = must('#hold-well')
       const nextCanvas = must('#next-well')
       const boardFrame = must('#board-frame')
       const overlayEl = must('#overlay')
@@ -894,6 +988,7 @@
       }
 
       const boardRenderer = createBoardRenderer(boardCanvas)
+      const holdWell = createHoldWellRenderer(holdCanvas)
       const nextWell = createNextWellRenderer(nextCanvas)
       const hud = createHud(hudEls)
       const overlay = createOverlay(overlayEls)
@@ -1015,6 +1110,47 @@
         blurElement(this)
       }
       wallKickBtn.addEventListener('click', onWallKickToggle)
+
+      /* ---- Hold 暂存开关（r14，AC-10/11/12/13/14/15） ----
+         复用 ghost/wallKick 开关三信号模式（aria-pressed + aria-label + 文案）；
+         驱动引擎 setHoldEnabled；状态会话内保持、刷新恢复默认（开启）。 ---- */
+      const holdBtn = must('#btn-hold')
+      let holdEnabled = true  // 默认开（AC-11）
+      let holdUsed = false    // 本周期是否已 hold（AC-5，与引擎同步）
+
+      function syncHoldBtn() {
+        holdBtn.setAttribute('aria-pressed', holdEnabled ? 'true' : 'false')
+        holdBtn.setAttribute('aria-label', 'Hold 暂存：' + (holdEnabled ? '开启' : '关闭'))
+        holdBtn.textContent = holdEnabled ? '📦 Hold 暂存：开' : '📦 Hold 暂存：关'
+      }
+      syncHoldBtn()
+
+      function onHoldToggle() {
+        holdEnabled = !holdEnabled
+        if (typeof game !== 'undefined' && game && typeof game.setHoldEnabled === 'function') {
+          game.setHoldEnabled(holdEnabled)
+        }
+        syncHoldBtn()
+        persistSettings()
+        blurElement(this)
+      }
+      holdBtn.addEventListener('click', onHoldToggle)
+
+      /* ---- Hold 暂存按键（r14，C/Shift → game.hold()） ----
+         与 M 键同层：设置级操作（holdEnabled guard），不走 game.js keyAction 表。 ---- */
+      function onHoldKey(e) {
+        if (e.repeat) return
+        if (e.key === 'c' || e.key === 'C' || e.key === 'Shift') {
+          if (typeof game !== 'undefined' && game && typeof game.hold === 'function') {
+            game.hold()
+            // ok=true 时引擎已发射 sfx('hold')，UI 无需额外操作
+            // ok=false 时无音效（AC-17）
+          }
+        }
+      }
+      if (typeof window !== 'undefined') {
+        window.addEventListener('keydown', onHoldKey)
+      }
 
       /* ---- v3.0 设置弹层（AC-01~06：齿轮图标触发的毛玻璃风格模态框） ----
          设置状态为会话内保持（不持久化），每次打开重置。
@@ -1187,6 +1323,7 @@
             ghostEnabled: ghostEnabled,
             bgmEnabled: bgmEnabled,
             wallKickEnabled: wallKickEnabled,
+            holdEnabled: holdEnabled,
           })
         } catch (e) { /* 持久化层契约不 throw；再兜底一层保证永不中断游戏 */ }
       }
@@ -1208,12 +1345,15 @@
             if (typeof st.bgmEnabled === 'boolean') bgmEnabled = st.bgmEnabled
             // 踢墙：恢复开关态（AC-19.6）；引擎同步在 createGame 之后补做（装配时序，见下）
             if (typeof st.wallKickEnabled === 'boolean') wallKickEnabled = st.wallKickEnabled
+            // r14 Hold 暂存：恢复开关态
+            if (typeof st.holdEnabled === 'boolean') holdEnabled = st.holdEnabled
           }
         }
         audioPanel.sync() // 音量/静音 DOM 镜像
         syncGhostBtn()
         syncBgmBtn()
         syncWallKickBtn()
+        syncHoldBtn()
         updateHiScoreEl()
       }
 
@@ -1250,6 +1390,12 @@
         }
         boardRenderer.render(s, fx, ghostEnabled)
         nextWell.render(s.phase === 'READY' ? null : s.next)
+        // r14 Hold 暂存预览（AC-13）：holdEnabled 关闭时隐藏容器、渲染 null
+        const holdWellContainer = holdCanvas ? holdCanvas.parentElement : null
+        if (holdWellContainer) {
+          holdWellContainer.style.display = holdEnabled ? '' : 'none'
+        }
+        holdWell.render(holdEnabled ? s.holdPiece : null)
         hud.update(s)
         if (s.phase === 'RUNNING') overlay.hide()
         else overlay.show(s.phase, { finalScore: s.score })
@@ -1292,6 +1438,7 @@
       // 装配时序（v2.9，AC-19.6）：persist.load() 恢复块在 createGame 之前执行，
       // 故这里在 createGame 之后补一次引擎同步，防「UI 显示已恢复值、引擎仍默认开」漂移。
       game.setWallKickEnabled(wallKickEnabled)
+      game.setHoldEnabled(holdEnabled) // r14：Hold 暂存开关同步到引擎
 
       // 单例句柄：宿主手动装配（window.__tetris = createUI()）可抑制自动装配；
       // 自动装配路径在此写入，供后续 createUI 调用/测试读取。
@@ -1367,11 +1514,14 @@
         ghostBtn.removeEventListener('click', onGhostToggle)
         bgmBtn.removeEventListener('click', onBgmToggle)
         wallKickBtn.removeEventListener('click', onWallKickToggle)
+        holdBtn.removeEventListener('click', onHoldToggle) // r14
+        if (typeof window !== 'undefined') window.removeEventListener('keydown', onHoldKey) // r14
         closeSettingsModal() // 关闭弹层并清理内部事件（ESC keydown / 焦点陷阱）
         mousedownGuards.forEach(function (entry) {
           entry.btn.removeEventListener('mousedown', entry.guard)
         })
         boardRenderer.dispose()
+        holdWell.dispose()
         nextWell.dispose()
         hud.dispose()
         overlay.dispose()
@@ -1429,6 +1579,7 @@
       // 渲染/UI 组件（签名对齐 TECHNICAL §3.4 / §3.5，便于宿主独立使用与测试）
       createBoardRenderer: createBoardRenderer,
       createNextWellRenderer: createNextWellRenderer,
+      createHoldWellRenderer: createHoldWellRenderer, // r14：暂存预览渲染器（签名同 createNextWellRenderer）
       createHud: createHud,
       createOverlay: createOverlay,
       createFeedback: createFeedback,

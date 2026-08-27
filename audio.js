@@ -76,6 +76,8 @@
       levelUp: { waveform: 'sine', freq: 523, arpeggio: [523, 659, 784], duration: 0.32, attack: 0.008, decay: 0.0987, peak: VOICE_PEAK },
       // 长下滑：sawtooth 380→190Hz，520ms
       gameOver: { waveform: 'sawtooth', freq: 380, freqEnd: 190, duration: 0.52, attack: 0.02, decay: 0.5, peak: VOICE_PEAK },
+      // 清脆短音：sine 523Hz，180ms（Hold 暂存提示）
+      hold: { waveform: 'sine', freq: 523, duration: 0.18, attack: 0.005, decay: 0.175, peak: VOICE_PEAK },
     }
 
     /** BGM 定义（v2.4：信息面板 BGM 开关）。独立于 SFX_DEFS（SFX 是离散事件、受

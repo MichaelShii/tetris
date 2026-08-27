@@ -41,6 +41,10 @@
         <span class="stat__label">消除行数</span>
         <output id="lines" class="stat__value stat__value--num" aria-live="polite">0</output>
       </div>
+      <div class="hold-well">
+        <span class="stat__label">Hold 暂存</span>
+        <canvas id="hold-well" width="48" height="24" aria-label="Hold 暂存方块预览"></canvas>
+      </div>
       <div class="next-well">
         <span class="stat__label">下一个</span>
         <canvas id="next-well" width="48" height="24" aria-label="下一个方块预览"></canvas>
@@ -77,6 +81,7 @@
         <div class="key-hints__row"><span>暂停 / 继续</span><span><kbd>P</kbd><kbd>Esc</kbd></span></div>
         <div class="key-hints__row"><span>重新开始</span><span><kbd>R</kbd></span></div>
         <div class="key-hints__row"><span>开始 / 重开</span><span><kbd>回车</kbd></span></div>
+        <div class="key-hints__row"><span>Hold 暂存</span><span><kbd>C</kbd><kbd>Shift</kbd></span></div>
         <div class="key-hints__row"><span>静音 / 取消静音</span><span><kbd>M</kbd></span></div>
       </div>
       <div id="controls">
@@ -136,6 +141,12 @@
               <span class="stat__label">踢墙旋转</span>
               <button type="button" id="btn-wallkick" class="btn btn--secondary btn--audio"
                       aria-pressed="true" aria-label="踢墙旋转：开启">🔄 踢墙旋转：开</button>
+            </div>
+            <!-- Hold 暂存开关（r14，AC-10/11/12） -->
+            <div id="hold-control" class="ghost-control" role="group" aria-label="Hold 暂存开关">
+              <span class="stat__label">Hold 暂存</span>
+              <button type="button" id="btn-hold" class="btn btn--secondary btn--audio"
+                      aria-pressed="true" aria-label="Hold 暂存：开启">📦 Hold 暂存：开</button>
             </div>
           </div>
         </div>

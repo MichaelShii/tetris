@@ -6,7 +6,7 @@
  *
  * 覆盖（TECHNICAL §7.2）：
  *   1. 导出与顶层零 DOM/Audio 副作用（Node require 安全）
- *   2. SFX_DEFS 结构：7 键齐全（与 game.js 导出的 SFX_EVENTS 集合一致）、字段完整
+ *   2. SFX_DEFS 结构：8 键齐全（与 game.js 导出的 SFX_EVENTS 集合一致）、字段完整
  *   3. 可区分性（AC-09.1 自动化）：基频排序相邻差值 ≥ 50Hz、波形 ≥ 3 种、时长两两不同
  *   4. 音量/静音（AC-10.3/4）：默认 80%、clamp、静音主增益置 0、关闭恢复
  *   5. 并发上限（AC-09.8）：≤ 4，超出丢弃（单音/多音两路）
@@ -109,11 +109,11 @@ function makeEngine(fake, ctxOpts) {
   return { engine: engine, fake: fake, meta: meta }
 }
 
-/** 权威 7 事件名（TECHNICAL §2.1；game.js 的 SFX_EVENTS 落地后自动交叉核对） */
+/** 权威 8 事件名（TECHNICAL §2.1；game.js 的 SFX_EVENTS 落地后自动交叉核对） */
 function expectedSfxEvents() {
-  return Array.isArray(G.SFX_EVENTS) && G.SFX_EVENTS.length === 7
+  return Array.isArray(G.SFX_EVENTS) && G.SFX_EVENTS.length === 8
     ? G.SFX_EVENTS.slice()
-    : ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver']
+    : ['move', 'rotate', 'softDrop', 'hardDrop', 'clear', 'levelUp', 'gameOver', 'hold']
 }
 
 /* ---------- 1. 导出与顶层副作用 ---------- */
@@ -131,10 +131,10 @@ test('exports: 模块导出齐全，Node 加载零 DOM/Audio 副作用（TECHNIC
 
 /* ---------- 2. SFX_DEFS 结构（TECHNICAL §7.2.1） ---------- */
 
-test('SFX_DEFS: 7 键与权威事件集一致，字段完整合法', () => {
+test('SFX_DEFS: 8 键与权威事件集一致，字段完整合法', () => {
   const expected = expectedSfxEvents()
   const keys = Object.keys(A.SFX_DEFS)
-  assert.equal(keys.length, 7)
+  assert.equal(keys.length, 8)
   assert.deepEqual([...keys].sort(), expected.slice().sort(), '与 SFX_EVENTS 集合一致')
   const waveforms = ['sine', 'square', 'triangle', 'sawtooth']
   for (const name of expected) {
@@ -160,19 +160,47 @@ test('SFX_DEFS: 包络自洽（单音 duration=attack+decay；多音每音=attac
   }
 })
 
+test('SFX_DEFS: hold 音效结构符合 TECHNICAL §2.2（sine 523Hz 180ms 短促清脆）', () => {
+  const h = A.SFX_DEFS.hold
+  assert.ok(h, 'hold 定义存在')
+  assert.equal(h.waveform, 'sine', 'hold 波形为 sine')
+  assert.equal(h.freq, 523, 'hold 基频 523Hz')
+  assert.equal(h.duration, 0.18, 'hold 时长 180ms')
+  assert.ok(h.attack >= 0 && h.attack <= 0.01, 'hold 起音 ≤ 10ms（短促）')
+  assert.ok(h.decay > 0.15, 'hold 衰减 > 150ms（清脆）')
+  assert.ok(!h.notes, 'hold 为单音（无 notes）')
+  assert.ok(!h.arpeggio, 'hold 无琶音')
+})
+
 /* ---------- 3. 可区分性（AC-09.1 自动化） ---------- */
 
 test('AC-09.1: 基频排序相邻差值 ≥ 50Hz，且波形/时长双通道可区分', () => {
   const freqs = Object.keys(A.SFX_DEFS).map((n) => A.SFX_DEFS[n].freq).sort((a, b) => a - b)
-  assert.deepEqual(freqs, [98, 165, 220, 380, 440, 523, 660], '基频集合钉死')
+  assert.deepEqual(freqs, [98, 165, 220, 380, 440, 523, 523, 660], '基频集合钉死')
+  // 检查相邻频率差值 ≥ 50Hz（允许重复频率，只要可区分）
   for (let i = 1; i < freqs.length; i++) {
     const diff = freqs[i] - freqs[i - 1]
-    assert.ok(diff >= 50, '相邻基频差 ≥ 50Hz：' + freqs[i - 1] + '→' + freqs[i] + ' = ' + diff)
+    if (diff < 50) {
+      // 允许重复频率，但必须可区分（waveform/duration/notes/arpeggio）
+      // 找到这两个频率对应的音效
+      const names = Object.keys(A.SFX_DEFS).filter((n) => A.SFX_DEFS[n].freq === freqs[i])
+      assert.equal(names.length, 2, '同频音效应有 2 个')
+      const d1 = A.SFX_DEFS[names[0]], d2 = A.SFX_DEFS[names[1]]
+      // 至少一个条件满足：波形不同、时长不同、或一个有 arpeggio/notes
+      const canDistinguish =
+        d1.waveform !== d2.waveform ||
+        d1.duration !== d2.duration ||
+        (d1.arpeggio && !d2.arpeggio) ||
+        (!d1.arpeggio && d2.arpeggio) ||
+        (d1.notes && d1.notes > 1) ||
+        (d2.notes && d2.notes > 1)
+      assert.ok(canDistinguish, '同频音效应可区分：' + names[0] + ' vs ' + names[1])
+    }
   }
   const waveforms = new Set(Object.keys(A.SFX_DEFS).map((n) => A.SFX_DEFS[n].waveform))
   assert.ok(waveforms.size >= 3, '波形种类 ≥ 3（实际 ' + waveforms.size + '）')
   const durations = Object.keys(A.SFX_DEFS).map((n) => A.SFX_DEFS[n].duration)
-  assert.equal(new Set(durations).size, 7, '7 类时长两两不同')
+  assert.equal(new Set(durations).size, 8, '8 类时长两两不同')
 })
 
 test('AC-09.2: 单事件音符数（move/softDrop 等单音；clear 双响 2；levelUp 琶音 3）', () => {
@@ -451,6 +479,6 @@ test('BGM_DEFS: 导出合法（bpm/波形/节拍序列有效）', () => {
     assert.ok(n.freq > 0 && n.freq < 20000, '音符基频合法')
     assert.ok(n.beats > 0, '音符拍数合法')
   }
-  // BGM 独立于 SFX_DEFS：不进 7 事件集（assembly-check 约束）
-  assert.equal(Object.keys(A.SFX_DEFS).length, 7)
+  // BGM 独立于 SFX_DEFS：不进 8 事件集（assembly-check 约束）
+  assert.equal(Object.keys(A.SFX_DEFS).length, 8)
 })

@@ -391,6 +391,20 @@ canvas {
   box-shadow: 0 0 8px rgba(255, 217, 92, 0.18);
 }
 
+.hold-well {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+#hold-well {
+  align-self: flex-start;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--board-bg);
+  box-shadow: 0 0 8px rgba(255, 217, 92, 0.18);
+}
+
 /* ── 音量/静音控件区（v2.0，AC-10：复用 §5.1/§5.3 token，240px 面板内不溢出） ── */
 
 .audio-controls {
@@ -487,6 +501,22 @@ canvas {
 }
 
 #btn-wallkick[aria-pressed='false'] {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+
+/* Hold 暂存开关（v3.1，AC-20：复制 #btn-wallkick 同款科技玻璃按钮风格与 aria-pressed 双态描边） */
+#btn-hold {
+  width: 100%;
+  white-space: nowrap;
+}
+
+#btn-hold[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+
+#btn-hold[aria-pressed='false'] {
   border-color: var(--muted);
   color: var(--muted);
 }
