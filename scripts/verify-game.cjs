@@ -1767,3 +1767,514 @@ test('r15 队列 ⑨: Hold 共存——暂存消费队首/交换不消耗/关闭
   assert.deepEqual(g.getSnapshot().queue, q4, 'hold 禁用被拒后队列不变')
 })
 
+/* ============================================================================
+ * 14. r18 T-spin（AC-1~11；TECHNICAL §3~§6）
+ * 纯新增（不改既有断言）：几何纯函数矩阵 / 会话窗口 24 组 / 六档计分 / 叠加与等级 /
+ * 事件序列 / 稳定性 soak / F1~F8 权威样例表
+ * ============================================================================ */
+
+// ---- 14.0 工具 ----
+
+/** T 落槽棋盘：四角按 spec 填实；R=0 由底部角自支撑（缺底角时中心兜底），R≥1 于 ly+3 行逐格支撑；
+ *  clearRows（相对 ly 行号）：预填"除 T 格与 spec 假角"的全行 → 锁定合并后整行清除；
+ *  extraCells：附加纯块（踢墙触发器/右踢墙阻块）。 */
+function buildTSlot(rot, lx, ly, spec, clearRows, extraCells) {
+  const b = T.createBoard()
+  const cells = T.pieceCells({ type: 'T', rot: rot, x: lx, y: ly })
+  function tAt(r, c) { return cells.some((p) => p.y === r && p.x === c) }
+  function cornerOf(r, c) {
+    if (r === ly && c === lx) return 'tl'
+    if (r === ly && c === lx + 2) return 'tr'
+    if (r === ly + 2 && c === lx) return 'bl'
+    if (r === ly + 2 && c === lx + 2) return 'br'
+    return null
+  }
+  function set(r, c) { b[r][c] = 'Z' }
+  if (spec.tl) set(ly, lx)
+  if (spec.tr) set(ly, lx + 2)
+  if (spec.bl) set(ly + 2, lx)
+  if (spec.br) set(ly + 2, lx + 2)
+  if (rot === 0) {
+    if (!spec.bl || !spec.br) set(ly + 2, lx + 1) // 底部缺角时中心兜底支撑（保 grounded）
+  } else {
+    for (let c = lx; c <= lx + 2; c++) set(ly + 3, c) // 下方支撑行（框外）
+  }
+  for (const rr of clearRows || []) {
+    const r = ly + rr
+    for (let c = 0; c < T.COLS; c++) {
+      if (tAt(r, c)) continue // T 自身格不填
+      const cn = cornerOf(r, c)
+      if (cn !== null && !spec[cn]) continue // spec 假角不填（F8 型缺底角 + 底行清除互斥）
+      set(r, c)
+    }
+  }
+  for (const e of extraCells || []) if (e[0] >= 0 && e[0] < T.ROWS && e[1] >= 0 && e[1] < T.COLS) set(e[0], e[1])
+  return b
+}
+
+const T4 = { tl: true, tr: true, bl: true, br: true } // 四实角规格（No-line Full / Full Single 等）
+
+/** 引擎 tick 单次 dt 上限 250ms（DT_CLAMP_MS）：LOCK_DELAY_MS=500 需两次子上限 tick 触发缓冲锁定 */
+function lockTick(g) {
+  g.tick(250)
+  g.tick(250)
+}
+
+/** 头部侧角映射（TECH §3.1：rot0 顶行 / rot1 右列 / rot2 底行 / rot3 左列）——3 实角缺角落此侧 = Mini */
+const HEAD_SIDE = { 0: ['tl', 'tr'], 1: ['tr', 'br'], 2: ['bl', 'br'], 3: ['tl', 'bl'] }
+
+/** r18：构造"旋转（inplace）→ tick(500) 经 lockTimer 锁定"的 T-spin 会话（animMs:0 即时原子步）。 */
+function tspinSession(rot, spec, clearRows, opts) {
+  const events = { sfx: [], levelUp: [], gameOver: [], snapshots: [] }
+  const hooks = Object.assign(
+    {
+      rng: () => 0,
+      onSfx: (n) => events.sfx.push(n),
+      onSnapshot: (s) => events.snapshots.push(s),
+      onLevelUp: (l) => events.levelUp.push(l),
+      onGameOver: (s) => events.gameOver.push(s),
+    },
+    (opts && opts.hooks) || {}
+  )
+  const g = mk(hooks)
+  g.start()
+  const lx = 3
+  const ly = 15
+  if (opts && typeof opts.levelLines === 'number') g._debug.setLines(opts.levelLines)
+  g._debug.setBoard(buildTSlot(rot, lx, ly, spec, clearRows, (opts && opts.extraCells) || []))
+  g._debug.setPiece({ type: 'T', rot: (rot + 3) % 4, x: lx, y: ly })
+  const r = g.rotate()
+  assert.equal(r.ok, true, 'tspinSession rot=' + rot + ' rotate 应成功')
+  lockTick(g)
+  return { g: g, events: events }
+}
+
+// ---- 14.1 几何纯函数矩阵（AC-1/2/4/5 几何层） ----
+
+test('§14.1 tspinKind 纯函数几何矩阵：实角 0/1/2/3(F/M)/4 × 4 朝向（AC-1/4/5）+ 非 T 六型（AC-2）', () => {
+  const lx = 3
+  const ly = 8
+  for (const R of [0, 1, 2, 3]) {
+    const piece = { type: 'T', rot: R, x: lx, y: ly }
+    // 实角 0/1/2 → none（AC-4）：全部 ≤2 子集组合
+    const subsets = [[], ['tl'], ['tr'], ['bl'], ['br'], ['tl', 'tr'], ['tl', 'bl'], ['tl', 'br'], ['tr', 'bl'], ['tr', 'br'], ['bl', 'br']]
+    for (const sub of subsets) {
+      const spec = { tl: false, tr: false, bl: false, br: false }
+      for (const c of sub) spec[c] = true
+      const b = buildTSlot(R, lx, ly, spec)
+      assert.equal(T.tspinKind(T.merge(b, piece), piece), 'none', 'R' + R + ' 实角 ' + JSON.stringify(sub) + ' → none')
+    }
+    // 3 实角（恰缺 1 角）：缺角在头部侧 → mini；否则 → full（TECH §3.2 头部侧裁定，AC-5）
+    for (const missing of ['tl', 'tr', 'bl', 'br']) {
+      const spec = { tl: true, tr: true, bl: true, br: true }
+      spec[missing] = false
+      const expect = HEAD_SIDE[R].indexOf(missing) !== -1 ? 'mini' : 'full'
+      const b = buildTSlot(R, lx, ly, spec)
+      assert.equal(T.tspinKind(T.merge(b, piece), piece), expect, 'R' + R + ' 缺 ' + missing + ' → ' + expect)
+    }
+    // 4 实角 → full
+    const b4 = buildTSlot(R, lx, ly, T4)
+    assert.equal(T.tspinKind(T.merge(b4, piece), piece), 'full', 'R' + R + ' 四实角 → full')
+  }
+  // 非 T 六型：即使构造 ≥3 实角的"旋转嵌入"几何，恒 none（AC-2 双层防线的第一层）
+  for (const type of ['I', 'O', 'S', 'Z', 'J', 'L']) {
+    const piece = { type: type, rot: 0, x: 3, y: 8 }
+    const b = T.createBoard()
+    const cells = T.pieceCells(piece)
+    const tAt = (r, c) => cells.some((p) => p.y === r && p.x === c)
+    const corners = [[8, 3], [8, 5], [10, 3], [10, 5]]
+    let n = 0
+    for (const [r, c] of corners) {
+      if (tAt(r, c)) n++ // 方块自身占角（如 O）同样计实
+      else if (n < 3) {
+        b[r][c] = 'Z'
+        n++
+      }
+    }
+    const merged = T.merge(b, piece)
+    let solid = 0
+    for (const [r, c] of corners) if (merged[r][c] !== null) solid++
+    assert.ok(solid >= 3, type + ' 构造应 ≥3 实角（自证）')
+    assert.equal(T.tspinKind(merged, piece), 'none', type + ' 三实角几何 → none（零误报）')
+  }
+})
+
+// ---- 14.2 会话窗口 24 组矩阵（AC-1/3/4；TECH §6.2）+ 窗口负例 ----
+
+test('§14.2 会话窗口矩阵：4 朝向 × {原地/左 kick/右 kick} × 正负共 24 组（AC-1）', () => {
+  const lx = 3
+  const ly = 15
+  let index = 0
+  for (const R of [0, 1, 2, 3]) {
+    for (const kick of ['inplace', 'left', 'right']) {
+      const preRot = (R + 3) % 4
+      const preX = kick === 'inplace' ? lx : kick === 'left' ? lx + 1 : lx - 1
+      // 右 kick 阻块（[row, col]）：偏移 -1 候选格碰撞（R=1 无列 lx-2 格 → 用 (ly, lx-1)；其余用 (ly+1, lx-2)）
+      const blocker = R === 1 ? [[ly, lx - 1]] : [[ly + 1, lx - 2]]
+      const extra = kick === 'right' ? blocker : []
+      const label = 'R' + R + '.' + kick
+      // —— 正值：旋转 → tick 经 lockTimer 锁定 → No-line Full +100×L1（窗口成立才可判）——
+      const g1 = mk()
+      g1.start()
+      g1._debug.setBoard(buildTSlot(R, lx, ly, T4, [], extra))
+      g1._debug.setPiece({ type: 'T', rot: preRot, x: preX, y: ly })
+      const r1 = g1.rotate()
+      assert.equal(r1.ok, true, label + ' 正值 rotate 应成功')
+      const p1 = g1.getSnapshot().piece
+      assert.equal(p1.rot, R, label + ' 正值旋转到位 rot')
+      assert.equal(p1.x, lx, label + ' 正值旋转到位 x（kick 位移解析正确）')
+      assert.equal(p1.y, ly, label + ' 正值旋转到位 y')
+      lockTick(g1)
+      assert.equal(g1.getSnapshot().score, 100, label + ' 正值 No-line Full → +100×L1（判 T-spin）')
+      // —— 负值：同布局旋转后再下落（软降/硬降轮换）→ 窗口失效 → 不判 +0 ——
+      const g2 = mk()
+      g2.start()
+      g2._debug.setBoard(buildTSlot(R, lx, ly, T4, [], extra))
+      g2._debug.setPiece({ type: 'T', rot: preRot, x: preX, y: ly })
+      assert.equal(g2.rotate().ok, true, label + ' 负值 rotate 应成功')
+      if (index % 2 === 0) g2.softDrop()
+      else g2.hardDrop() // 已落槽触底 → 立即锁定（AC-3）
+      assert.equal(g2.getSnapshot().score, 0, label + ' 负值旋转后下落 → 不判（窗口失效）')
+      index++
+    }
+  }
+})
+
+test('§14.2b 窗口负例：软降触底 / 硬降 / 自然重力 / move 后锁定 / 无旋转落定 / 实角不足（AC-3/4）', () => {
+  const lx = 3
+  const ly = 15
+  const slot = (spec, extra) => buildTSlot(0, lx, ly, spec, [], extra)
+  // E3 软降触底锁定：旋转（已落地）→ 软降 → lockFlow → 清窗不判
+  let g = mk()
+  g.start()
+  g._debug.setBoard(slot(T4))
+  g._debug.setPiece({ type: 'T', rot: 3, x: lx, y: ly })
+  assert.equal(g.rotate().ok, true)
+  g.softDrop()
+  assert.equal(g.getSnapshot().score, 0, 'E3 旋转后软降触底立即锁定 → 不判')
+  // E4 硬降锁定：旋转（已落地）→ 硬降 → 清窗不判
+  g = mk()
+  g.start()
+  g._debug.setBoard(slot(T4))
+  g._debug.setPiece({ type: 'T', rot: 3, x: lx, y: ly })
+  assert.equal(g.rotate().ok, true)
+  g.hardDrop()
+  assert.equal(g.getSnapshot().score, 0, 'E4 旋转后硬降锁定 → 不判')
+  // E5 自然重力：旋转（悬空于槽上方 3 格）→ 重力下移清窗 → 落槽锁定不判
+  g = mk()
+  g.start()
+  g._debug.setBoard(slot(T4))
+  g._debug.setPiece({ type: 'T', rot: 3, x: lx, y: ly - 3 }) // rot0@(3,12) 悬空（无顶角阻挡）
+  assert.equal(g.rotate().ok, true)
+  for (let i = 0; i < 20; i++) g.tick(250) // 重力 3 步（12→13→14→15 落槽）+ lockTimer 锁定
+  assert.equal(g.getSnapshot().score, 0, 'E5 旋转后自然重力下移再锁定 → 不判')
+  // E6 旋转后水平 move 再锁定：move 成功清窗（D-01）
+  g = mk()
+  g.start()
+  g._debug.setBoard(slot(T4))
+  g._debug.setPiece({ type: 'T', rot: 3, x: lx, y: ly - 3 })
+  assert.equal(g.rotate().ok, true)
+  assert.equal(g.move(-1).ok, true, '悬空可左移')
+  for (let i = 0; i < 20; i++) g.tick(250)
+  assert.equal(g.getSnapshot().score, 0, 'E6 旋转后 move 成功再锁定 → 不判')
+  // E7 无旋转直接落定且巧合 3 实角：窗口初始 false → 不判
+  g = mk()
+  g.start()
+  g._debug.setBoard(slot({ tl: true, tr: true, bl: true, br: false })) // 缺 BR 的 3 实角槽
+  g._debug.setPiece({ type: 'T', rot: 0, x: lx, y: ly })
+  assert.equal(g.hardDrop().ok, true)
+  assert.equal(g.getSnapshot().score, 0, 'E7 无旋转直接落定（巧合 3 实角）→ 不判')
+  // AC-4 实角不足（2 实角{bl,br}）：旋转落槽 → 不判
+  g = mk()
+  g.start()
+  g._debug.setBoard(slot({ tl: false, tr: false, bl: true, br: true }))
+  g._debug.setPiece({ type: 'T', rot: 3, x: lx, y: ly })
+  assert.equal(g.rotate().ok, true)
+  lockTick(g)
+  assert.equal(g.getSnapshot().score, 0, 'AC-4 2 实角旋转落定 → 不判（n<3）')
+})
+
+// ---- 14.3 六档计分（AC-6/7） ----
+
+test('§14.3 六档计分：常量逐档精确值 + 会话「常量 × level」+ Mini 清 3 行 = Full Triple + No-line（AC-6/7）', () => {
+  assert.deepEqual(T.T_SPIN_BONUS.full, [100, 800, 1200, 1600])
+  assert.deepEqual(T.T_SPIN_BONUS.mini, [0, 100, 200, 1600])
+  for (const L of [1, 2]) {
+    assert.equal(T.tspinBonus('full', 0, L), 100 * L, 'No-line ×' + L)
+    assert.equal(T.tspinBonus('full', 1, L), 800 * L, 'Single ×' + L)
+    assert.equal(T.tspinBonus('full', 2, L), 1200 * L, 'Double ×' + L)
+    assert.equal(T.tspinBonus('full', 3, L), 1600 * L, 'Triple ×' + L)
+    assert.equal(T.tspinBonus('mini', 0, L), 0, 'Mini 无 0 行档 ×' + L)
+    assert.equal(T.tspinBonus('mini', 1, L), 100 * L, 'Mini Single ×' + L)
+    assert.equal(T.tspinBonus('mini', 2, L), 200 * L, 'Mini Double ×' + L)
+    assert.equal(T.tspinBonus('mini', 3, L), 1600 * L, 'Mini 清 3 行 → Full Triple（防漏分）×' + L)
+    assert.equal(T.tspinBonus('none', 1, L), 0, "kind='none' 恒 0")
+    assert.equal(T.tspinBonus('bogus', 1, L), 0, '未知 kind 恒 0')
+  }
+  // 会话逐档（L1）：
+  const cases = [
+    { rot: 0, spec: T4, rows: [1], expect: 900, label: 'Full Single (100+800)' },
+    { rot: 0, spec: T4, rows: [1, 2], expect: 1500, label: 'Full Double (300+1200)' },
+    { rot: 0, spec: { tl: true, tr: false, bl: true, br: true }, rows: [1], expect: 200, label: 'Mini Single (100+100)' },
+    { rot: 0, spec: { tl: true, tr: false, bl: true, br: true }, rows: [1, 2], expect: 500, label: 'Mini Double (300+200)' },
+    { rot: 0, spec: { tl: true, tr: false, bl: true, br: true }, rows: [1, 2, 3], expect: 2100, label: 'Mini Triple (500+1600)' },
+  ]
+  for (const c of cases) {
+    const { g } = tspinSession(c.rot, c.spec, c.rows)
+    const s = g.getSnapshot()
+    assert.equal(s.score, c.expect, c.label + ' L1 总分')
+    assert.equal(s.lines, c.rows.length, c.label + ' 行数照常累计')
+  }
+  // L2 会话：Full Single ×2 = 1800（乘数点位 = 升级前 level，AC-6 同构）
+  const { g: gL2 } = tspinSession(0, T4, [1], { levelLines: 10 })
+  assert.equal(gL2.getSnapshot().score, 1800, 'Full Single L2 (200+1600)')
+  // No-line：+100×level、不发 clear、不计行（AC-6/8）
+  const { g: g0, events: ev0 } = tspinSession(0, T4, [])
+  const s0 = g0.getSnapshot()
+  assert.equal(s0.score, 100, 'No-line full → +100×L1')
+  assert.equal(s0.lines, 0, 'No-line 不计行')
+  assert.equal(ev0.sfx.indexOf('clear'), -1, 'No-line 无 clear 事件')
+  assert.deepEqual(ev0.sfx, ['rotate'], 'No-line 事件序列仅 rotate')
+})
+
+// ---- 14.4 叠加与等级（AC-6/7/11） ----
+
+test('§14.4 叠加与等级：普通分 + T-spin 分恰各一次；负例逐分基线一致；升级同栈；lose() 总分含 bonus（AC-7/11）', () => {
+  // 单消总值 = 普通消行基分 + T-spin 分恰各一次（L1 Full Single 900 = 100 + 800）
+  const { g } = tspinSession(0, T4, [1])
+  assert.equal(g.getSnapshot().score, 900, 'Full Single = 普通 100 + T-spin 800')
+  // 普通路径负例：无旋转 T 单消仍 100×L1（kind=none → bonus 0）
+  const g2 = mk()
+  g2.start()
+  g2._debug.setBoard(buildTSlot(0, 3, 15, T4, [1]))
+  g2._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 15 })
+  assert.equal(g2.hardDrop().ok, true)
+  assert.equal(g2.getSnapshot().score, 100, '非 T-spin 普通单消逐分与基线一致')
+  // 普通双消负例：300×L1
+  const g3 = mk()
+  g3.start()
+  g3._debug.setBoard(buildTSlot(0, 3, 15, T4, [1, 2]))
+  g3._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 15 })
+  assert.equal(g3.hardDrop().ok, true)
+  assert.equal(g3.getSnapshot().score, 300, '非 T-spin 普通双消逐分与基线一致')
+  // T-spin Double + 升级同栈：lines 9→11 → level 2，事件 rotate→clear→levelUp
+  const { g: g4, events: ev4 } = tspinSession(0, T4, [1, 2], { levelLines: 9 })
+  assert.equal(g4.getSnapshot().score, 1500, '升级同栈下 T-spin Double 总分')
+  assert.equal(g4.getSnapshot().lines, 11, '行数累计（升级判定不变 AC-11）')
+  assert.equal(g4.getSnapshot().level, 2, '10 行升级照常')
+  assert.deepEqual(ev4.sfx, ['rotate', 'clear', 'levelUp'], '跨升级事件序')
+  // bonus 不额外推进 lines/level：Mini Triple lines=3、level 仍 1（AC-11）
+  const { g: g5 } = tspinSession(0, { tl: true, tr: false, bl: true, br: true }, [1, 2, 3])
+  assert.equal(g5.getSnapshot().lines, 3, 'T-spin 加分不额外计行')
+  assert.equal(g5.getSnapshot().level, 1, '3 行不足升级 → level 1（加分不推进等级）')
+  // T-spin 得分后 lose() → onGameOver 透出正确总和（AC-11）
+  const gameOverScores = []
+  const { g: g6 } = tspinSession(0, T4, [1], { hooks: { onGameOver: (s) => gameOverScores.push(s) } })
+  assert.equal(g6.getSnapshot().score, 900, 'lock 后总分含 bonus')
+  g6.lose()
+  assert.deepEqual(gameOverScores, [900], 'onGameOver 总分含 T-spin 加分')
+})
+
+// ---- 14.5 事件序列（AC-8） ----
+
+test('§14.5 事件序列：含 T-spin 场景 clear 恰 1 次且首帧；动画路径 + 快照 tspin 标志暴露；No-line 无 clear（AC-8）', () => {
+  // 即时路径（animMs:0）：['rotate','clear']
+  const { events: ev1 } = tspinSession(0, T4, [1])
+  assert.deepEqual(ev1.sfx, ['rotate', 'clear'], '即时路径事件序')
+  // 动画路径（animMs:240）：clear 仍恰 1 次且为首帧；clearing 期 snapshot.tspin = 'full'（AC-8 标志暴露）
+  const events = { sfx: [], snapshots: [] }
+  const g2 = mk({ animMs: 240, onSfx: (n) => events.sfx.push(n), onSnapshot: (s) => events.snapshots.push(s) })
+  g2.start()
+  g2._debug.setBoard(buildTSlot(0, 3, 15, T4, [1]))
+  g2._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+  assert.equal(g2.rotate().ok, true)
+  lockTick(g2) // 触发 lockFlow → clearing 首帧
+  const mid = g2.getSnapshot()
+  assert.equal(mid.clearedIndices !== null, true, '动画已接管')
+  assert.equal(mid.tspin, 'full', 'clearing 期 snapshot.tspin = full（AC-8 标志经 onSnapshot 暴露）')
+  assert.equal(mid.piece, null, '动画期无活动块')
+  assert.deepEqual(events.sfx, ['rotate', 'clear'], '动画首帧 clear 恰 1 次')
+  g2.tick(240) // 完结帧原子步
+  assert.equal(g2.getSnapshot().tspin, null, '动画完结后 tspin 回 null（additive 生命周期）')
+  assert.deepEqual(events.sfx, ['rotate', 'clear'], '完结帧不再发 clear（全程恰 1 次）')
+  // 普通 T 落定序列不变：无旋转 → hardDrop 锁 1 行 → ['hardDrop','clear']
+  const ev3 = { sfx: [] }
+  const g3 = mk({ onSfx: (n) => ev3.sfx.push(n) })
+  g3.start()
+  g3._debug.setBoard(buildTSlot(0, 3, 15, T4, [1]))
+  g3._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 15 })
+  g3.hardDrop()
+  assert.deepEqual(ev3.sfx, ['hardDrop', 'clear'], '普通 T 落定序列与基线一致')
+  // No-line：无 clear（§14.3 已断言，此处补 snapshot.tspin 非暴露路径：cleared=0 不进 clearing）
+  const ev4 = { sfx: [] }
+  const g4 = mk({ animMs: 240, onSfx: (n) => ev4.sfx.push(n) })
+  g4.start()
+  g4._debug.setBoard(buildTSlot(0, 3, 15, T4, []))
+  g4._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+  assert.equal(g4.rotate().ok, true)
+  lockTick(g4)
+  assert.equal(g4.getSnapshot().tspin, null, 'No-line 不进 clearing → tspin 恒 null')
+  assert.deepEqual(ev4.sfx, ['rotate'], 'No-line 无 clear')
+})
+
+// ---- 14.6 稳定性 soak（AC-10） ----
+
+test('§14.6 稳定性 soak：连续 50 局注入大量 T 旋转/移动/软硬降直至 OVER（AC-10）', () => {
+  function makeSeeded() {
+    let s = 0x9e3779b9
+    return function () {
+      s = (s * 1664525 + 1013904223) >>> 0
+      return s / 4294967296
+    }
+  }
+  for (let game = 0; game < 50; game++) {
+    const g = mk({ rng: makeSeeded() }) // 种子 rng：每局 7-bag 序列确定、可复现
+    g.start()
+    assert.equal(g.getPhase(), 'RUNNING')
+    let lastScore = 0
+    let over = false
+    for (let step = 0; step < 2000 && !over; step++) {
+      const roll = Math.random()
+      if (roll < 0.3) g.rotate()
+      else if (roll < 0.45) g.move(-1)
+      else if (roll < 0.6) g.move(1)
+      else if (roll < 0.75) g.softDrop()
+      else if (roll < 0.88) g.hardDrop()
+      else g.tick(Math.floor(Math.random() * 1200))
+      if (g.getPhase() === 'OVER') {
+        over = true
+        break
+      }
+      const s = g.getSnapshot()
+      assert.ok(s.piece !== null && T.TYPES.indexOf(s.piece.type) !== -1, '局' + game + ' 步' + step + ' 锁定后下一块正常 spawn')
+      assert.ok(s.score >= lastScore, '局' + game + ' 步' + step + ' score 单调不减（无负分路径）')
+      lastScore = s.score
+    }
+    if (!over) g.lose() // 兜底收尾（2000 步未 OVER 则强制结束）
+  }
+})
+
+// ---- 14.7 F1~F8 权威样例表（AC-5，≥8 组：逐例断言 tspinKind 与锁定时分值） ----
+
+test('§14.7 F1~F8 权威样例表：逐例断言几何判定 + L1 锁定时总分（AC-5）', () => {
+  const lx = 3
+  const ly = 15
+  const cases = [
+    { id: 'F1 TKI 经典', rot: 1, spec: { tl: true, tr: true, bl: false, br: true }, expect: 'full', score: 900, kick: 'inplace' },
+    { id: 'F2 TKI 镜像', rot: 3, spec: { tl: true, tr: true, bl: true, br: false }, expect: 'full', score: 900, kick: 'inplace' },
+    { id: 'F3 下凹槽头朝上', rot: 0, spec: { tl: true, tr: false, bl: true, br: true }, expect: 'mini', score: 200, kick: 'inplace' },
+    { id: 'F4 下凹槽镜像', rot: 0, spec: { tl: false, tr: true, bl: true, br: true }, expect: 'mini', score: 200, kick: 'inplace' },
+    { id: 'F5 头朝下凹槽', rot: 2, spec: { tl: true, tr: true, bl: false, br: true }, expect: 'mini', score: 200, kick: 'inplace' },
+    { id: 'F6 头朝下凹槽镜像', rot: 2, spec: { tl: true, tr: true, bl: true, br: false }, expect: 'mini', score: 200, kick: 'inplace' },
+    { id: 'F7 四实角', rot: 0, spec: T4, expect: 'full', score: 900, kick: 'inplace' },
+    { id: 'F8 墙侧 kick 双实角槽', rot: 3, spec: { tl: true, tr: true, bl: true, br: false }, expect: 'full', score: 900, kick: 'left' },
+  ]
+  for (const c of cases) {
+    const piece = { type: 'T', rot: c.rot, x: lx, y: ly }
+    // 几何判定（合并后棋盘 = 锁定瞬间快照语义）
+    const b = buildTSlot(c.rot, lx, ly, c.spec, [1])
+    assert.equal(T.tspinKind(T.merge(b, piece), piece), c.expect, c.id + ' 几何判定')
+    // 会话锁定时分值（L1，1 行清除）：正常单消基分 + T-spin 档分
+    const preX = c.kick === 'left' ? lx + 1 : c.kick === 'right' ? lx - 1 : lx
+    const g = mk()
+    g.start()
+    g._debug.setBoard(buildTSlot(c.rot, lx, ly, c.spec, [1]))
+    g._debug.setPiece({ type: 'T', rot: (c.rot + 3) % 4, x: preX, y: ly })
+    const r = g.rotate()
+    assert.equal(r.ok, true, c.id + ' rotate 应成功')
+    const after = g.getSnapshot().piece
+    assert.equal(after.rot, c.rot, c.id + ' 旋转到位')
+    assert.equal(after.x, lx, c.id + ' 落位 x（' + c.kick + '）')
+    lockTick(g)
+    const s = g.getSnapshot()
+    assert.equal(s.score, c.score, c.id + ' L1 锁定时总分 = ' + c.score)
+    assert.equal(s.lines, 1, c.id + ' 恰清 1 行')
+  }
+})
+
+// ---- 14.8 补充：严格窗口判据 / 非 T 会话 / kick 全拒（T2 复核增强，纯新增不改既有断言） ----
+// 判据区分度说明：下述构造的锁定姿态均为"本可判 T-spin"的 3 实角 Mini 槽（纯函数自证），
+// 若窗口清除有漏（重力/move 未清窗），会话应给出 Mini 分 200；实际恒 100 → 严格判别 D-02/D-01。
+
+function r18GapRow(type, gapCols) {
+  const row = []
+  for (let c = 0; c < T.COLS; c++) row.push(gapCols.indexOf(c) === -1 ? type : null)
+  return row
+}
+
+test('§14.8 窗口严格判据：旋转后重力/move 落入「本可判 Mini」槽 → 恒不判（AC-3/D-01 严格化）', () => {
+  // E5 严格化：旋转悬空（未触地）→ 自然重力下移清窗 → 落入 3 实角 Mini 槽锁定
+  const slot = T.createBoard()
+  slot[15][3] = 'J'
+  slot[16] = r18GapRow('J', [4, 5])
+  slot[17][3] = 'J'; slot[17][5] = 'J'; slot[18][4] = 'J'
+  const g = mk()
+  g.start()
+  g._debug.setBoard(slot)
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 13 })
+  assert.equal(g.rotate().ok, true)
+  const landing = { type: 'T', rot: 1, x: 3, y: 15 }
+  assert.equal(T.tspinKind(T.merge(slot, landing), landing), 'mini', '就位姿态本可判 Mini Single（自证）')
+  for (let i = 0; i < 12; i++) g.tick(250) // 重力 2 步落槽 + lockTimer 缓冲锁定
+  const s = g.getSnapshot()
+  assert.equal(s.score, 100, '重力清除窗口 → 不判 → 纯单消 100（Mini 路径应为 200）')
+  assert.equal(s.lines, 1, '恰清 1 行（槽行由 T 补齐）')
+  // E6 严格化：旋转悬空 → move(1) 成功清窗（D-01）→ 落入 x+1 的 Mini 槽
+  const slot2 = T.createBoard()
+  slot2[15][4] = 'J'
+  slot2[16] = r18GapRow('J', [5, 6])
+  slot2[17][4] = 'J'; slot2[17][6] = 'J'; slot2[18][5] = 'J'
+  const g2 = mk()
+  g2.start()
+  g2._debug.setBoard(slot2)
+  g2._debug.setNext('T')
+  g2._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 12 })
+  assert.equal(g2.rotate().ok, true)
+  assert.equal(g2.getSnapshot().piece.rot, 1, '旋转到位（悬空）')
+  const landing2 = { type: 'T', rot: 1, x: 4, y: 15 }
+  assert.equal(T.tspinKind(T.merge(slot2, landing2), landing2), 'mini', 'x+1 槽姿态本可判 Mini（自证）')
+  assert.equal(g2.move(1).ok, true, '悬空右移成功（窗口被 move 清除）')
+  for (let i = 0; i < 16; i++) g2.tick(250) // 重力 3 步至 (4,15) 落槽 + 缓冲锁定
+  const s2 = g2.getSnapshot()
+  assert.equal(s2.score, 100, 'move 清除窗口 → 不判 → 纯单消 100（而非 200）')
+  assert.equal(s2.lines, 1)
+})
+
+test('§14.8b 非 T 会话：J 旋转嵌入 4 实角几何 → 恒 none（AC-2 会话层双层防线）', () => {
+  const slot = T.createBoard()
+  slot[15][3] = 'J'
+  slot[16] = r18GapRow('J', [4, 5])
+  slot[17][3] = 'J'; slot[17][5] = 'J'; slot[18][4] = 'J'
+  const g = mk()
+  g.start()
+  g._debug.setBoard(slot)
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'J', rot: 0, x: 3, y: 15 })
+  assert.equal(g.rotate().ok, true)
+  const after = g.getSnapshot().piece
+  const merged = T.merge(slot, after)
+  let solid = 0
+  for (const rc of [[15, 3], [15, 5], [17, 3], [17, 5]]) if (merged[rc[0]][rc[1]] !== null) solid++
+  assert.equal(solid, 4, 'J 锁定位 4 实角几何（自证：TL 墙 + J 自身占 TR + BL/BR 墙）')
+  assert.equal(T.tspinKind(merged, after), 'none', '非 T 旋转落定 4 实角 → none（零误报）')
+  lockTick(g)
+  assert.equal(g.getSnapshot().score, 0, '非 T 无 T-spin 加分（普通 0 行）')
+})
+
+test('§14.8c kick 全拒（E14）：旋转失败不改窗口与位置 → 后续落地不判', () => {
+  const g = mk()
+  g.start()
+  const b = T.createBoard()
+  b[15][4] = 'J'; b[15][3] = 'J'; b[16][5] = 'J'
+  g._debug.setBoard(b)
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 15 })
+  assert.deepEqual(g.rotate(), { ok: false, reason: 'wall-kick-denied' })
+  const s = g.getSnapshot()
+  assert.equal(s.piece.rot, 0, '旋转未发生：rot 不变')
+  assert.equal(s.piece.x, 3, '旋转未发生：x 不变')
+  for (let i = 0; i < 24; i++) g.tick(250) // 重力落地锁定（0 行）
+  assert.equal(g.getSnapshot().score, 0, '未旋转 → 无 T-spin（窗口从未置位）')
+})
+

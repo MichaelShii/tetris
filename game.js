@@ -67,6 +67,13 @@
 
     // 计分：单次消 1/2/3/4 行 = 100/300/500/800 × 等级（AC-06.5）
     const LINE_SCORES = [100, 300, 500, 800]
+    // r18 T-spin 加分（PRD §3 表；索引 = 本次清除行数）：
+    // full: 0 行=No-line 100 / 1/2/3 行=800/1200/1600；mini: 0 行无档=0 / 1/2 行=100/200 /
+    // 3 行按 Full Triple=1600（无 Mini Triple 档，防漏分）；kind='none'（未判定）一律不调用
+    const T_SPIN_BONUS = {
+      full: [100, 800, 1200, 1600],
+      mini: [0, 100, 200, 1600],
+    }
     // 触底锁定缓冲（AC-03.5，≤ 500ms）
     const LOCK_DELAY_MS = 500
     // 输入 DAS：首移延迟 170ms / 重复 100ms（≥ 8 次/秒，AC-02.1）；软降重复 50ms（AC-02.2）
@@ -405,6 +412,46 @@
       return { type: piece.type, rot: (piece.rot + d) % 4, x: piece.x, y: piece.y }
     }
 
+    /** r18：角点实判定；越界按实（墙），对 T 局内不可达（旋转后 3×3 必在界内），纯防御 */
+    function cornerSolid(board, x, y) {
+      return x < 0 || x >= COLS || y < 0 || y >= ROWS || board[y][x] !== null
+    }
+
+    /**
+     * r18（AC-1/2/4/5）：T-spin 几何分类（纯函数，零依赖对局状态；非 T 恒 'none'）。
+     * 3×3 邻域以旋转后（含 kick 位移后）T 的 piece.x/y 为左上角，四角为 TL/TR/BL/BR；
+     * 实 = 该格非空（对**合并后**棋盘判定——即锁定瞬间快照，含踢墙位移；越界按实，防御）。
+     * 实角 ≥3 成立（AC-4：0/1/2 不判）；4 实角 = Full；3 实角缺角位于 T 头部一侧
+     * （rot0 顶行/rot1 右列/rot2 底行/rot3 左列，PRD §3 对角对表述以 TECH §3.2 头部侧裁定取代，
+     * F1~F8 权威样例固化）= Mini，否则 = Full。本作 T 形状（标准 SRS）四旋转态从不占据框角，
+     * 四角全为环境格 → 无"自身占角"判据。
+     */
+    function tspinKind(board, piece) {
+      if (piece.type !== 'T') return 'none'
+      const x = piece.x
+      const y = piece.y
+      const tl = cornerSolid(board, x, y)
+      const tr = cornerSolid(board, x + 2, y)
+      const bl = cornerSolid(board, x, y + 2)
+      const br = cornerSolid(board, x + 2, y + 2)
+      const n = (tl ? 1 : 0) + (tr ? 1 : 0) + (bl ? 1 : 0) + (br ? 1 : 0)
+      if (n < 3) return 'none' // AC-4：0/1/2 实角不判
+      if (n === 4) return 'full' // 四实角 = Full
+      const missingHeadSide =
+        (piece.rot === 0 && (!tl || !tr)) ||
+        (piece.rot === 1 && (!tr || !br)) ||
+        (piece.rot === 2 && (!bl || !br)) ||
+        (piece.rot === 3 && (!tl || !bl))
+      return missingHeadSide ? 'mini' : 'full'
+    }
+
+    /** r18（AC-6/7）：T-spin 加分 = 基准分 × level（与 scoreForLines 同构）；kind='none' → 0 */
+    function tspinBonus(kind, cleared, level) {
+      if (kind !== 'full' && kind !== 'mini') return 0
+      const base = T_SPIN_BONUS[kind][cleared]
+      return typeof base === 'number' ? base * level : 0
+    }
+
     /* ======================================================================
      * 6. 会话聚合 createGame（唯一可变状态持有者；工厂 + 闭包，不用 class）
      * ==================================================================== */
@@ -470,6 +517,9 @@
       let holdEnabled = opts.holdEnabled !== false
       // r14 Hold 使用限制（AC-5）：每个方块下落周期内是否已使用过 hold
       let holdUsed = false
+      // r18（AC-1）：T-spin 会话旋转窗口——rotate 成功置 true；move/软硬降/重力下移/新周期清 false；
+      // "旋转落地即锁定"（旋转后不得再有任何动作/下移）方可判；lockFlow 判定后消费复位
+      let tspinPending = false
       // 消行动画时长（r13，AC-1/AC-9）：默认 240ms（容差 160~320）；0 = 即时消除（与 reduced-motion 等价，AC-7）；
       // 强制布尔/负值兜底为默认值（对齐 wallKickEnabled 的 opts 解析风格）；构造期只读，无运行期 setter
       const animMs = typeof opts.animMs === 'number' && opts.animMs >= 0 ? opts.animMs : 240
@@ -492,6 +542,8 @@
           animProgress: state.clearing ? Math.min(1, state.clearing.elapsed / animMs) : null,
           // r14 Hold 暂存槽类型（null 或 type 字符串）
           holdPiece: state.holdPiece ? state.holdPiece.type : null,
+          // r18（AC-8，additive）：T-spin 判定类型（'full'|'mini'|'none'）；仅 clearing 期非 null
+          tspin: state.clearing ? state.clearing.tspin : null,
         }
       }
 
@@ -522,6 +574,10 @@
       function lockFlow() {
         const merged = merge(state.board, state.piece)
         const res = clearLines(merged) // 预计算，动画路径完结帧复用（AC-2 逐格等价来源）
+        // r18（AC-1/9）：锁定瞬间快照判定（合并后棋盘 = 含踢墙位移后的最终落位）；
+        // 窗口与 type 双门后消费复位（一块一判，与 state.piece = null 同栈）
+        const kind = tspinPending && state.piece.type === 'T' ? tspinKind(merged, state.piece) : 'none'
+        tspinPending = false
         state.piece = null
         state.lockTimer = 0
         state.gravityAcc = 0
@@ -532,35 +588,40 @@
         if (res.cleared > 0 && animMs > 0) {
           // → clearing 子阶段：保持含满行棋盘（视觉静止），动画结束帧才塌缩
           state.board = merged
-          state.clearing = { indices: res.indices, elapsed: 0, res: res }
+          state.clearing = { indices: res.indices, elapsed: 0, res: res, tspin: kind } // r18：判定随载荷跨动画期传递
           sfx('clear') // 动画开始帧恰好 1 次（AC-3；2/3/4 行均 1 次，AC-09.2/E-SFX-03）
           emit() // 首帧快照 clearedIndices + animProgress=0
           // 入口返回值：levelUp/gameOver 为「完成时」才确定的结果（§2.4），动画接管期恒 false
           return { ok: true, locked: true, cleared: res.cleared, levelUp: false, gameOver: false }
         }
         // —— 既有原子步（cleared=0 或 animMs=0 与现状逐点等价，AC-2/AC-7）——
-        return finishLock(res.board, res.cleared, true)
+        return finishLock(res.board, res.cleared, true, kind)
       }
 
       /** 动画完结帧：elapsed ≥ animMs → 原子步整体执行（塌缩→计分/行数/升级→spawn→碰撞） */
       function completeClearing() {
         const cl = state.clearing
         state.clearing = null
-        finishLock(cl.res.board, cl.res.cleared, false) // sfx('clear') 已在动画首帧发射（恰好 1 次）
+        finishLock(cl.res.board, cl.res.cleared, false, cl.tspin) // r18：动画载荷携带的 tspin 判定（sfx('clear') 已首帧发射）
       }
 
       /** 原子步（即时路径与动画完结帧共享唯一实现）：塌缩 → 计分 → 升级 → spawn → 出生碰撞 → GAME_OVER。
        *  playClearSfx=true 时于本步发射 sfx('clear')（即时路径）；动画路径已在首帧发过 → false。 */
-      function finishLock(board, cleared, playClearSfx) {
+      function finishLock(board, cleared, playClearSfx, tspin) {
         state.board = board
         let levelUp = false
+        // r18（AC-6/7/11）：T-spin 加分与普通消行分叠加恰各一次（kind='none' → 恒 0）；
+        // 乘数取升级前 state.level，与 scoreForLines 同点位；bonus 不触碰 lines → 不推进等级
+        const bonus = tspinBonus(tspin, cleared, state.level)
         if (cleared > 0) {
-          state.score += scoreForLines(cleared, state.level) // 多行一次计分（E3）
+          state.score += scoreForLines(cleared, state.level) + bonus // 普通基分（逐分不变）+ T-spin 分
           state.lines += cleared
           const newLevel = levelForLines(state.lines)
           levelUp = newLevel > state.level
           state.level = newLevel
           if (playClearSfx) sfx('clear') // 一次消行动作恰好 1 次（含 2/3/4 行，AC-09.2/E-SFX-03）
+        } else if (bonus > 0) {
+          state.score += bonus // No-line T-spin（cleared=0 + full）：加分但无 clear/无行/无升级（AC-8/11）
         }
 
         // spawn 下一块（next 预览先出块再补新）
@@ -587,6 +648,8 @@
       }
 
       function spawnFirst() {
+        // r18：新方块周期开启 → 旋转窗口失效（start/restart 出生处清窗）
+        tspinPending = false
         // 仅在 READY/RUNNING 重置后调用（棋盘为空，出生必不碰撞，防御性校验）
         const type = state.next
         state.next = state.queue.next()
@@ -625,6 +688,7 @@
         state.clearing = null // r13（AC-6/§2.2）：restart 强制清空动画状态（防宿主异常调用留脏）
         state.holdPiece = null // r14：restart 清空暂存槽
         holdUsed = false // r14：restart 重置 hold 使用限制（与 spawnFirst 后新方块出生同语义）
+        tspinPending = false // r18：restart 新周期清窗
         state.phase = transition(state.phase, 'restart') // 任意态 → RUNNING
         spawnFirst()
         emit()
@@ -660,6 +724,7 @@
         const moved = { type: state.piece.type, rot: state.piece.rot, x: state.piece.x + d, y: state.piece.y }
         if (collides(state.board, moved)) return { ok: false, reason: 'blocked' } // E2 原位不动（不发声，AC-09.3）
         state.piece = moved
+        tspinPending = false // r18（D-01/AC-1）：水平移动成功清窗——"最后动作是旋转"字面，滑入不判
         if (!isGrounded(state.board, state.piece)) state.lockTimer = 0 // 脱离触底则重置缓冲
         emit()
         sfx('move') // 仅移动成功（含 DAS 每次成功，AC-09.2）
@@ -679,6 +744,7 @@
           if (!isGrounded(state.board, state.piece)) state.lockTimer = 0
           emit()
           sfx('rotate') // 仅旋转成功
+          tspinPending = true // r18（AC-1）：旋转成功置窗（原地旋转，位移非必需）
           return { ok: true }
         }
         // v2.9（AC-19.4）：开关关闭 → 无踢墙，保持原位（AC-18 语义，零偏移）
@@ -694,6 +760,7 @@
             if (!isGrounded(state.board, state.piece)) state.lockTimer = 0
             emit()
             sfx('rotate') // 仅旋转成功
+            tspinPending = true // r18（AC-1）：kick 命中置窗（踢墙位移后的最终落位，AC-9 快照）
             return { ok: true }
           }
         }
@@ -711,9 +778,11 @@
         if (collides(state.board, moved)) {
           // 软降后仍触底 → 立即固定（TECHNICAL §6.2）；下移未成功不发射 softDrop
           // （E-SFX-02），lockFlow 内的 clear/levelUp/gameOver 正常发射
+          tspinPending = false // r18（D-02/AC-3）：软降触底立即锁定也清窗——最后动作是下落尝试
           return lockFlow()
         }
         state.piece = moved
+        tspinPending = false // r18（AC-3）：软降成功下移清窗
         state.lockTimer = 0
         emit()
         sfx('softDrop') // 仅软降成功下移 1 格
@@ -732,6 +801,7 @@
         }
         // v2.3（AC-14）：硬降落地不加分（移除 dropBonus 每格 +1）；仅锁定的消行在 lockFlow 计分
         state.piece = { type: state.piece.type, rot: state.piece.rot, x: state.piece.x, y: state.piece.y + d }
+        tspinPending = false // r18（AC-3）：硬降清窗（落点计算后、lockFlow 前）
         sfx('hardDrop') // 每次硬降恰好 1 次（落点计算后、lockFlow 前，E-SFX-04 顺序首项）
         return lockFlow() // 硬降立即固定，不走缓冲
       }
@@ -766,6 +836,8 @@
           state.piece = spawn(heldType)
           // next 不变——交换暂存槽不消耗队列
         }
+
+        tspinPending = false // r18：hold 交换/存入完成后新方块周期开启 → 窗口失效
 
         // 出生碰撞检测（AC-4 重置出生点后可能碰撞 → GAME OVER）
         if (spawnCollides(state.board, state.piece)) {
@@ -808,10 +880,11 @@
           const moved = { type: state.piece.type, rot: state.piece.rot, x: state.piece.x, y: state.piece.y + 1 }
           if (!collides(state.board, moved)) {
             state.piece = moved
+            tspinPending = false // r18（AC-3）：自然重力实际下移清窗（旋转后悬空落地不判）
             state.lockTimer = 0
             changed = true
           } else {
-            break // 触底
+            break // 触底——未移动不清窗（旋转落地后经 lockTimer 锁定仍判，E11）
           }
         }
         if (state.phase !== 'RUNNING') return // 循环中可能已触发 GAME_OVER
@@ -1078,6 +1151,8 @@
       SFX_EVENTS: SFX_EVENTS.slice(), // v2.0：音效事件集（audio.js/装配/测试统一引用）
       NEXT_QUEUE_SIZE: NEXT_QUEUE_SIZE, // r15：多格预览队列格数（AC-10，恒 3）
       LINE_SCORES: LINE_SCORES.slice(),
+      // r18（AC-6）：T-spin 加分六档（索引 = 清除行数；mini 3 行按 Full Triple=1600 防漏分）
+      T_SPIN_BONUS: { full: T_SPIN_BONUS.full.slice(), mini: T_SPIN_BONUS.mini.slice() },
       LOCK_DELAY_MS: LOCK_DELAY_MS,
       DAS_DELAY_MS: DAS_DELAY_MS,
       DAS_REPEAT_MS: DAS_REPEAT_MS,
@@ -1104,6 +1179,9 @@
       createQueue: createQueue,
       spawn: spawn,
       rotated: rotated,
+      // r18：T-spin 几何判定 / 加分纯函数（Node 可单测）
+      tspinKind: tspinKind,
+      tspinBonus: tspinBonus,
       transition: transition,
       keyAction: keyAction, // v2.1：键盘映射单一来源表（AC-11，Node 可单测）
       // 会话工厂
