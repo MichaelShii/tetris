@@ -2278,3 +2278,380 @@ test('§14.8c kick 全拒（E14）：旋转失败不改窗口与位置 → 后�
   assert.equal(g.getSnapshot().score, 0, '未旋转 → 无 T-spin（窗口从未置位）')
 })
 
+/* ============================================================================
+ * 15. r20 Combo 连消奖励（AC-1~11；TECHNICAL §7.2，链态推导权威 §6/§15.5）
+ * ============================================================================ */
+
+// 公共布景：row19 缺 col5 的满行 + 竖 I（rot1 x3 y16，落点 y16）→ 恰消 1 行（复用 r13 布景几何）
+function comboStageRow19(g, useHard) {
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  g._debug.setBoard(b)
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  return useHard ? g.hardDrop() : g.softDrop()
+}
+
+// 单次 1 行清行锁定（软降触底即锁；animMs>0 会话进入 clearing，由调用方 comboComplete 步进完结）
+function comboClearOne(g) {
+  const r = comboStageRow19(g, false)
+  if (!(r.ok === true)) throw new Error('comboClearOne softDrop 应成功: ' + JSON.stringify(r))
+  return r
+}
+
+// 多行清行布景：rows(20-n..19) 全 type、缺口 missCol；竖 I 补缺 → 恰消 n 行（n=1..4；y 恒 16 span 16..19）
+function comboStageLines(g, n, missCol) {
+  const miss = typeof missCol === 'number' ? missCol : 5
+  const b = T.createBoard()
+  for (let r = 20 - n; r <= 19; r++) for (let c = 0; c < T.COLS; c++) if (c !== miss) b[r][c] = 'S'
+  g._debug.setBoard(b)
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'I', rot: 1, x: miss - 2, y: 16 })
+  return g.hardDrop()
+}
+
+// 完结消行动画（120+120 = 240 ≥ animMs:240；L1 重力间隔 1000ms 不受影响）
+function comboComplete(g) {
+  g.tick(120)
+  g.tick(120)
+}
+
+test('§15.0 常量/导出：COMBO_BONUS_BASE=50；comboBonus 数值表 + 防御 NaN/负值/level<1（AC-5）', () => {
+  assert.equal(T.COMBO_BONUS_BASE, 50, 'COMBO_BONUS_BASE 单一事实来源（qa-e2e 期望对齐基准）')
+  const tbl = [[0, 1, 0], [1, 1, 50], [2, 1, 100], [3, 1, 150], [3, 2, 300], [5, 3, 750]]
+  for (const pair of tbl) {
+    assert.equal(T.comboBonus(pair[0], pair[1]), pair[2], 'comboBonus(' + pair[0] + ',' + pair[1] + ') = ' + pair[2])
+  }
+  assert.equal(T.comboBonus(NaN, 1), 0, 'combo NaN → 0（E6）')
+  assert.equal(T.comboBonus(1, NaN), 0, 'level NaN → 0（E6）')
+  assert.equal(T.comboBonus(-1, 1), 0, '负 combo → 0（E6）')
+  assert.equal(T.comboBonus(2, 0), 0, 'level<1 → 0（E6）')
+  assert.equal(T.comboBonus(2, -3), 0, '负 level → 0（E6）')
+})
+
+test('§15.1 链递增：固定种子连续 4 次清 1 行锁定 → clearing 期 snapshot.combo 0→1→2→3（AC-1）', () => {
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  for (let idx = 0; idx < 4; idx++) {
+    comboClearOne(g)
+    const s = g.getSnapshot()
+    assert.equal(s.clearedIndices.length, 1, '第 ' + (idx + 1) + ' 锁恰消 1 行')
+    assert.equal(s.combo, idx, '第 ' + (idx + 1) + ' 锁 clearing 期 combo 索引=' + idx)
+    assert.equal(s.comboBonus, 50 * idx * 1, '第 ' + (idx + 1) + ' 锁 comboBonus=50×' + idx + '×L1')
+    comboComplete(g)
+    const done = g.getSnapshot()
+    assert.equal(done.combo, null, '完结帧 additive combo 回 null')
+    assert.equal(done.comboBonus, null, '完结帧 additive comboBonus 回 null')
+  }
+  assert.equal(g.getSnapshot().score, 100 + 150 + 200 + 250, '逐锁增量 100/150/200/250 累和 700')
+  assert.equal(g.getSnapshot().lines, 4, '4 次单消 lines=4')
+  assert.equal(g.getSnapshot().level, 1, '4 行不足升级 → level 1')
+})
+
+test('§15.2 断链：清行 → 0 清行锁 → 清行回 combo0；No-line T-spin（full×0 行）亦断链（AC-2）', () => {
+  // 断链①：0 清行锁定（空板 T 落底 softDrop 即锁）
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  comboClearOne(g)
+  assert.equal(g.getSnapshot().combo, 0, '首锁 combo0（至此链=1）')
+  comboComplete(g)
+  const b = T.createBoard()
+  g._debug.setBoard(b)
+  g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+  assert.equal(g.softDrop().ok, true, '0 清行锁定应成功')
+  assert.equal(g.getSnapshot().combo, null, '0 清行锁不进 clearing（additive 不暴露）')
+  comboClearOne(g)
+  assert.equal(g.getSnapshot().combo, 0, '0 清行断链 → 首清回 combo0')
+  assert.equal(g.getSnapshot().comboBonus, 0, '断链后首清增量 0')
+  comboComplete(g)
+  // 断链②：No-line T-spin（buildTSlot T4 clearRows=[] → full×0 行）
+  const g2 = mk({ animMs: 240, rng: () => 0 })
+  g2.start()
+  comboClearOne(g2)
+  assert.equal(g2.getSnapshot().combo, 0)
+  comboComplete(g2)
+  g2._debug.setBoard(buildTSlot(0, 3, 15, T4, []))
+  g2._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+  assert.equal(g2.rotate().ok, true)
+  lockTick(g2) // 500ms lockTimer → No-line full 锁（cleared=0 → 即时断链，无 clearing）
+  assert.equal(g2.getSnapshot().score, 200, '100 首清 + 100 No-line bonus')
+  assert.equal(g2.getSnapshot().lines, 1, 'No-line 不计行')
+  comboClearOne(g2)
+  assert.equal(g2.getSnapshot().combo, 0, 'No-line 断链 → 首清回 combo0')
+  assert.equal(g2.getSnapshot().comboBonus, 0, 'No-line 后首清增量 0')
+})
+
+test('§15.3 操作无关：hold / 旋转（含踢墙）/ 软降 / 硬降均不断链 → 下一清行锁索引连续（AC-3）', () => {
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  comboClearOne(g)
+  assert.equal(g.getSnapshot().combo, 0, '首锁 combo0（至此链=1）')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().score, 100)
+  // hold（不断链）
+  assert.equal(g.hold().ok, true)
+  // 踢墙旋转（T rot0@(0,5)；阻块 (1,7) 堵原位置、阻块 (0,5) 堵左踢 → 固定偏移表「左→右」右踢命中 → x=1）：不断链
+  const kb = T.createBoard()
+  kb[7][1] = 'J'
+  kb[5][0] = 'J'
+  g._debug.setBoard(kb)
+  g._debug.setPiece({ type: 'T', rot: 0, x: 0, y: 5 })
+  const rk = g.rotate()
+  assert.equal(rk.ok, true, '踢墙旋转应成功')
+  assert.equal(g.getSnapshot().piece.x, 1, 'kick 右移 1 格命中（左踢被 (0,5) 堵）')
+  assert.equal(g.getSnapshot().piece.rot, 1, '旋转到位')
+  // 软降（不断链）：T 由 (1,5) 下移至 (1,6)，未触底不锁
+  assert.equal(g.softDrop().ok, true)
+  // 硬降清行（链保持=1 → 索引 1）：重布 1 行清行景（竖 I 补 col5 缺）
+  assert.equal(comboStageRow19(g, true).ok, true)
+  const s = g.getSnapshot()
+  assert.equal(s.clearedIndices.length, 1, '硬降恰消 1 行')
+  assert.equal(s.combo, 1, '四操作后链保持 → 硬降锁 combo1')
+  assert.equal(s.comboBonus, 50, 'combo1×L1=50')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().score, 250, '累计 100 + (100+50) = 250')
+  assert.equal(g.getSnapshot().lines, 2, '累计 2 行')
+})
+
+test('§15.4 混链：普通 1 行 → T-spin Full Single → 普通 1 行 = 链 0→1→2（AC-4）', () => {
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  // ① 普通单消：combo0
+  comboClearOne(g)
+  assert.equal(g.getSnapshot().combo, 0)
+  assert.equal(g.getSnapshot().comboBonus, 0)
+  comboComplete(g)
+  assert.equal(g.getSnapshot().score, 100)
+  // ② T-spin Full Single（T4 槽 1 行；旋转入槽 + lockTimer 锁定）：同链 → combo1
+  g._debug.setBoard(buildTSlot(0, 3, 15, T4, [1]))
+  g._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+  assert.equal(g.rotate().ok, true)
+  lockTick(g) // 500ms → 锁定全槽（cleared=1 → 进入 clearing）
+  const s2 = g.getSnapshot()
+  assert.equal(s2.combo, 1, 'T-spin 锁与普通锁同链 → combo1')
+  assert.equal(s2.comboBonus, 50, 'T-spin 锁 comboBonus=50×1×L1')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().score, 100 + 950, 'T-spin Full Single 三轴和：基分 100 + T-spin 800 + combo 50 = 950')
+  // ③ 普通单消：combo2
+  comboClearOne(g)
+  assert.equal(g.getSnapshot().combo, 2, '第三锁 combo2')
+  assert.equal(g.getSnapshot().comboBonus, 100, 'combo2×L1=100')
+  comboComplete(g)
+  const s = g.getSnapshot()
+  assert.equal(s.score, 100 + 950 + 200, '100 + 950 + (100+100) = 1250')
+  assert.equal(s.lines, 3, '混链总行数 3')
+  assert.equal(s.level, 1, '3 行不足升级 → level 1')
+})
+
+test('§15.5 公式样例（权威，qa-e2e 对齐基准）：50×combo×level、乘数取升级前 level（AC-5/6/7）', () => {
+  // 例 1：L1 combo0 消 1 行 = 100（孤立首锁 → 零 combo 增量，r18 基线）
+  const a = freshGame()
+  a.g.start()
+  comboClearOne(a.g)
+  assert.equal(a.g.getSnapshot().score, 100, 'L1 combo0 消1行 = 100')
+  // 例 2：L1 combo3 消 4 行 = 800×L1 + 50×3×1 = 950（链 3 前置）
+  const b = freshGame()
+  b.g.start()
+  comboClearOne(b.g); comboClearOne(b.g); comboClearOne(b.g)
+  const bPre = b.g.getSnapshot().score
+  assert.equal(bPre, 450, '前三锁 100/150/200 累和 450')
+  const rb = comboStageLines(b.g, 4)
+  assert.equal(rb.cleared, 4)
+  assert.equal(b.g.getSnapshot().score, 450 + 950, 'L1 combo3 消4行增量 = 800+150 = 950（累计 1400）')
+  // 例 3：L2 combo3 消 1 行 = 100×2 + 50×3×2 = 500（setLines(12)→L2，E4 不动链）
+  const c = freshGame()
+  c.g.start()
+  comboClearOne(c.g); comboClearOne(c.g); comboClearOne(c.g)
+  c.g._debug.setLines(12)
+  assert.equal(c.g.getSnapshot().level, 2, 'setLines(12) → level 2')
+  const rc = comboStageLines(c.g, 1)
+  assert.equal(rc.cleared, 1)
+  assert.equal(c.g.getSnapshot().score, 450 + 500, 'L2 combo3 消1行增量 = 200+300 = 500（累计 950）')
+  // 例 4：L2 combo1 消 1 行 = 100×2 + 50×1×2 = 300
+  const d = freshGame()
+  d.g.start()
+  comboClearOne(d.g)
+  d.g._debug.setLines(12)
+  const rd = comboStageLines(d.g, 1)
+  assert.equal(rd.cleared, 1)
+  assert.equal(d.g.getSnapshot().score, 100 + 300, 'L2 combo1 消1行增量 = 200+100 = 300')
+  // 例 5：T-spin Full Single combo1×L1 —— 三轴和 100+800+50 = 950（TECH §15.5「800+50=850」为
+  // tspin 轴 + combo 轴增量，不含基分轴 100；基分轴已由前四例覆盖）
+  const e = freshGame()
+  e.g.start()
+  comboClearOne(e.g)
+  e.g._debug.setBoard(buildTSlot(0, 3, 15, T4, [1]))
+  e.g._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+  assert.equal(e.g.rotate().ok, true)
+  lockTick(e.g)
+  const se = e.g.getSnapshot()
+  assert.equal(se.score, 100 + 950, 'T-spin Full Single combo1×L1 增量 = 100+800+50 = 950（总 1050）')
+  assert.equal(se.lines, 2, 'T-spin 与 combo 轴均不计行')
+})
+
+test('§15.6 三轴叠加恰各一次 + 等级进度：连续 4 锁（1/1/2/4 行）→ lines=Σ、level=levelForLines，comboBonus 未追加行数/等级（AC-6）', () => {
+  const { g } = freshGame()
+  g.start()
+  comboStageLines(g, 1)
+  comboStageLines(g, 1)
+  comboStageLines(g, 2)
+  comboStageLines(g, 4)
+  const s = g.getSnapshot()
+  // 逐锁增量：combo0→100；combo1 1行→150；combo2 2行→300+100=400；combo3 4行→800+150=950 → 1600
+  assert.equal(s.score, 100 + 150 + 400 + 950, '三轴恰各一次累和 1600')
+  assert.equal(s.lines, 8, 'lines=Σcleared=1+1+2+4（comboBonus 未追加行数）')
+  assert.equal(s.level, 1, 'level=levelForLines(8)=1（comboBonus 未推进等级）')
+})
+
+test('§15.7 载荷/事件：clearing 期 combo/comboBonus 暴露、完结回 null；clear 恰 1 次且首帧；hardDrop→clear→levelUp 次序；onGameOver 总分=逐锁增量之和（AC-8）', () => {
+  // ① clearing 载荷暴露 + clear 恰 1 次且为首帧（软降触底即锁路径不发 softDrop，E-SFX-02）
+  const { g, events } = freshGame({ animMs: 240 })
+  g.start()
+  comboClearOne(g)
+  const s = g.getSnapshot()
+  assert.equal(s.combo, 0, 'clearing 期 snapshot.combo 暴露')
+  assert.equal(s.comboBonus, 0, 'clearing 期 snapshot.comboBonus 暴露')
+  assert.deepEqual(events.sfx, ['clear'], 'clear 恰 1 次且为首帧（动画接管帧；软降触底即锁无 softDrop 事件）')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().combo, null, '完结帧 combo 回 null（additive 生命周期）')
+  assert.equal(g.getSnapshot().comboBonus, null, '完结帧 comboBonus 回 null')
+  // ② hardDrop→clear→levelUp 次序（升级同栈；乘数取升级前 L1）
+  const { g: g2, events: ev2 } = freshGame({ animMs: 240 })
+  g2.start()
+  g2._debug.setLines(9)
+  assert.equal(comboStageRow19(g2, true).ok, true)
+  assert.deepEqual(ev2.sfx.slice(-2), ['hardDrop', 'clear'], '硬降→clear 首帧次序（E-SFX-04）')
+  comboComplete(g2)
+  assert.equal(ev2.sfx[ev2.sfx.length - 1], 'levelUp', '完结帧 levelUp 次序末位')
+  assert.equal(g2.getSnapshot().level, 2, '链锁升级照常')
+  // ③ onGameOver 总分 = 逐锁增量之和（100 + 150 + 200 = 450，含全部 comboBonus）
+  const { g: g3, events: ev3 } = freshGame({ animMs: 240 })
+  g3.start()
+  comboClearOne(g3); comboComplete(g3)
+  comboClearOne(g3); comboComplete(g3)
+  assert.equal(g3.getSnapshot().score, 250)
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  b[0][4] = 'J'; b[0][5] = 'J' // 塌缩后 spawn 即碰撞（r13⑦ 模式）
+  g3._debug.setBoard(b)
+  g3._debug.setNext('I')
+  g3._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  g3.hardDrop()
+  g3.tick(120)
+  g3.tick(120) // 240 ≥ 240 → 完结帧 spawn 碰撞 OVER
+  assert.equal(g3.getPhase(), 'OVER')
+  assert.equal(ev3.gameOver.length, 1)
+  assert.equal(ev3.gameOver[0], 450, 'onGameOver 总分 == 逐锁增量之和（含 comboBonus）')
+})
+
+test('§15.8 会话隔离：restart 后首清 combo0；OVER→restart 同；非 clearing 期快照 combo 恒 null（AC-9）', () => {
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  comboClearOne(g); comboComplete(g)
+  comboClearOne(g); comboComplete(g)
+  assert.equal(g.getSnapshot().score, 250, '链 2 锁前置（至此链=2）')
+  // restart → 新周期清链
+  assert.equal(g.restart().ok, true)
+  assert.equal(g.getSnapshot().combo, null, 'restart 后非 clearing 期 combo 恒 null')
+  comboClearOne(g)
+  assert.equal(g.getSnapshot().combo, 0, 'restart 后首清 combo0')
+  assert.equal(g.getSnapshot().comboBonus, 0, 'restart 后首清增量 0')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().combo, null)
+  // OVER → restart 同（r13⑦ 顶堆强制 OVER）
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  b[0][4] = 'J'; b[0][5] = 'J'
+  g._debug.setBoard(b)
+  g._debug.setNext('I')
+  g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  g.hardDrop()
+  g.tick(120)
+  g.tick(120)
+  assert.equal(g.getPhase(), 'OVER')
+  assert.equal(g.restart().ok, true)
+  comboClearOne(g)
+  assert.equal(g.getSnapshot().combo, 0, 'OVER→restart 后首清 combo0')
+  assert.equal(g.getSnapshot().comboBonus, 0)
+})
+
+test('§15.9 零回归：孤立单消 1/2/3/4 行 ×L1/L2 逐值=r18 基线（combo0 → 0 增量）（AC-10）', () => {
+  const table = [
+    { n: 1, l1: 100, l2: 200 },
+    { n: 2, l1: 300, l2: 600 },
+    { n: 3, l1: 500, l2: 1000 },
+    { n: 4, l1: 800, l2: 1600 },
+  ]
+  for (const t of table) {
+    const a = freshGame()
+    a.g.start()
+    comboStageLines(a.g, t.n)
+    assert.equal(a.g.getSnapshot().score, t.l1, t.n + ' 行 L1 孤立消 = ' + t.l1 + '（combo0 零增量）')
+    const b2 = freshGame()
+    b2.g.start()
+    b2.g._debug.setLines(12) // L2；E4：setLines 只动 lines/level，不动链
+    comboStageLines(b2.g, t.n)
+    assert.equal(b2.g.getSnapshot().score, t.l2, t.n + ' 行 L2 = ' + t.l2)
+    assert.ok(b2.g.getSnapshot().combo === null, t.n + ' 行非 clearing 期 combo 恒 null')
+  }
+})
+
+test('§15.10 soak：50 局确定性注入混合动作（旋转/移动/软降/多次清行 0~4 行）≥50 锁/局 → 无 NaN/负分/异常；逐锁增量累和 == onGameOver 总分（AC-11）', () => {
+  function lcg(seed) { // 确定性 LCG → [0,1)（与 rng 注入口径一致）
+    let s = seed >>> 0
+    return function () {
+      s = (s * 1664525 + 1013904223) >>> 0
+      return s / 4294967296
+    }
+  }
+  const N_GAMES = 50
+  const LOCKS = 60
+  for (let gi = 0; gi < N_GAMES; gi++) {
+    const rng = lcg(gi * 7919 + 13)
+    const over = []
+    const g = T.createGame({
+      rng: rng, autoLoop: false, keyboard: false, autoPauseOnBlur: false, animMs: 0,
+      onGameOver: (s) => over.push(s),
+    })
+    g.start()
+    let sum = 0
+    let prevScore = 0
+    for (let i = 0; i < LOCKS; i++) {
+      // 确定性布景：缺口 miss=3..7、满行 n=1..3（竖 I 高悬 y=20-n-5 → 软降绝不提前触底锁定）
+      const n = 1 + (i % 3)
+      const miss = 3 + (i % 5)
+      const b = T.createBoard()
+      for (let r = 20 - n; r <= 19; r++) for (let c = 0; c < T.COLS; c++) if (c !== miss) b[r][c] = 'S'
+      g._debug.setBoard(b)
+      g._debug.setNext('T')
+      g._debug.setPiece({ type: 'I', rot: 1, x: miss - 2, y: 20 - n - 5 })
+      const op = Math.floor(rng() * 4)
+      if (op === 0) g.rotate()        // 旋转（I rot1↔rot0：偏离缺口 → 0 行；对齐 → n 行）
+      else if (op === 1) g.move(-1)
+      else if (op === 2) g.move(1)
+      else g.softDrop()               // 高悬 → 仅下移 1 格，绝不提前锁定
+      const r = g.hardDrop()
+      assert.equal(r.ok, true, '局 ' + gi + ' 第 ' + i + ' 锁 hardDrop ok')
+      const s = g.getSnapshot()
+      assert.equal(Number.isFinite(s.score) && s.score >= 0, true, '局 ' + gi + ' 第 ' + i + ' 锁分数合法（无 NaN/负分）')
+      assert.ok(s.score >= prevScore, '局 ' + gi + ' 第 ' + i + ' 锁无负增量')
+      assert.ok(r.cleared >= 0 && r.cleared <= 4, '局 ' + gi + ' 第 ' + i + ' 锁清行 0~4')
+      sum += s.score - prevScore
+      prevScore = s.score
+    }
+    assert.ok(sum >= 0 && Number.isFinite(sum), '局 ' + gi + ' 逐锁增量累和合法')
+    // 顶端堆积 → OVER（r13⑦ 模式；animMs:0 → hardDrop 内即时完结）
+    const b = T.createBoard()
+    b[19] = fullRow('I', 5)
+    b[0][4] = 'J'; b[0][5] = 'J'
+    g._debug.setBoard(b)
+    g._debug.setNext('I')
+    g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+    g.hardDrop()
+    assert.equal(g.getPhase(), 'OVER', '局 ' + gi + ' 强制 OVER')
+    assert.equal(over.length, 1, '局 ' + gi + ' gameOver 恰 1 次')
+    sum += g.getSnapshot().score - prevScore // 末锁（OVER 锁）增量并入
+    assert.equal(over[0], sum, '局 ' + gi + ' onGameOver 总分 == 逐锁增量累和（含 OVER 锁）')
+  }
+})
+

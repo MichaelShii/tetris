@@ -350,8 +350,9 @@ async function main() {
     game.softDrop()
     s = snap()
     check('AC-03.3 一次消 4 行', s.lines === 5, 'lines=' + s.lines)
-    check('AC-06.5 4 行=800×L1（累计 100+800）', s.score === 900, 'score=' + s.score)
-    check('HUD 分数 900', $('#score').textContent === '900')
+    // r20 链态推导（TECHNICAL §6 权威表）：A(combo0)+100 → B 4 行锁 combo1×L1=800+50=850 → 累计 950
+    check('AC-06.5 4 行=800×L1 + combo1×L1=50（累计 100+850）', s.score === 950, 'score=' + s.score)
+    check('HUD 分数 950', $('#score').textContent === '950')
     check('HUD 行数 5', $('#lines').textContent === '5')
   }
 
@@ -383,7 +384,8 @@ async function main() {
     b2.setPiece({ type: 'I', rot: 1, x: 7, y: 16 })
     const before = snap().score
     game.softDrop()
-    check('等级倍率生效：L2 消 1 行 +200', snap().score === before + 200, before + '→' + snap().score)
+    // r20 链态推导（TECHNICAL §6 权威表）：X1 升级锁 combo2×L1=200 → C2 计分锁 combo3×L2=100×2+50×3×2=500
+    check('等级倍率生效：L2 消 1 行 100×2 + combo3×L2=+500', snap().score === before + 500, before + '→' + snap().score)
   }
 
   /* ---------- AC-03.5 触底锁定缓冲 + AC-03.1 重力节拍 ---------- */
