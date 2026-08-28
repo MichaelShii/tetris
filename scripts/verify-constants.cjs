@@ -19,8 +19,9 @@ const path = require('node:path')
 
 // 单一事实来源：目标版本（三模块 + TECHNICAL §2.2 均应等于此值）
 const EXPECTED_VERSION = '2.3.0'
-// v0.9 迁移后 TECHNICAL 位于 docs/teamflow/technical/（旧 docs/technical/ 已归档删除）
-const TECH_FILE = path.join(__dirname, '..', 'docs', 'teamflow', 'technical', 'TECHNICAL.md')
+// 基线文档归档后（acceptance/design/prd/qa/technical → history/，v2.9 快照），
+// 版本记录随档：TECHNICAL 现位于 docs/teamflow/history/v2.9/（后续归档位变动时一行重指）
+const TECH_FILE = path.join(__dirname, '..', 'docs', 'teamflow', 'history', 'v2.9', 'TECHNICAL.md')
 
 // Node 下 require 三模块零 DOM/Audio 副作用（既有 verify-ui.cjs §2 已证明）
 const G = require('../game.js')
