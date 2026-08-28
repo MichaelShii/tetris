@@ -385,3 +385,129 @@ test('r19: S 竖屏游戏视口锚点——body 100dvh 渐进对 + #main 网格 
   assert.match(sPortrait, /\.key-hints\s*\{[^}]*display:\s*none/,
     'S 档缺 .key-hints display:none（PRD AC-8）')
 })
+
+/* ======================================================================
+ * r21 特殊奖励 Toast（Combo / T-Spin）——常量 / 纯函数矩阵 / 源扫描（T3；TECHNICAL §7.2）
+ * 纯展示层契约（Node 零 DOM 可全部锁定）：
+ *   1. TOAST_DURATION 常量值域 1200~2000 + buildRewardText 导出（AC-1/AC-6）；
+ *   2. buildRewardText 纯函数矩阵：单轴 Combo / 双轴合并序（AC-4）/ 全 0 静默（AC-5）/
+ *      No-line 防御（AC-3）/ 档位名映射与乘数 / NaN·负 level·未知 kind·payload 缺失防御；
+ *   3. style.css / index.html 源扫描（r17 T3 先例）：规则 / 动画时长 / aria-live / 挂载序。
+ * 注：Node 无 window → game.js 不挂全局 TetrisGame（L36 仅 browser）；矩阵段补挂
+ *   globalThis.TetrisGame = G（与浏览器装配一致的全局契约），令 T-Spin 轴可测
+ *   （ui.js buildRewardText 的 typeof TetrisGame 守卫，同 NEXT_SLOTS 风格）。
+ * ==================================================================== */
+
+test('r21: TOAST_DURATION 常量值域 + buildRewardText 导出（AC-1/AC-6）', () => {
+  assert.equal(T.TOAST_DURATION, 1600, 'TOAST_DURATION = 1600ms（奖励 Toast 时长，独立于 LEVEL UP 800ms）')
+  assert.ok(T.TOAST_DURATION >= 1200 && T.TOAST_DURATION <= 2000,
+    'TOAST_DURATION 须在 1200~2000 值域，实际 ' + T.TOAST_DURATION)
+  assert.equal(typeof T.buildRewardText, 'function', 'buildRewardText 纯函数导出（AC-1 新增 UI API）')
+})
+
+test('r21: buildRewardText 纯函数矩阵（Node 无 DOM；AC-2/3/4/5/7）', () => {
+  // 浏览器装配下 game.js 以 window.TetrisGame 提供引擎；Node 下补挂同一全局契约 → T-Spin 轴可测
+  globalThis.TetrisGame = G
+  try {
+    // ① 单轴 Combo（AC-2）：comboBonus 直读载荷
+    assert.equal(
+      T.buildRewardText({ combo: 2, comboBonus: 100, tspin: 'none', cleared: 1, level: 1 }),
+      'Combo ×2 +100',
+      'Combo 单轴文案 = Combo ×N +bonus（直读载荷）'
+    )
+    // ② 双轴合并（AC-4 合并序：T-Spin 在前 · Combo 在后，PRD §4 逐字）
+    assert.equal(
+      T.buildRewardText({ combo: 1, comboBonus: 50, tspin: 'full', cleared: 1, level: 1 }),
+      'T-Spin Single +800 · Combo ×1 +50',
+      '双轴合并序 = T-Spin Single +800 · Combo ×1 +50（AC-4）'
+    )
+    // ③ 全 0 → null（AC-5 静默：普通消行无奖励不弹）
+    assert.equal(
+      T.buildRewardText({ combo: 0, comboBonus: 0, tspin: 'none', cleared: 1, level: 1 }),
+      null,
+      '全 0 载荷 → null（AC-5 静默）'
+    )
+    // ④ No-line 防御（AC-3）：cleared=0 → T-Spin 轴跳过；combo 无值 → null（断链不弹）
+    assert.equal(
+      T.buildRewardText({ combo: null, comboBonus: null, tspin: 'full', cleared: 0, level: 1 }),
+      null,
+      'No-line（cleared=0）→ null（AC-3）'
+    )
+    // ⑤ 档位名映射 + 乘数：mini:2 → 'Mini Double'，200×2=400（T_SPIN_TIER_LABEL）
+    assert.equal(
+      T.buildRewardText({ combo: null, comboBonus: null, tspin: 'mini', cleared: 2, level: 2 }),
+      'T-Spin Mini Double +400',
+      'mini:2 × level2 = 400（档位名 + 乘数派生）'
+    )
+  } finally {
+    delete globalThis.TetrisGame
+  }
+})
+
+test('r21: buildRewardText 防御矩阵（NaN / 负 level / 未知 kind / payload 缺失）', () => {
+  globalThis.TetrisGame = G
+  try {
+    // NaN comboBonus → Combo 轴跳过（NaN>0 恒 false）；无 T-Spin → null
+    assert.equal(T.buildRewardText({ combo: 1, comboBonus: NaN, tspin: 'none', cleared: 1, level: 1 }), null,
+      'NaN comboBonus → null（无 NaN 文案路径）')
+    // 未知 kind → T-Spin 轴跳过（tspinBonus=0），仅剩 Combo 最小形态
+    assert.equal(T.buildRewardText({ combo: 1, comboBonus: 50, tspin: 'bogus', cleared: 1, level: 1 }), 'Combo ×1 +50',
+      '未知 kind → 最小形态（仅 Combo 轴）')
+    // 负 level → tspinBonus('full',1,-1)=-800 → b>0 门跳过 → null
+    assert.equal(T.buildRewardText({ combo: 0, comboBonus: 0, tspin: 'full', cleared: 1, level: -1 }), null,
+      '负 level → null（无负分文案）')
+    // payload 缺失 / null → null
+    assert.equal(T.buildRewardText(null), null, 'payload null → null')
+    assert.equal(T.buildRewardText(undefined), null, 'payload undefined → null')
+    // cleared 出档位表（full:4 无映射）→ tspinBonus=0 → 轴跳过 → null
+    assert.equal(T.buildRewardText({ combo: null, comboBonus: null, tspin: 'full', cleared: 4, level: 1 }), null,
+      'cleared 出档位表 → null（无越界文案）')
+  } finally {
+    delete globalThis.TetrisGame
+  }
+})
+
+test('r21: style.css 源扫描——#reward-toast 规则族（AC-1/AC-8/AC-9，r17 T3 先例）', () => {
+  const css = fs.readFileSync(CSS_FILE, 'utf8')
+  // ① 基础规则存在（顶部规则块）与纵向 stack 位（top:28px，与 LEVEL UP 不重叠）
+  assert.ok(css.includes('#reward-toast'), 'style.css 缺 #reward-toast 选择器')
+  assert.ok(css.includes('top: 28px'), 'style.css 缺 top: 28px（双槽纵向 stack）')
+  // ② 动画复用既有 keyframes（钳到 #reward-toast.is-showing 块内——#feedback-toast 亦用
+  //    同名 keyframes 但 800ms，未钳块会误匹配 LEVEL UP 规则），时长须与 JS 常量同源（AC-1/AC-6）
+  const rewardAnim = css.match(/#reward-toast\.is-showing\s*\{[^}]*toast-in-out\s*(\d+)ms\s*ease-out/)
+  assert.ok(rewardAnim, 'style.css 缺 toast-in-out 1600ms ease-out（#reward-toast.is-showing 块内）')
+  const cssMs = Number(rewardAnim[1])
+  assert.ok(cssMs >= 1200 && cssMs <= 2000, 'CSS 动画时长须在 1200~2000，实际 ' + cssMs)
+  assert.equal(cssMs, T.TOAST_DURATION, 'CSS 动画时长须与 TOAST_DURATION 同源（防漂移）')
+  // ③ 不越界：max-width: min(92%, 320px) 随板框缩放（AC-9）
+  assert.match(css, /max-width:\s*min\(92%,\s*320px\)/, 'style.css 缺 max-width: min(92%, 320px)')
+  // ④ reduced-motion 静态镜像（AC-8）：同块内 #reward-toast.is-showing 只动文字（opacity:1、无动画），
+  //    且 #feedback-toast 镜像仍含 opacity: 1（r21 未破坏既有 reduced-motion 契约，AC-11 零回归）
+  const rmStart = css.indexOf('@media (prefers-reduced-motion: reduce)')
+  assert.ok(rmStart !== -1, 'style.css 缺 @media (prefers-reduced-motion: reduce) 块')
+  const rmBlock = css.slice(rmStart)
+  assert.match(rmBlock, /#feedback-toast\.is-showing\s*\{[^}]*opacity:\s*1/,
+    'reduced-motion 块内 #feedback-toast 仍含 opacity: 1（r21 零回归）')
+  const rewardRm = rmBlock.match(/#reward-toast\.is-showing\s*\{[^}]*\}/)
+  assert.ok(rewardRm, 'reduced-motion 块内缺 #reward-toast.is-showing 静态镜像')
+  assert.match(rewardRm[0], /opacity:\s*1/, '奖励静态镜像须 opacity: 1（只动文字）')
+  assert.ok(!/animation:/.test(rewardRm[0]), '奖励静态镜像不得含动画（静止呈现，AC-8）')
+})
+
+test('r21: index.html 源扫描——#reward-toast 挂载点契约（AC-8）', () => {
+  const html = fs.readFileSync(HTML_FILE, 'utf8')
+  // ① 挂载点存在且携带声明式可达性三件套（role/aria-live/hidden）
+  const rewardOpen = html.indexOf('id="reward-toast"')
+  assert.ok(rewardOpen !== -1, 'index.html 缺 id="reward-toast" 挂载点')
+  for (const attr of ['role="status"', 'aria-live="polite"']) {
+    assert.ok(html.includes(attr), 'index.html 缺 ' + attr + '（AC-8 可达性）')
+  }
+  // hidden 落在 reward 节点自身的开标签上（与 feedback-toast 同款初始隐藏，r21 未改旧节点）
+  const rewardNode = html.slice(rewardOpen, html.indexOf('>', rewardOpen))
+  assert.match(rewardNode, /\shidden\b/, '#reward-toast 开标签缺 hidden 初始隐藏（AC-8）')
+  // ② 序断言：位于 #feedback-toast 之后（DOM 契约收敛到既有挂载点族，双槽并存）
+  const feedbackOpen = html.indexOf('id="feedback-toast"')
+  assert.ok(feedbackOpen !== -1, 'index.html 缺 id="feedback-toast"（既有挂载点被误删？）')
+  assert.ok(rewardOpen > feedbackOpen,
+    '#reward-toast 须位于 #feedback-toast 之后（idx=' + rewardOpen + ' > ' + feedbackOpen + '，AC-6 双槽序）')
+})

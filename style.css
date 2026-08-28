@@ -820,6 +820,37 @@ kbd {
   }
 }
 
+/* ── 特殊奖励 toast（Combo / T-Spin，r21：DESIGN §3.5 同族胶囊，零新 token）──
+   与 LEVEL UP 仅三处受控差异：top:28px 纵向 stack、1600ms 动画、normal 换行防越界 */
+#reward-toast {
+  position: absolute;
+  top: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  padding: var(--sp-2) var(--sp-5);
+  border-radius: 999px;
+  background: var(--accent);
+  color: rgba(16, 15, 22, 0.92); /* 琥珀金底深色文字（对比 ≈ 12:1，同 LEVEL UP） */
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  max-width: min(92%, 320px); /* AC-9：随板框缩放、不越界 */
+  white-space: normal;        /* 长文案换行入胶囊，替代 nowrap 横向溢出 */
+  text-align: center;
+  box-shadow: var(--glow-accent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+#reward-toast[hidden] {
+  display: none;
+}
+
+#reward-toast.is-showing {
+  animation: toast-in-out 1600ms ease-out; /* 复用既有 keyframes，不新建；时长 1200~2000 值域 */
+}
+
 /* LEVEL UP 板框辉光脉冲（ui.js 增删 .is-pulsing；伪元素 opacity，DESIGN §4.3） */
 #board-frame.is-pulsing::after {
   content: '';
@@ -1207,6 +1238,11 @@ html.has-touch .touchpad {
     opacity: 1;
   }
 
+  /* 奖励 toast 静态镜像（r21 AC-8：只动文字，停留 1600ms 由 ui.js rewardTimer 控制） */
+  #reward-toast.is-showing {
+    opacity: 1;
+  }
+
   /* 板框辉光脉冲关闭 */
   #board-frame.is-pulsing::after {
     display: none;
@@ -1418,6 +1454,11 @@ html.has-touch .touchpad {
         padding-left: var(--sp-2);
       }
     }
+
+    /* r21 四档字号降级：S 竖 → fs-xs（长文案撑近全宽仍不越界，E10） */
+    #reward-toast {
+      font-size: var(--fs-xs);
+    }
   }
 }
 
@@ -1449,6 +1490,11 @@ html.has-touch .touchpad {
     max-height: calc(100vh - 150px);
   }
   html.has-touch .btn { min-height: 44px; }
+
+  /* r21 四档字号降级：S 横 → fs-sm（M/L 用基座 fs-md 不动） */
+  #reward-toast {
+    font-size: var(--fs-sm);
+  }
 }
 
 /* 7.3 M 平板两列（600–767px；AC-6 棋盘主区 + 信息列 0 重叠） */

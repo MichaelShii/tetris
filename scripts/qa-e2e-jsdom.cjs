@@ -1849,6 +1849,190 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('自动装配实例 dispose 后无异常', true)
   }
 
+  /* ---------- r21 特殊奖励 Toast 段（AC-2~8；独立 createUI animMs:240，TECHNICAL §7.3） ----------
+     边界声明：animMs=0（主 E2E 环境 / reduced-motion 用户）无 clearing 载荷 → 奖励 Toast 不弹
+     （AC-10 引擎 0 行 + AC-7 数值同源 + AC-11 旧断言零改动三约束下的唯一解，验收人工项明示）；
+     本段以与产品一致的 animMs:240 独立实例断言奖励 DOM 行为（r13 先例）。
+     驱动 = 直接方法调用 + tick(120)×2 完结动画 + tick(250)×2 缓冲锁定（LOCK_DELAY_MS=500）。 */
+  console.log('\n-- r21 特殊奖励 Toast（animMs:240 独立 env，TECHNICAL §7.3 / AC-2~8）--')
+  {
+    const TG = window.TetrisGame
+    const handle3 = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 240,
+    })
+    const game3 = handle3.game
+    const snap3 = function () { return game3.getSnapshot() }
+    const rewardEl = function () { return $('#reward-toast') }
+    const fullRowQ = function (type, exceptCol) {
+      const row = []
+      for (let c = 0; c < TG.COLS; c++) row.push(c === exceptCol ? null : type)
+      return row
+    }
+    // 单消 1 行布景（row19 缺 col5 + 竖 I rot1 x3 y16，软降触底即锁）＝verify-game comboStageRow19 同构
+    const comboClear = function () {
+      const b = TG.createBoard()
+      b[19] = fullRowQ('I', 5)
+      game3._debug.setBoard(b)
+      game3._debug.setNext('T')
+      game3._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+      return game3.softDrop()
+    }
+    // 多行布景（rows 20-n..19 全 S 缺 missCol + 竖 I 补缺）＝verify-game comboStageLines 同构
+    const stageLines = function (n, missCol) {
+      const miss = typeof missCol === 'number' ? missCol : 5
+      const b = TG.createBoard()
+      for (let r = 20 - n; r <= 19; r++) for (let c = 0; c < TG.COLS; c++) if (c !== miss) b[r][c] = 'S'
+      game3._debug.setBoard(b)
+      game3._debug.setNext('T')
+      game3._debug.setPiece({ type: 'I', rot: 1, x: miss - 2, y: 16 })
+      return game3.hardDrop()
+    }
+    // 完结消行动画（120+120 = 240 ≥ animMs:240）
+    const comboComplete = function () { game3.tick(120); game3.tick(120) }
+    // 单次 tick dt 上限 250ms：LOCK_DELAY_MS=500 需两次达上限 tick 触发缓冲锁定（同 verify-game lockTick）
+    const lockTick = function () { game3.tick(250); game3.tick(250) }
+    // T4 槽（四实角）内联构造＝verify-game buildTSlot 语义（TECHNICAL §5.1/DESIGN §3 事实；不引跨脚本共享别具）
+    const T4Q = { tl: true, tr: true, bl: true, br: true }
+    const buildTSlotQ = function (clearRows) {
+      const lx = 3
+      const ly = 15
+      const b = TG.createBoard()
+      const cells = TG.pieceCells({ type: 'T', rot: 0, x: lx, y: ly })
+      const tAt = function (r, c) { return cells.some(function (p) { return p.y === r && p.x === c }) }
+      const set = function (r, c) { b[r][c] = 'Z' }
+      set(ly, lx); set(ly, lx + 2); set(ly + 2, lx); set(ly + 2, lx + 2) // 四实角
+      set(ly + 2, lx + 1) // 底部中心兜底支撑（保 grounded，rot0；验证几何与 verify-game buildTSlot 一致）
+      for (const rr of clearRows || []) {
+        const r = ly + rr
+        for (let c = 0; c < TG.COLS; c++) {
+          if (tAt(r, c)) continue
+          set(r, c)
+        }
+      }
+      return b
+    }
+    const tspinLock = function (clearRows) {
+      game3._debug.setBoard(buildTSlotQ(clearRows))
+      game3._debug.setNext('T')
+      game3._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+      const rr = game3.rotate()
+      if (!(rr.ok === true)) throw new Error('r21 tspinLock rotate 应成功: ' + JSON.stringify(rr))
+      lockTick()
+    }
+
+    game3.start()
+
+    // S1：单消 1 行 combo0 → 静默（AC-5）
+    let cr = comboClear()
+    check('r21 S1: 单消 1 行锁定成功（cleared=1）', cr && cr.ok === true && cr.cleared === 1, JSON.stringify(cr))
+    comboComplete()
+    let s3 = snap3()
+    check('r21 S1: 结算帧塌缩（clearedIndices=null、lines=1）', s3.clearedIndices === null && s3.lines === 1, 'lines=' + s3.lines)
+    check('r21 S1: combo0 无奖励 → #reward-toast 保持 hidden（AC-5）', rewardEl().hidden === true)
+
+    // S2：续单消 ×2 → combo1 显示、combo2 替换（AC-2/6）
+    comboClear()
+    comboComplete()
+    check('r21 S2: combo1 结算帧 → #reward-toast 显示且文案 Combo ×1 +50（AC-2）',
+      rewardEl().hidden === false && rewardEl().textContent === 'Combo ×1 +50' && rewardEl().classList.contains('is-showing'),
+      '"' + rewardEl().textContent + '"')
+    comboClear()
+    comboComplete()
+    check('r21 S2: combo2 替换 → 文案 Combo ×2 +100、仅剩新文本（AC-2/6）',
+      rewardEl().hidden === false && rewardEl().textContent === 'Combo ×2 +100',
+      '"' + rewardEl().textContent + '"')
+
+    // S3：显示期 restart → 0 残留（AC-6）
+    game3.restart()
+    check('r21 S3: 显示期 restart → #reward-toast hidden（AC-6 0 残留）', rewardEl().hidden === true)
+
+    // S4：重建链（静默 / +50 / +100）→ 1600ms 自动淡出（AC-6）
+    comboClear(); comboComplete()
+    comboClear(); comboComplete()
+    check('r21 S4: 重建链 combo1 → Combo ×1 +50', rewardEl().hidden === false && rewardEl().textContent === 'Combo ×1 +50', '"' + rewardEl().textContent + '"')
+    comboClear(); comboComplete()
+    check('r21 S4: 重建链 combo2 → Combo ×2 +100', rewardEl().textContent === 'Combo ×2 +100', '"' + rewardEl().textContent + '"')
+    await sleep(1700)
+    check('r21 S4: 1600ms 后自动淡出（hidden + 去 is-showing）（AC-6）',
+      rewardEl().hidden === true && !rewardEl().classList.contains('is-showing'))
+
+    // S5：T-spin Full Single 分档 + T-spin · Combo 合并序（AC-3/4）
+    // r21 D-1 修复实证：restart/开局计分=0 时首个计分事件即 T-Spin 消行（clearing 帧 score=0&&lines=0，
+    // 引擎结算帧才落分）→ 分支③ restart 代理不得误清 pendingReward → 结算帧必须照常弹。
+    // （旧版以 No-line T-spin 预热至 score>0 绕开该窗口，已移除——直接断言新行为。）
+    game3.restart()
+    tspinLock([1])
+    s3 = snap3()
+    check('r21 S5: restart 后首个 T-Spin 消行进入 clearing（tspin=full、cleared=1、combo=0、score=0）（AC-3/D-1）',
+      s3.clearedIndices !== null && s3.clearedIndices.length === 1 && s3.tspin === 'full' && s3.combo === 0 && s3.score === 0,
+      JSON.stringify({ ci: s3.clearedIndices, tspin: s3.tspin, combo: s3.combo, score: s3.score }))
+    comboComplete()
+    check('r21 S5: 首消即 T-Spin Single +800 正常弹出（AC-3 分档 / D-1 修复实证）',
+      rewardEl().hidden === false && rewardEl().textContent === 'T-Spin Single +800', '"' + rewardEl().textContent + '"')
+    game3.restart()
+    comboClear(); comboComplete() // 前置 1 次普通清行（combo0 静默，链→1）
+    tspinLock([1])
+    comboComplete()
+    const s5b = rewardEl().textContent
+    check('r21 S5: 前置普通清行后同种子 → T-Spin Single +800 · Combo ×1 +50（AC-3/4 合并序）',
+      rewardEl().hidden === false && s5b === 'T-Spin Single +800 · Combo ×1 +50', '"' + s5b + '"')
+    check('r21 S5: 双轴合并用 · 分隔恰 2 段、双关键词俱在（AC-4）',
+      s5b.split(' · ').length === 2 && s5b.indexOf('T-Spin Single') !== -1 && s5b.indexOf('Combo ×1 +50') !== -1,
+      s5b.split(' · ').length + ' parts')
+
+    // S6：No-line（同槽 clearRows:[]）→ 即时锁、无清行载荷 → 保持 hidden（AC-3 No-line）
+    game3.restart()
+    check('r21 S6 前置: restart 后 #reward-toast hidden', rewardEl().hidden === true)
+    tspinLock([])
+    s3 = snap3()
+    check('r21 S6: No-line 即时锁（clearedIndices=null、新块已出生）', s3.clearedIndices === null && s3.piece !== null, JSON.stringify(s3.clearedIndices))
+    check('r21 S6: No-line 不弹 → #reward-toast 保持 hidden（AC-3）', rewardEl().hidden === true)
+
+    // S7：同帧升级+奖励（4×2 + 3，combo 0/1/2，末锁升级 L1→L2）（AC-6/7/R2）
+    game3.restart()
+    let r7 = stageLines(4)
+    check('r21 S7: 首锁 4 行（combo0 静默）', r7 && r7.cleared === 4, JSON.stringify(r7))
+    comboComplete()
+    r7 = stageLines(4)
+    check('r21 S7: 二锁 4 行（combo1）', r7 && r7.cleared === 4, JSON.stringify(r7))
+    comboComplete()
+    r7 = stageLines(3)
+    check('r21 S7: 三锁 3 行（combo2、cleared=3）', r7 && r7.cleared === 3, JSON.stringify(r7))
+    s3 = snap3()
+    check('r21 S7: 末锁 clearing 载荷 combo=2、comboBonus=100（50×2×升级前 L1，AC-7/R2 数值证据）',
+      s3.combo === 2 && s3.comboBonus === 100, JSON.stringify({ combo: s3.combo, bonus: s3.comboBonus }))
+    comboComplete()
+    s3 = snap3()
+    check('r21 S7: 结算帧 lines=11、level=2（升级完成）', s3.lines === 11 && s3.level === 2, 'lines=' + s3.lines + ' level=' + s3.level)
+    check('r21 S7: 同帧 #feedback-toast 与 #reward-toast 同时可见（AC-6 双槽并存）',
+      rewardEl().hidden === false && $('#feedback-toast').hidden === false,
+      'reward.hidden=' + rewardEl().hidden + ' lv.hidden=' + $('#feedback-toast').hidden)
+    check('r21 S7: 奖励文案 Combo ×2 +100（乘数取升级前 L1 佐证，AC-6/7/R2）',
+      rewardEl().textContent === 'Combo ×2 +100', '"' + rewardEl().textContent + '"')
+
+    // S8：S7 显示期内出生碰撞 → OVER 帧 0 残留（AC-6 终局）
+    const tower = Array.from({ length: 20 }, function () { return new Array(10).fill(null) })
+    for (let r = 0; r < 4; r++) for (let c = 3; c <= 6; c++) tower[r][c] = 'T'
+    game3._debug.setBoard(tower)
+    game3.softDrop() // 当前块重叠 → 立即锁定（无消行）→ spawn 撞塔 → OVER
+    s3 = snap3()
+    check('r21 S8: 出生碰撞 → OVER（AC-6 终局）', s3.phase === 'OVER', s3.phase)
+    check('r21 S8: OVER 帧后 #reward-toast hidden（0 残留）', rewardEl().hidden === true)
+
+    // S9：DOM 契约（AC-8）
+    check('r21 S9: #reward-toast 挂载点存在（AC-8）', rewardEl() !== null)
+    check('r21 S9: aria-live=polite + role=status（AC-8）',
+      rewardEl().getAttribute('aria-live') === 'polite' && rewardEl().getAttribute('role') === 'status',
+      'aria-live=' + rewardEl().getAttribute('aria-live') + ' role=' + rewardEl().getAttribute('role'))
+
+    // S10：段内 dispose（双槽清理）无异常（AC-11 收尾）
+    handle3.dispose()
+    check('r21 S10: 独立 env dispose 无异常（含双槽清理，AC-11）', true)
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))
