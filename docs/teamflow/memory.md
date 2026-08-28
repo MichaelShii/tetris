@@ -41,6 +41,7 @@
 | r19 | 2026-08-28 | 移动端棋盘优先一屏适配：S 竖屏 <600px 且 portrait 整体重写（body 钉高 100dvh + #main 网格三行：统计行/控制行/Hold｜棋盘｜Next 侧栏 1fr 吃满 + dock 单行随流 + 键位图例隐藏[用户已确认变更]），取代 r17 竖屏卡片流；S 横屏变体/M/L 零回归（横屏卡片化原样收口 §7.1 内层 landscape 嵌套）；仅动 style.css + 两验证脚本，index.html/ui.js/game/audio/persist 0 diff | ✅ 已验收（manual-r19：七套全绿 108/24/23/15/2/ALL/366；竖屏四档真值零溢出+棋盘精确 1:2+dock 视口内；横屏 568×320 stash 对照逐字段一致；P3 D1~D4 见待办；真机 100dvh 动态工具栏/safe-area 随人工补测） |
 | r20 | 2026-08-28 | 滚动条深色化（v3.0 既有视觉缺陷热修）：`html{color-scheme:dark}` 根因修复（UA 滚动条按深色渲染，弹层+根滚动条一并覆盖）+ 弹层滚动条细化（scrollbar-width thin / scrollbar-color，::-webkit 旧内核兜底，拇指 --muted@55%）；仅 style.css +15 行 | ✅ 已验收（manual-r20：需求提出人真实截图确认深色协调；六套全绿，verify-constants 1 失败系并行 docs 归档重命名待收口，与本修复无关；详见 r20 任务夹） |
 | r21 | 2026-08-28 | 触控键门控收窄 + 右轨遮键修复：has-touch 判定改 `matchMedia('(pointer: coarse)')` 主指针粗指针（触屏笔记本/触屏显示器 PC 不再显示触控键，用户裁定取代 r16 全能力检测）；横屏侧轨键 `z-index:1` 修复 `::after` 玻璃轨遮键（r16 既有缺陷，右轨三键曾被盖成空胶囊）；ui.js isTouchDevice + style.css 一行 | ✅ 已验收（manual-r21：PC/手机/桌面三场景实测 + 844×390 右轨实拍；六套全绿，verify-constants 失败同 r20 系 docs 归档重命名待收口；详见 r21 任务夹） |
+| r22 | 2026-08-28 | READY 态预览留白：队列仅对局中渲染（READY 传 null 三槽留白，start 后首帧渲染；PAUSED/OVER 维持显示），用户裁定取代 r15 AC-1「READY 亦渲染初始 3 格」——消除未开局先展示随机序列的观感；引擎队列构造/restart 重建语义不变，预览仍为真实开局序列；ui.js 门控一行 + e2e 断言改写（用例 +1） | ✅ 已验收（manual-r22：READY fill=0 / RUNNING fill=12 e2e 断言 + 截图对拍；七套全绿 108/24/23/15/2/ALL/367；详见 r22 任务夹） |
 
 ## 已知待办
 
