@@ -10,8 +10,8 @@
  *   - v2.0 例外：静音是"设置"而非"游戏态"，M 键与首次交互解锁（AudioContext）由
  *     本文件独立监听（任意游戏态生效，AC-10.2/AC-09.6），与 game.js 键盘无冲突。
  *   - 本文件拥有：唯一游戏 Canvas 逐帧渲染、迷你预览、HUD 数值/状态灯/按钮矩阵、
- *     三态遮罩（焦点管理）、LEVEL UP toast、音量/静音控件、窗口 resize 适配、
- *     触屏操控通道（r16：合成键盘事件回放器，见下）。
+ *     三态遮罩（焦点管理）、LEVEL UP toast + 特殊奖励 toast（r21 Combo/T-Spin 双槽）、
+ *     音量/静音控件、窗口 resize 适配、触屏操控通道（r16：合成键盘事件回放器，见下）。
  *
  * 对外契约（浏览器）：window.TetrisUI；Node/CommonJS 下同时 module.exports。
  *   TetrisUI.createUI(options?) → { game, dispose }   （一键装配，含游戏实例）
@@ -48,7 +48,8 @@
  *   │   ├─ #board-col > #board-frame（position:relative；tabindex="-1" 供焦点归还）
  *   │   │       ├─ #board（10×20 主 Canvas）
  *   │   │       ├─ #overlay[hidden] > #overlay-card > #overlay-title / #overlay-sub / #overlay-btn
- *   │   │       └─ #feedback-toast[hidden]（LEVEL UP 胶囊）
+ *   │   │       ├─ #feedback-toast[hidden]（LEVEL UP 胶囊）
+ *   │   │       └─ #reward-toast[hidden]（r21 特殊奖励胶囊：Combo/T-Spin 合并文案；挂载点族既有惯例）
  *   │   └─ #panel-right.panel > #key-hints + #controls(#btn-start / #btn-pause / #btn-restart)
  *   └─ #touch-controls.touchpad（可选，r16）> 6 × .tkey[data-action]   （触屏操控区，html.has-touch 下才渲染，AC-1）
  *   遮罩/反馈必须作为 #board-frame 子节点（覆盖游戏板区域，非全页，DESIGN §3.2）。
@@ -122,6 +123,19 @@
     const ANIM_PEAK = 1.25   // 峰值乘性亮度（AC-1 下限 1.2）
     const ANIM_PEAK_T = 0.40 // 峰值到达点（占 T 比例）；渐亮段 ease-out-quart
 
+    // r21（AC-1/AC-6）：特殊奖励 Toast（Combo/T-Spin）时长与文案常量（PRD §4 / TECHNICAL §3.1）
+    // TOAST_DURATION 独立于 LEVEL UP 的 TOAST_MS=800；值域 1200~2000 由 verify-ui 断言锁定。
+    const TOAST_DURATION = 1600   // 奖励 Toast 时长 ms（AC-1/AC-6）
+    const REWARD_JOIN = ' · '     // 多轴合并分隔符（AC-4：T-Spin 在前 · Combo 在后）
+    const T_SPIN_TIER_LABEL = {   // 展示档位名映射（零新引擎常量；键 = kind:cleared，DESIGN 文案）
+      'full:1': 'Single',
+      'full:2': 'Double',
+      'full:3': 'Triple',
+      'mini:1': 'Mini',
+      'mini:2': 'Mini Double',
+      'mini:3': 'Triple',
+    }
+
     /**
      * 消行动画亮度曲线（纯函数，AC-1/AC-9 数值断言锚点）：
      * p = animProgress ∈ [0,1] → B ∈ [0, ANIM_PEAK]。
@@ -144,6 +158,40 @@
      *  typeof 守卫：jsdom/Node 无 matchMedia 时安全返回 false。 */
     function prefersReducedMotion() {
       return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+    }
+
+    /**
+     * r21（AC-4/AC-5/AC-7）：奖励合并文案纯函数（新 UI API，Node 可单测）。
+     * payload = clearing 期快照载荷直取：{ tspin, combo, comboBonus, cleared, level }。
+     * 返回合并文案 string；全 0 / 无有效轴 → null（AC-5 不弹）。轴序：T-Spin 在前、Combo 在后，
+     * 以 REWARD_JOIN 分隔（AC-4）。数值同源：
+     *   - Combo 轴 = comboBonus **直读载荷**（引擎 finishLock 已累加同一值，sec AC-7）；
+     *   - T-Spin 轴 = TetrisGame.tspinBonus(kind, cleared, level) 同函数同参数派生（与引擎恒等，
+     *     乘数取动画期快照 level = 升级前 level）。
+     * 防御：comboBonus 非正数 / tspin 非 mini|full / cleared<1 / level<1 → 跳过对应轴；
+     * TetrisGame 缺失（Node 直 require 场景）→ T-Spin 轴跳过（typeof 守卫，与 NEXT_SLOTS 同风格）。
+     */
+    function buildRewardText(p) {
+      const parts = []
+      // 轴序：T-Spin 在前、Combo 在后（AC-4/DESIGN；合并序见文案模板『T-Spin Double +1200 · Combo ×2 +100』）
+      if (
+        p &&
+        (p.tspin === 'full' || p.tspin === 'mini') &&
+        typeof p.cleared === 'number' &&
+        p.cleared >= 1 &&
+        typeof TetrisGame !== 'undefined' &&
+        TetrisGame.tspinBonus
+      ) {
+        const b = TetrisGame.tspinBonus(p.tspin, p.cleared, p.level) // 与引擎同函数同参数 → 恒等（AC-7）
+        if (b > 0) {
+          const label = T_SPIN_TIER_LABEL[p.tspin + ':' + p.cleared] // 映射缺失 → 最小形态『T-Spin +bonus』（PRD 允许）
+          parts.push('T-Spin' + (label ? ' ' + label : '') + ' +' + b) // 'T-Spin Single +800'
+        }
+      }
+      if (p && typeof p.comboBonus === 'number' && p.comboBonus > 0 && p.combo >= 1) {
+        parts.push('Combo ×' + p.combo + ' +' + p.comboBonus) // 'Combo ×2 +100'
+      }
+      return parts.length > 0 ? parts.join(REWARD_JOIN) : null
     }
 
     // 游戏态 → UI 文本/状态（game.js 命名：READY/RUNNING/PAUSED/OVER）
@@ -844,12 +892,19 @@
     }
 
     /**
-     * createFeedback(els) → { levelUp(), dispose() }
-     * LEVEL UP toast 800ms（AC-06.4）+ 板框辉光脉冲一次（伪元素 opacity 动画）。
-     * els: { toast, boardFrame? }
+     * createFeedback(els) → { levelUp(), reward(text), clearReward(), dispose() }（r21 扩）
+     * LEVEL UP toast 800ms（AC-06.4，行为零改动）+ 板框辉光脉冲一次（伪元素 opacity 动画）。
+     * els: { toast, boardFrame?, rewardToast? }
+     *   rewardToast（r21 可选键）：特殊奖励 Toast 槽（#reward-toast）；缺省时 reward() no-op、
+     *   clearReward()/dispose() 仅处理既有槽——请求兼容（缺槽不抛、返回键兼容，AC-11）。
+     * reward(text)：与 levelUp() 同构的单定时器替换模式（独立 rewardTimer，与 LEVEL UP 互不干扰）：
+     *   clearTimeout → textContent → hidden=false → 去 .is-showing → 强制 reflow 重启 → 加 .is-showing
+     *   → rewardTimer = setTimeout(…去类 + hidden=true, TOAST_DURATION)。只动类/文本/定时器，
+     *   无板框脉冲、无音效（AC-12）；显示期内新结算直接替换、不堆积。
      */
     function createFeedback(els) {
       let timer = null
+      let rewardTimer = null
 
       function levelUp() {
         if (timer !== null) clearTimeout(timer)
@@ -872,15 +927,44 @@
         }, TOAST_MS)
       }
 
+      /** r21：特殊奖励 Toast（独立定时器；缺槽 no-op，向后兼容） */
+      function reward(text) {
+        if (!els.rewardToast) return // 请求兼容：缺槽静默（R3 零污染）
+        if (rewardTimer !== null) clearTimeout(rewardTimer)
+        els.rewardToast.textContent = text
+        els.rewardToast.hidden = false
+        els.rewardToast.classList.remove('is-showing')
+        void els.rewardToast.offsetWidth // 强制 reflow 重启动画（替换不堆积）
+        els.rewardToast.classList.add('is-showing')
+        rewardTimer = setTimeout(function () {
+          els.rewardToast.classList.remove('is-showing')
+          els.rewardToast.hidden = true
+          rewardTimer = null
+        }, TOAST_DURATION)
+      }
+
+      /** r21：即时清空奖励槽（0 残留；OVER/restart 路径，含缺槽守卫） */
+      function clearReward() {
+        if (rewardTimer !== null) {
+          clearTimeout(rewardTimer)
+          rewardTimer = null
+        }
+        if (els.rewardToast) {
+          els.rewardToast.classList.remove('is-showing')
+          els.rewardToast.hidden = true
+        }
+      }
+
       function dispose() {
         if (timer !== null) clearTimeout(timer)
         timer = null
         els.toast.classList.remove('is-showing')
         els.toast.hidden = true
         if (els.boardFrame) els.boardFrame.classList.remove('is-pulsing')
+        clearReward() // r21：双槽一并清理（OVER/restart 走既有 dispose 路径扩清）
       }
 
-      return { levelUp: levelUp, dispose: dispose }
+      return { levelUp: levelUp, reward: reward, clearReward: clearReward, dispose: dispose }
     }
 
     /**
@@ -1147,6 +1231,7 @@
       const boardFrame = must('#board-frame')
       const overlayEl = must('#overlay')
       const toastEl = must('#feedback-toast')
+      const rewardToastEl = must('#reward-toast') // r21：特殊奖励 Toast 挂载点（index.html 同批交付，缺失即抛错）
 
       const hudEls = {
         score: must('#stat-score .stat__value'),
@@ -1174,7 +1259,7 @@
       const nextWell = createNextQueueRenderer(nextCanvas) // r15：单格预览 → 3 格队列窗（48×80）
       const hud = createHud(hudEls)
       const overlay = createOverlay(overlayEls)
-      const feedback = createFeedback({ toast: toastEl, boardFrame: boardFrame })
+      const feedback = createFeedback({ toast: toastEl, rewardToast: rewardToastEl, boardFrame: boardFrame }) // r21：双槽（LEVEL UP + 特殊奖励）
 
       /* ---- 触屏操控区装配（r16，AC-1 显隐；TECHNICAL §2.2） ----
          #touch-controls 可选：缺失不抛错、不建控制器，既有宿主零影响；
@@ -1189,6 +1274,10 @@
 
       let disposed = false
       let prevSnapshot = null
+      // r21：clearing 动画期奖励载荷暂存（单一定义，结构见 TECHNICAL §2.2）：
+      // { tspin, combo, comboBonus, cleared, level }；动画帧幂等覆写 → 结算帧消费置 null →
+      // OVER/restart 置 null（0 残留）
+      let pendingReward = null
 
       /* ---- 音效引擎与音量控件（v2.0，AC-09/AC-10） ----
          SfxEngine 生命周期 = createUI（不随 restart() 重建）→ 音量/静音跨
@@ -1642,6 +1731,37 @@
         animMs: animMs, // r13（AC-7）：构造期只读注入（解析见 createUI 顶部）
         onSnapshot: function (s) {
           renderAll(s)
+          // r21（AC-4/5/6/7，奖励 Toast 驱动；只读消费 clearing 载荷，纯展示零新触发源）：
+          // ① 动画期：暂存载荷（clearing 帧恒携带同一载荷，幂等覆写；animMs=0 无动画帧 → 恒不弹）
+          if (s.clearedIndices !== null) {
+            pendingReward = {
+              tspin: s.tspin,
+              combo: s.combo,
+              comboBonus: s.comboBonus,
+              cleared: s.clearedIndices.length,
+              level: s.level,
+            }
+          } else if (pendingReward !== null) {
+            // ② 结算帧（上次在动画、本次塌缩——pendingReward 非空即等价证明，无需 prevSnapshot）：
+            //    与 LEVEL UP（onLevelUp 结算点）同位触发（AC-6 时机一致）
+            if (s.phase === 'OVER') {
+              // OVER 清空优先（终局反馈由遮罩承担，防闪现）
+              pendingReward = null
+              feedback.clearReward()
+            } else {
+              const text = buildRewardText(pendingReward) // AC-5：全 0/No-line → null → 不弹
+              pendingReward = null
+              if (text !== null) feedback.reward(text)
+            }
+          }
+          // ③ OVER / restart 清空（AC-6 0 残留：restart 帧必为 score=0&&lines=0&&clearedIndices=null&&RUNNING，
+          //    无副作用覆盖首启；未显示时 clearReward 即幂等 no-op）
+          //    r21 D-1 守卫：首个计分消行的 clearing 帧 score=0&&lines=0 属正常计分前帧（引擎结算帧才落分，
+          //    发射序见 game.js：clearing 快照 emit 先于 finishLock），不得被 restart 代理误清 pendingReward（AC-3 无豁免）
+          if (s.phase === 'OVER' || (s.phase === 'RUNNING' && s.score === 0 && s.lines === 0 && s.clearedIndices === null)) {
+            pendingReward = null
+            feedback.clearReward()
+          }
           // v2.6：最高分只增不减——仅当单游当前分 > 已持久化最高分时写回（AC-16 / 变更单 §3）
           if (persist && typeof persist.saveHighScore === 'function' && s.score > persistedHighScore) {
             persistedHighScore = s.score
@@ -1831,6 +1951,9 @@
       ANIM_PEAK: ANIM_PEAK,
       ANIM_PEAK_T: ANIM_PEAK_T,
       pulseBrightness: pulseBrightness,
+      // r21：奖励 Toast 时长常量与合并文案纯函数（新 UI API，Node 可单测；AC-1/AC-7）
+      TOAST_DURATION: TOAST_DURATION,
+      buildRewardText: buildRewardText,
       createUI: createUI,
       // 渲染/UI 组件（签名对齐 TECHNICAL §3.4 / §3.5，便于宿主独立使用与测试）
       createBoardRenderer: createBoardRenderer,
