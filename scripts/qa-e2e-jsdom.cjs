@@ -230,9 +230,9 @@ async function main() {
       const q = snap().queue
       return Array.isArray(q) && q.length === 3 && q[0] === snap().next
     })(), JSON.stringify(snap().queue))
-    check('r15 READY 即渲染 3 格（#next-well fill ≥ 12 = 3 槽 × 4 格）', (function () {
+    check('r22 READY 预览留白（未开始不渲染队列，#next-well fill = 0）', (function () {
       const ctx = $('#next-well')._qaCtx
-      return !!ctx && ctx._calls.filter(function (c) { return c === 'fill' }).length >= 12
+      return !!ctx && ctx._calls.filter(function (c) { return c === 'fill' }).length === 0
     })(), 'fills=' + ($('#next-well')._qaCtx ? $('#next-well')._qaCtx._calls.filter(function (c) { return c === 'fill' }).length : 0))
 
     const t0 = Date.now()
@@ -244,6 +244,10 @@ async function main() {
     check('开始后暂停/重开按钮可用、开始禁用', $('#btn-pause').disabled === false && $('#btn-restart').disabled === false && $('#btn-start').disabled === true)
     check('状态灯 PLAYING', $('#status-text').textContent === 'PLAYING' && $('#status-dot').dataset.status === 'playing')
     check('RUNNING 遮罩隐藏', $('#overlay').hidden === true || $('#overlay').classList.contains('is-open') === false)
+    check('r22 开始后即渲染 3 格队列（#next-well fill ≥ 12 = 3 槽 × 4 格）', (function () {
+      const ctx = $('#next-well')._qaCtx
+      return !!ctx && ctx._calls.filter(function (c) { return c === 'fill' }).length >= 12
+    })(), 'fills=' + ($('#next-well')._qaCtx ? $('#next-well')._qaCtx._calls.filter(function (c) { return c === 'fill' }).length : 0))
     await sleep(180)
     check('遮罩 160ms 淡出后 hidden', $('#overlay').hidden === true)
     check('预览区渲染非空（canvas 有绘制）', ctxLog.images > 0, 'drawImage=' + ctxLog.images)

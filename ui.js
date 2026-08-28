@@ -632,7 +632,7 @@
      *  WELL_COLS×12 × QUEUE_CSS_H（默认 48×80，3 槽 y 偏移 0/28/56）；
      *  canvas 透明——板底/描边/辉光由 .next-well 容器承担（DESIGN 裁决 A 案）。
      *  render(queue|null)：queue 可含 null 空槽（不绘制，容器板底留白，AC-4）；
-     *  READY 态亦渲染初始 3 格（AC-1，取代基线单格空预览）。 */
+     *  r22 起由调用方门控：READY 传 null 留白，start 后才渲染队列（取代 r15 AC-1）。 */
     function createNextQueueRenderer(canvas) {
       if (!canvas || typeof canvas.getContext !== 'function') {
         throw new Error('TetrisUI.createNextQueueRenderer: 需要 <canvas> 元素')
@@ -1610,13 +1610,15 @@
           if (fl) fx = { flashLines: fl }
         }
         boardRenderer.render(s, fx, ghostEnabled)
-        // r15 多格预览队列（AC-1/3/5/11）：恒长 3 的 snapshot.queue 直接渲染（READY 亦显示初始 3 格）；
-        // 关闭时隐藏整区（含标签，AC-7）+ 渲染 null（AC-9：引擎照常维护队列）
+        // r15 多格预览队列（AC-3/5/11）+ r22 语义修订：队列仅对局中渲染——READY 态
+        // 传 null（三槽留白，r15 AC-4 空槽语义），消除「未开局先展示随机序列」观感
+        // （用户裁定，取代 r15 AC-1「READY 亦渲染初始 3 格」；引擎队列照常构造，
+        // start 后首帧即渲染，所见即所打）；预览开关关闭时隐藏整区（含标签，AC-7）+ 渲染 null（AC-9）
         const nextWellContainer = nextCanvas ? nextCanvas.parentElement : null
         if (nextWellContainer) {
           nextWellContainer.style.display = previewQueueEnabled ? '' : 'none'
         }
-        nextWell.render(previewQueueEnabled ? s.queue : null)
+        nextWell.render(previewQueueEnabled && s.phase !== 'READY' ? s.queue : null)
         // r14 Hold 暂存预览（AC-13）：holdEnabled 关闭时隐藏容器、渲染 null
         const holdWellContainer = holdCanvas ? holdCanvas.parentElement : null
         if (holdWellContainer) {
