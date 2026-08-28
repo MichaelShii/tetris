@@ -1,0 +1,7 @@
+{
+  "reqId": "req-20",
+  "runId": "manual-r20-dark-scrollbar",
+  "title": "PC版这个滚动条看着太不对称了，底色都是深色，这是个白色滚动条（设置弹层 UA 亮色滚动条与深色主题不符）",
+  "mode": "manual",
+  "createdAt": 1787913000000
+}

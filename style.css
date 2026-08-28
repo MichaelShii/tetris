@@ -134,6 +134,10 @@
 
 html {
   height: 100%;
+  /* r20：深色文档声明——UA 滚动条/表单控件按深色配色渲染（设置弹层白滚动条根因修复：
+     滚动容器是 .settings-modal__card（v3.0 起 overflow-y:auto），此前按亮色文档出白轨；
+     根滚动条（矮视口整页滚动）一并覆盖。不支持的旧内核整行忽略，行为同旧版 */
+  color-scheme: dark;
 }
 
 body {
@@ -890,12 +894,34 @@ kbd {
   max-width: 400px;
   max-height: 80vh;
   overflow-y: auto;
+  /* r20：滚动条细化（标准属性 scrollbar-*：Firefox 全版本 + Chromium 121+ 主路径），
+     拇指 = --muted(#9a9aac)@55%（--line 过暗无滚动可供性），轨道透明；无新增色板 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(154, 154, 172, 0.55) transparent;
   background: var(--glass-bg);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   backdrop-filter: blur(20px) saturate(140%);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   padding: var(--sp-6);
+}
+
+/* r20：旧 Chromium 兜底（<121 不识 scrollbar-* 时走 ::-webkit-*；两者并存新内核以标准属性优先） */
+.settings-modal__card::-webkit-scrollbar {
+  width: 8px;
+}
+
+.settings-modal__card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-modal__card::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(154, 154, 172, 0.55); /* = --muted @55% */
+}
+
+.settings-modal__card::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 
 .settings-modal.is-open .settings-modal__card {
@@ -1115,6 +1141,9 @@ html.has-touch .touchpad {
 
   .touchpad .tkey {
     position: relative;                    /* 盖在玻璃轨 ::before/::after 之上 */
+    z-index: 1;                            /* r21：::after 为末位子盒、z-order 在键之上——
+                                              右轨三键被玻璃轨遮成空胶囊，z-index:1 复位层级
+                                              （PC 复现 + 前后对照实测，r16 既有缺陷） */
     margin: 0 var(--sp-3);                 /* 轨宽 72 = 键 48 + 两侧 padding 12 */
   }
 
@@ -1184,12 +1213,15 @@ html.has-touch .touchpad {
   }
 }
 
-/* ═══════════════ 7. 响应式断点框架（r17 响应式重排，PRD AC-1~12） ═══════════════
- * 断点 = 派生样式而非状态：断点切换零 JS、零引擎触达（AC-8 由构造保证）。
- * 档位：S 竖屏单列 <600px（§7.1）/ S 横屏变体 <600px 且横屏（§7.2）/
+/* ═══════════════ 7. 响应式断点框架（r19 棋盘优先重写 S 竖屏；PRD AC-1~9） ═══════════════
+ * 断点 = 派生样式而非状态：断点切换零 JS、零引擎触达（r17 AC-8 承继，构造保证）。
+ * 档位：S 竖屏游戏视口 <600px 且 portrait（§7.1，r19 重写：一屏零滚动、棋盘吃满剩余高）/
+ *      S 横屏变体 <600px 且横屏（§7.2，r17 原样承继）/
  *      M 平板 600–767 两列（§7.3）· 768–1023 三列（§7.4）/ L 桌面 ≥1024 零新增规则（§7.5）。
- * DOM 顺序 = L 档 grid 自动放置基线，S/M 视觉重排全走 display:contents + order，
- * 不重排 DOM（DESIGN §0.3 / TECHNICAL §5）。全部新规则源序追加，压过既有 ≤1100 堆叠。
+ * S 竖屏：DOM 不动，#panel-* display:contents 摊平后以 grid-template-areas 落位——
+ * body 纵向 flex（100dvh 渐进）内五段：页头压缩 → 统计+设置 → 控制钮行 →
+ * Hold｜棋盘｜Next（1fr 吃满）→ 单行随流 dock（替代 r17 order 列序卡片流 + 两行悬浮 dock）。
+ * 全部新规则源序追加，压过既有 ≤1100 堆叠。
  */
 
 /* 7.0 基座（非媒体查询，唯一一条）：.stat-grid 包裹复刻 #panel-left 原 flex gap(20px)——
@@ -1200,28 +1232,26 @@ html.has-touch .touchpad {
   gap: var(--sp-5);
 }
 
-/* 7.1 S 竖屏单列卡片流（<600px 且 h≥w；AC-1/2/3/4/10/11）
- * 单列 flex + display:contents 摊平两面板，使子块跨面板参与 order：
- * 标题→HUD→设置→预览→棋盘→Hold→按钮（PRD US-1 信息流，AC-1） */
+/* 7.1 S 竖屏游戏视口（<600px 且 h≥w；r19 重写，PRD AC-1/2/3/4/5/8）
+ * 一屏零滚动：body 纵向 flex + #main 网格三行（统计行/控制行/对局区 1fr），
+ * 棋盘 1:2 等比吃满剩余高度（等比覆盖先例 = §7.2 横屏档）；dock 单行随流不再悬浮，
+ * r17 的 --dock-h 滚动预留 / 两行 dock / 16.5vh 中心带随之废弃（一屏内无滚动重叠问题）。
+ * 结构分两层：外层共享块只留横屏变体（§7.2）依赖的基座——#main display:flex（其
+ * flex-direction:row 翻转的前提）+ r17 order 表（横屏面板 display:flex 复位后的面板内
+ * 排序效应；竖屏网格用显式 grid-area 落位，order 不参与自动放置，惰性保留保横屏 0 回归）
+ * + 44px 保底；其余全部新布局收口内层 (orientation:portrait)，不反超 §5.5 横屏侧轨与 §7.2。
+ */
 @media (max-width: 599px) {
-  /* 底部预留单一事实来源：两行 dock 净高 = 2×键 + 行距16 + 上下内边距 2×16 + safe insets，
-     与下方 .touchpad 净高同算式 → 滚底时最后一块卡停在 dock 上沿，0 重叠（AC-2）。
-     env() 渐进增强：不支持 env 的旧内核整条作废 → 先写无 env 兜底行、再写 env 行 */
-  :root {
-    --dock-h: calc(2 * var(--tpad-key) + var(--sp-4) + 2 * var(--sp-4));
-    --dock-h: calc(2 * var(--tpad-key) + var(--sp-4) + 2 * var(--sp-4) + env(safe-area-inset-bottom));
-  }
-
+  /* ── 外层共享基座（横屏变体 §7.2 依赖，r17 原样承继）── */
   #main {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-bottom: var(--dock-h);   /* 滚底时最后一块卡停在 dock 上沿（AC-2 零重叠） */
   }
   #panel-left,
-  #panel-right { display: contents; }  /* 摊平：子块参与 #main flex 的 order 排序 */
+  #panel-right { display: contents; }  /* 摊平：面板子块上浮参与父级布局（r17 机制承继） */
 
-  /* 列序（ORDER 表 = PRD US-1 信息流：标题→统计→设置→预览→棋盘→Hold→按钮） */
+  /* r17 ORDER 表（横屏面板内排序效应存续；竖屏显式 grid-area 下惰性） */
   .stat-grid    { order: 10; }
   #btn-settings { order: 20; }
   .next-well    { order: 30; }
@@ -1230,48 +1260,165 @@ html.has-touch .touchpad {
   .key-hints    { order: 60; }
   #controls     { order: 70; }
 
-  /* 卡片化（玻璃卡：--glass-bg + blur + 1px --line + --radius-md + --sp-3 内距 --sp-4 外距） */
-  .stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls {
-    width: 100%;
-    max-width: 420px;                 /* 320~430 样本下不撑满、不溢出（AC-1） */
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
-    backdrop-filter: blur(20px) saturate(140%);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-md);
-    padding: var(--sp-3);
-    margin: var(--sp-2) 0;
-  }
-  #board-col { padding: 0; }          /* 板框自带 16px 内距，卡化不叠加 */
-
-  /* HUD 2×2（AC-1/AC-10） */
-  .stat-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--sp-3);
-  }
-
-  /* 两行 dock（AC-2/3/4/11）：仅容器 flex-wrap，.tkey 组件零改动。
-     整块收口 portrait：dock 覆盖规则不得触达横屏——横屏须保持 r16 (orientation:landscape)
-     侧轨原样（flex-flow:column wrap / align-content:space-between / gap:0 / padding:0 /
-     固定 height calc，其源序在本档之前），若置于本档则同特异性源序反超侧轨 →
-     键位内移/列距/内距漂移破坏 72px 轨几何（DESIGN §3.2「侧轨零改动」，TECH §5.2 本档不适用两行 dock） */
-  @media (orientation: portrait) {
-    .touchpad {
-      flex-wrap: wrap;
-      align-content: center;            /* 行间空间均分，中心带见 TECHNICAL §6.4 表 */
-      gap: var(--sp-4) var(--sp-2);     /* 行距 16 ≥8、键距 8（AC-11） */
-      padding: var(--sp-4) var(--sp-4) var(--sp-4);
-      padding: var(--sp-4) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom));
-      min-height: max(calc(2 * var(--tpad-key) + var(--sp-4) + 2 * var(--sp-4)), 16.5vh);
-      min-height: max(calc(2 * var(--tpad-key) + var(--sp-4) + 2 * var(--sp-4) + env(safe-area-inset-bottom)), 16.5vh);
-    }
-    /* r16 组距规则（第 3 键右补 8px）在新两行布局破坏行对齐 → 竖屏复位（横屏侧轨由 r16 接管） */
-    .touchpad .tkey:nth-child(3) { margin-right: 0; }
-  }
-
-  /* AC-4：触屏下 S 档全部可点元素 ≥44（按钮 40px 基座抬高到 44） */
+  /* AC-4：触屏下 S 档全部可点元素 ≥44（按钮 40px 基座抬高到 44，r17 规则承继） */
   html.has-touch .btn { min-height: 44px; }
+
+  /* ── 横屏子变体卡片化（r17 §7.1 视觉承继，仅 landscape 生效）──
+     r17 的卡片玻璃底写在旧 §7.1 外层（横竖屏通用）；r19 竖屏弃用卡片流后，
+     横屏变体（§7.2 面板 flex 复位，子块即卡片）仍需此外观 → 原样收口至此 */
+  @media (orientation: landscape) {
+    .stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls {
+      width: 100%;
+      max-width: 420px;
+      background: var(--glass-bg);
+      -webkit-backdrop-filter: blur(20px) saturate(140%);
+      backdrop-filter: blur(20px) saturate(140%);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: var(--sp-3);
+      margin: var(--sp-2) 0;
+    }
+    #board-col { padding: 0; }        /* 板框自带 16px 内距，卡化不叠加（r17 原样） */
+  }
+
+  /* ── 竖屏游戏视口（r19 新布局全量）── */
+  @media (orientation: portrait) {
+    /* 视口骨架（DESIGN §1.1）：100vh 兜底行 + 100dvh 渐进行（移动端动态工具栏安全）。
+       height（非 min-height）：把 body 钉在一屏——min-height 下 #main 以内容高度
+       （画布固有 560px）撑开 body、dock 落到折叠线下（真机实测）；钉高后 flex 收缩
+       （#main min-height:0）→ 1fr 行以视口剩余高度求解，棋盘等比吃满。 */
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: 100dvh;
+    }
+
+    /* 页头压缩（DESIGN §1.1）：标题 36→24、字距减半、纵向留白收窄 */
+    #header {
+      gap: var(--sp-3);
+      padding: var(--sp-2) var(--sp-4);
+    }
+    #title {
+      font-size: var(--fs-xl);
+      letter-spacing: 0.18em;
+      text-indent: 0.18em;
+    }
+
+    /* 主区网格（DESIGN §1）：覆盖外层 flex 基座 → 三行三列；
+       侧栏 auto 轨随开关塌缩、棋盘自动加宽（AC-5）；
+       设置钮不占轨道（绝对定位右上角）——否则其 ~90px 宽把 col3 撑宽、侵蚀棋盘轨 */
+    #main {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-areas:
+        'stats stats stats'
+        'controls controls controls'
+        'hold board next';
+      gap: var(--sp-2) var(--sp-3);
+      padding: var(--sp-2) var(--sp-3) var(--sp-3);
+    }
+
+    .stat-grid    { grid-area: stats; }
+    #controls     { grid-area: controls; }
+    .hold-well    { grid-area: hold; align-self: center; }
+    #board-col    { grid-area: board; }
+    .next-well    { grid-area: next; align-self: center; }
+    .key-hints    { display: none; }  /* 键位图例退场：触屏键自带标签（PRD AC-8 已确认变更） */
+
+    /* 设置钮：绝对定位 #main 右上角（与统计行同带），不参与网格轨道尺寸；
+       width:auto 豁免 v3.0 基座的 width:100%（面板铺满遗留）——否则钮体被拉成整屏宽 */
+    #btn-settings {
+      position: absolute;
+      top: var(--sp-2);
+      right: var(--sp-3);
+      width: auto;
+      margin-bottom: 0;
+    }
+
+    /* 统计行（DESIGN §1.2）：四列 label 上/value 下；数值 18px ≥16 可读性红线（AC-4）；
+       右侧内距避让绝对定位的设置钮（钮宽 ~90px + 间距） */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(4, auto);
+      justify-content: space-between;
+      gap: var(--sp-3);
+      padding-right: 112px;
+    }
+    .stat__value--score,
+    .stat__value--num { font-size: var(--fs-lg); }
+
+    /* 控制行（DESIGN §1.3）：三钮单行等宽居中 */
+    #controls {
+      flex-direction: row;
+      justify-content: center;
+      gap: var(--sp-3);
+    }
+    #controls .btn {
+      flex: 1 1 0;
+      max-width: 120px;
+      padding: 0 var(--sp-2);
+    }
+
+    /* 对局区（DESIGN §1.4）：棋盘 1:2 等比吃满 1fr 行剩余高度。
+       高度链：#board-col（1fr 行 stretch，min-height:0）→ #board-frame（100%）→
+       #board（renderer.resize() 写入的内联尺寸以 !important 压过；双 max 约束下
+       替换元素按 280:560 比例求解，渲染逻辑零触达）。遮罩/toast 包含块随框收缩。
+       min-width:0 双保险：豁免网格/弹性项的 automatic minimum——否则 #board-col
+       以画布固有 280px 为最小宽把 1fr 轨撑爆、整页横向溢出（375 实测 511px）。 */
+    #board-col {
+      align-self: stretch;
+      min-width: 0;
+      min-height: 0;
+    }
+    #board-frame {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      max-width: 100%;
+      height: 100%;
+    }
+    #board {
+      width: auto !important;
+      height: auto !important;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    /* 侧栏（DESIGN §1.4）：画布描边/辉光由基座承载（§3），容器仅收窄内距；
+       标签限宽换行（Hold/暂存 两行）——轨道收窄到画布同宽 58px，棋盘轨 +20px
+       （标签仍 12px ≥ 可读性红线，PRD AC-4） */
+    .hold-well,
+    .next-well {
+      padding: var(--sp-1);
+    }
+    .hold-well .stat__label {
+      max-width: 48px;
+      text-align: center;
+    }
+
+    /* dock 随流（DESIGN §1.5）：position:static 落入 body flex 末行，单行 6 键；
+       横屏侧轨仍由 r16 §5.5 接管（本档已整体收口 portrait，不会源序反超） */
+    .touchpad {
+      position: static;
+    }
+
+    /* r16 组距规则（第 3 键右补 8px）在单行居中布局破坏对称 → 复位（r17 同款） */
+    .touchpad .tkey:nth-child(3) { margin-right: 0; }
+
+    /* ≤379 窄屏：键 44px（r16 基础块）下 6 键×44 + 8 键距×5 = 304，
+       左右内边距降 8 → 320 恰容（AC-3：键距 ≥8 不动） */
+    @media (max-width: 379px) {
+      .touchpad {
+        padding-right: var(--sp-2);
+        padding-left: var(--sp-2);
+      }
+    }
+  }
 }
 
 /* 7.2 S 横屏变体（<600px 且 h<w，如 568×320 / 640×360；AC-4/9）
