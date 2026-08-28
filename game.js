@@ -74,6 +74,9 @@
       full: [100, 800, 1200, 1600],
       mini: [0, 100, 200, 1600],
     }
+    // r20 计分：combo 递增奖励基数（PRD §5，AC-5/7）——comboBonus = 50 × combo × level；
+    // 单一事实来源：verify-game.cjs §15.0 与 qa-e2e 期望推导统一引用
+    const COMBO_BONUS_BASE = 50
     // 触底锁定缓冲（AC-03.5，≤ 500ms）
     const LOCK_DELAY_MS = 500
     // 输入 DAS：首移延迟 170ms / 重复 100ms（≥ 8 次/秒，AC-02.1）；软降重复 50ms（AC-02.2）
@@ -452,6 +455,13 @@
       return typeof base === 'number' ? base * level : 0
     }
 
+    /** r20（AC-5/7）：combo 递增奖励 = COMBO_BONUS_BASE × combo × level；
+     * combo=0 → 0；防御：非有限数 / 负值 / level<1 → 0（E6，无 NaN/负分路径） */
+    function comboBonus(combo, level) {
+      if (!(combo >= 0) || !(level >= 1)) return 0
+      return COMBO_BONUS_BASE * combo * level
+    }
+
     /* ======================================================================
      * 6. 会话聚合 createGame（唯一可变状态持有者；工厂 + 闭包，不用 class）
      * ==================================================================== */
@@ -520,6 +530,10 @@
       // r18（AC-1）：T-spin 会话旋转窗口——rotate 成功置 true；move/软硬降/重力下移/新周期清 false；
       // "旋转落地即锁定"（旋转后不得再有任何动作/下移）方可判；lockFlow 判定后消费复位
       let tspinPending = false
+      // r20（AC-3/AC-10）：combo 链计数——锁定触点、仅「锁定是否清行」驱动（会话内存，不入持久化）：
+      // 清行锁递增（combo 链内索引 = 递增前链值），清 0 行 / No-line T-spin 断链（归 0），restart 归 0；
+      // hold/旋转（含踢墙）/软硬降/重力均不断链（与 tspinPending 的「操作清窗」语义刻意分离，互不干扰）
+      let comboChain = 0
       // 消行动画时长（r13，AC-1/AC-9）：默认 240ms（容差 160~320）；0 = 即时消除（与 reduced-motion 等价，AC-7）；
       // 强制布尔/负值兜底为默认值（对齐 wallKickEnabled 的 opts 解析风格）；构造期只读，无运行期 setter
       const animMs = typeof opts.animMs === 'number' && opts.animMs >= 0 ? opts.animMs : 240
@@ -544,6 +558,10 @@
           holdPiece: state.holdPiece ? state.holdPiece.type : null,
           // r18（AC-8，additive）：T-spin 判定类型（'full'|'mini'|'none'）；仅 clearing 期非 null
           tspin: state.clearing ? state.clearing.tspin : null,
+          // r20（AC-8，additive）：本次锁定的 combo 链内索引与 combo 奖励增量；仅 clearing 期非 null
+          // （生命周期对齐 r18 tspin：非动画期恒 null，不破坏既有消费方对比）
+          combo: state.clearing ? state.clearing.combo : null,
+          comboBonus: state.clearing ? state.clearing.comboBonus : null,
         }
       }
 
@@ -577,6 +595,11 @@
         // r18（AC-1/9）：锁定瞬间快照判定（合并后棋盘 = 含踢墙位移后的最终落位）；
         // 窗口与 type 双门后消费复位（一块一判，与 state.piece = null 同栈）
         const kind = tspinPending && state.piece.type === 'T' ? tspinKind(merged, state.piece) : 'none'
+        // r20（AC-5）：combo 链内索引（当前链值，预递增：清行累加在 finishLock 唯一出口，此处只读）与
+        // 本次奖励增量；乘数取升级前 state.level（此刻 level 尚未被 finishLock 更新，与 r18 tspinBonus 同点位）；
+        // cleared=0（含 No-line T-spin）→ comboIndex=0、comboVal=0；两值随载荷跨动画期传递（与 r18 同构，杜绝重算漂移）
+        const comboIndex = res.cleared > 0 ? comboChain : 0
+        const comboVal = res.cleared > 0 ? comboBonus(comboIndex, state.level) : 0
         tspinPending = false
         state.piece = null
         state.lockTimer = 0
@@ -588,33 +611,36 @@
         if (res.cleared > 0 && animMs > 0) {
           // → clearing 子阶段：保持含满行棋盘（视觉静止），动画结束帧才塌缩
           state.board = merged
-          state.clearing = { indices: res.indices, elapsed: 0, res: res, tspin: kind } // r18：判定随载荷跨动画期传递
+          state.clearing = { indices: res.indices, elapsed: 0, res: res, tspin: kind, combo: comboIndex, comboBonus: comboVal } // r18：判定随载荷跨动画期传递；r20：combo 索引/奖励增量同传
           sfx('clear') // 动画开始帧恰好 1 次（AC-3；2/3/4 行均 1 次，AC-09.2/E-SFX-03）
           emit() // 首帧快照 clearedIndices + animProgress=0
           // 入口返回值：levelUp/gameOver 为「完成时」才确定的结果（§2.4），动画接管期恒 false
           return { ok: true, locked: true, cleared: res.cleared, levelUp: false, gameOver: false }
         }
         // —— 既有原子步（cleared=0 或 animMs=0 与现状逐点等价，AC-2/AC-7）——
-        return finishLock(res.board, res.cleared, true, kind)
+        return finishLock(res.board, res.cleared, true, kind, comboIndex, comboVal)
       }
 
       /** 动画完结帧：elapsed ≥ animMs → 原子步整体执行（塌缩→计分/行数/升级→spawn→碰撞） */
       function completeClearing() {
         const cl = state.clearing
         state.clearing = null
-        finishLock(cl.res.board, cl.res.cleared, false, cl.tspin) // r18：动画载荷携带的 tspin 判定（sfx('clear') 已首帧发射）
+        finishLock(cl.res.board, cl.res.cleared, false, cl.tspin, cl.combo, cl.comboBonus) // r18：动画载荷携带的 tspin 判定（sfx('clear') 已首帧发射）；r20：combo 载荷同传
       }
 
       /** 原子步（即时路径与动画完结帧共享唯一实现）：塌缩 → 计分 → 升级 → spawn → 出生碰撞 → GAME_OVER。
        *  playClearSfx=true 时于本步发射 sfx('clear')（即时路径）；动画路径已在首帧发过 → false。 */
-      function finishLock(board, cleared, playClearSfx, tspin) {
+      function finishLock(board, cleared, playClearSfx, tspin, combo, comboBonusVal) {
         state.board = board
+        // r20（AC-3/AC-10）：链更新无条件置于最前——清行递增 / 清 0 行断链 / No-line T-spin 断链 /
+        // 出生碰撞（GAME_OVER）全部必经同一出口（恰一次；E3 防双计数：禁止在 lockFlow 预增）
+        comboChain = cleared > 0 ? comboChain + 1 : 0
         let levelUp = false
         // r18（AC-6/7/11）：T-spin 加分与普通消行分叠加恰各一次（kind='none' → 恒 0）；
         // 乘数取升级前 state.level，与 scoreForLines 同点位；bonus 不触碰 lines → 不推进等级
         const bonus = tspinBonus(tspin, cleared, state.level)
         if (cleared > 0) {
-          state.score += scoreForLines(cleared, state.level) + bonus // 普通基分（逐分不变）+ T-spin 分
+          state.score += scoreForLines(cleared, state.level) + bonus + comboBonusVal // 普通基分 + T-spin 分 + combo 奖励（三轴恰各一次，AC-6）
           state.lines += cleared
           const newLevel = levelForLines(state.lines)
           levelUp = newLevel > state.level
@@ -689,6 +715,7 @@
         state.holdPiece = null // r14：restart 清空暂存槽
         holdUsed = false // r14：restart 重置 hold 使用限制（与 spawnFirst 后新方块出生同语义）
         tspinPending = false // r18：restart 新周期清窗
+        comboChain = 0 // r20：restart 新周期清链（链态=会话内存，start/READY 初始即 0）
         state.phase = transition(state.phase, 'restart') // 任意态 → RUNNING
         spawnFirst()
         emit()
@@ -1153,6 +1180,8 @@
       LINE_SCORES: LINE_SCORES.slice(),
       // r18（AC-6）：T-spin 加分六档（索引 = 清除行数；mini 3 行按 Full Triple=1600 防漏分）
       T_SPIN_BONUS: { full: T_SPIN_BONUS.full.slice(), mini: T_SPIN_BONUS.mini.slice() },
+      // r20（PRD §5）：combo 递增奖励基数（单一事实来源，verify-game.cjs §15.0 断言）
+      COMBO_BONUS_BASE: COMBO_BONUS_BASE,
       LOCK_DELAY_MS: LOCK_DELAY_MS,
       DAS_DELAY_MS: DAS_DELAY_MS,
       DAS_REPEAT_MS: DAS_REPEAT_MS,
@@ -1182,6 +1211,8 @@
       // r18：T-spin 几何判定 / 加分纯函数（Node 可单测）
       tspinKind: tspinKind,
       tspinBonus: tspinBonus,
+      // r20：combo 奖励纯函数（Node 可单测，同 tspinBonus）
+      comboBonus: comboBonus,
       transition: transition,
       keyAction: keyAction, // v2.1：键盘映射单一来源表（AC-11，Node 可单测）
       // 会话工厂
