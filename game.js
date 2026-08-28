@@ -77,6 +77,9 @@
     // r20 计分：combo 递增奖励基数（PRD §5，AC-5/7）——comboBonus = 50 × combo × level；
     // 单一事实来源：verify-game.cjs §15.0 与 qa-e2e 期望推导统一引用
     const COMBO_BONUS_BASE = 50
+    // r23（PRD §5）：Back-to-back 定值基数——b2bBonus = B2B_BONUS_BASE × level，不随链长递增
+    // （区别于 combo）；资格 = Tetris 4 行 / T-Spin Full ≥1 行；单一事实来源：verify-game §16.0 / qa-e2e B 段引用
+    const B2B_BONUS_BASE = 400
     // 触底锁定缓冲（AC-03.5，≤ 500ms）
     const LOCK_DELAY_MS = 500
     // 输入 DAS：首移延迟 170ms / 重复 100ms（≥ 8 次/秒，AC-02.1）；软降重复 50ms（AC-02.2）
@@ -462,6 +465,25 @@
       return COMBO_BONUS_BASE * combo * level
     }
 
+    /** r23（AC-1）：B2B 资格判定，复用 r18 tspinKind 产物。
+     * 资格 = ① cleared===4（Tetris；T 型实际至多 3 行，防御性涵盖，与 kind 无关）
+     *        ② kind==='full' 且 cleared 1~3（T-Spin Full Single/Double/Triple）。
+     * Mini（含 Mini 消行）、普通 1/2/3 行、cleared=0（含 No-line T-spin）→ false（AC-1/AC-2）。 */
+    function b2bQualifies(kind, cleared) {
+      if (!(cleared >= 1)) return false
+      if (cleared === 4) return true
+      return kind === 'full'
+    }
+
+    /** r23（AC-3）：B2B 奖励 = B2B_BONUS_BASE × level；仅当「本次资格 且 chainOnBefore=true」→ 加分，否则 0。
+     * level 取本次锁升级前 level（调用点 lockFlow 的 state.level）；防御：非有限数 / level<1 → 0（E6 同款）。 */
+    function b2bBonus(chainOnBefore, kind, cleared, level) {
+      if (chainOnBefore !== true) return 0
+      if (!b2bQualifies(kind, cleared)) return 0
+      if (!(level >= 1)) return 0
+      return B2B_BONUS_BASE * level
+    }
+
     /* ======================================================================
      * 6. 会话聚合 createGame（唯一可变状态持有者；工厂 + 闭包，不用 class）
      * ==================================================================== */
@@ -534,6 +556,10 @@
       // 清行锁递增（combo 链内索引 = 递增前链值），清 0 行 / No-line T-spin 断链（归 0），restart 归 0；
       // hold/旋转（含踢墙）/软硬降/重力均不断链（与 tspinPending 的「操作清窗」语义刻意分离，互不干扰）
       let comboChain = 0
+      // r23（AC-2/AC-7）：b2bChain 布尔会话链态——仅「锁定是否资格事件」驱动（与 comboChain 同触点
+      // 但独立变量，D7 不做通用链抽象）：资格锁置 true（含断链后重新置链）、非资格消行/0 行/No-line/Mini
+      // 置 false；hold/旋转/软硬降/重力不迁移；restart 归 false（OVER 为终态，出口即 restart，D6）
+      let b2bChain = false
       // 消行动画时长（r13，AC-1/AC-9）：默认 240ms（容差 160~320）；0 = 即时消除（与 reduced-motion 等价，AC-7）；
       // 强制布尔/负值兜底为默认值（对齐 wallKickEnabled 的 opts 解析风格）；构造期只读，无运行期 setter
       const animMs = typeof opts.animMs === 'number' && opts.animMs >= 0 ? opts.animMs : 240
@@ -562,6 +588,10 @@
           // （生命周期对齐 r18 tspin：非动画期恒 null，不破坏既有消费方对比）
           combo: state.clearing ? state.clearing.combo : null,
           comboBonus: state.clearing ? state.clearing.comboBonus : null,
+          // r23（AC-6，additive）：Back-to-back 链态（恒 boolean 连续暴露——测试与 P2 指示器消费面）
+          // 与本次锁 B2B 增量（仅 clearing 期非 null，生命周期对齐 r20 comboBonus）
+          b2bChain: b2bChain,
+          b2bBonus: state.clearing ? state.clearing.b2bBonus : null,
         }
       }
 
@@ -600,6 +630,9 @@
         // cleared=0（含 No-line T-spin）→ comboIndex=0、comboVal=0；两值随载荷跨动画期传递（与 r18 同构，杜绝重算漂移）
         const comboIndex = res.cleared > 0 ? comboChain : 0
         const comboVal = res.cleared > 0 ? comboBonus(comboIndex, state.level) : 0
+        // r23（AC-3）：本次锁 B2B 增量——链值只读（迁移唯一出口在 finishLock 首行，E3 防双计数）；
+        // 乘数取升级前 state.level（与 combo 同点位）；非资格/链 off → 0；随载荷跨动画期传递（杜绝重算漂移）
+        const b2bVal = b2bBonus(b2bChain, kind, res.cleared, state.level)
         tspinPending = false
         state.piece = null
         state.lockTimer = 0
@@ -611,36 +644,39 @@
         if (res.cleared > 0 && animMs > 0) {
           // → clearing 子阶段：保持含满行棋盘（视觉静止），动画结束帧才塌缩
           state.board = merged
-          state.clearing = { indices: res.indices, elapsed: 0, res: res, tspin: kind, combo: comboIndex, comboBonus: comboVal } // r18：判定随载荷跨动画期传递；r20：combo 索引/奖励增量同传
+          state.clearing = { indices: res.indices, elapsed: 0, res: res, tspin: kind, combo: comboIndex, comboBonus: comboVal, b2bBonus: b2bVal } // r18：判定随载荷跨动画期传递；r20：combo 索引/奖励增量同传；r23：B2B 增量同传
           sfx('clear') // 动画开始帧恰好 1 次（AC-3；2/3/4 行均 1 次，AC-09.2/E-SFX-03）
           emit() // 首帧快照 clearedIndices + animProgress=0
           // 入口返回值：levelUp/gameOver 为「完成时」才确定的结果（§2.4），动画接管期恒 false
           return { ok: true, locked: true, cleared: res.cleared, levelUp: false, gameOver: false }
         }
         // —— 既有原子步（cleared=0 或 animMs=0 与现状逐点等价，AC-2/AC-7）——
-        return finishLock(res.board, res.cleared, true, kind, comboIndex, comboVal)
+        return finishLock(res.board, res.cleared, true, kind, comboIndex, comboVal, b2bVal)
       }
 
       /** 动画完结帧：elapsed ≥ animMs → 原子步整体执行（塌缩→计分/行数/升级→spawn→碰撞） */
       function completeClearing() {
         const cl = state.clearing
         state.clearing = null
-        finishLock(cl.res.board, cl.res.cleared, false, cl.tspin, cl.combo, cl.comboBonus) // r18：动画载荷携带的 tspin 判定（sfx('clear') 已首帧发射）；r20：combo 载荷同传
+        finishLock(cl.res.board, cl.res.cleared, false, cl.tspin, cl.combo, cl.comboBonus, cl.b2bBonus) // r18：动画载荷携带的 tspin 判定（sfx('clear') 已首帧发射）；r20：combo 载荷同传；r23：B2B 增量同传
       }
 
       /** 原子步（即时路径与动画完结帧共享唯一实现）：塌缩 → 计分 → 升级 → spawn → 出生碰撞 → GAME_OVER。
        *  playClearSfx=true 时于本步发射 sfx('clear')（即时路径）；动画路径已在首帧发过 → false。 */
-      function finishLock(board, cleared, playClearSfx, tspin, combo, comboBonusVal) {
+      function finishLock(board, cleared, playClearSfx, tspin, combo, comboBonusVal, b2bBonusVal) {
         state.board = board
         // r20（AC-3/AC-10）：链更新无条件置于最前——清行递增 / 清 0 行断链 / No-line T-spin 断链 /
         // 出生碰撞（GAME_OVER）全部必经同一出口（恰一次；E3 防双计数：禁止在 lockFlow 预增）
         comboChain = cleared > 0 ? comboChain + 1 : 0
+        // r23（AC-2）：b2bChain 迁移唯一出口（与 comboChain 同触点，finishLock 首行）——
+        // 资格锁→true / 非资格消行·0 行·No-line·Mini→false；lockFlow 只读链值算增量（E3 防双计数）
+        b2bChain = b2bQualifies(tspin, cleared) ? true : false
         let levelUp = false
         // r18（AC-6/7/11）：T-spin 加分与普通消行分叠加恰各一次（kind='none' → 恒 0）；
         // 乘数取升级前 state.level，与 scoreForLines 同点位；bonus 不触碰 lines → 不推进等级
         const bonus = tspinBonus(tspin, cleared, state.level)
         if (cleared > 0) {
-          state.score += scoreForLines(cleared, state.level) + bonus + comboBonusVal // 普通基分 + T-spin 分 + combo 奖励（三轴恰各一次，AC-6）
+          state.score += scoreForLines(cleared, state.level) + bonus + comboBonusVal + b2bBonusVal // 普通基分 + T-spin 分 + combo 奖励 + B2B 奖励（四轴恰各一次，AC-6；b2b 不触碰 lines/level）
           state.lines += cleared
           const newLevel = levelForLines(state.lines)
           levelUp = newLevel > state.level
@@ -716,6 +752,7 @@
         holdUsed = false // r14：restart 重置 hold 使用限制（与 spawnFirst 后新方块出生同语义）
         tspinPending = false // r18：restart 新周期清窗
         comboChain = 0 // r20：restart 新周期清链（链态=会话内存，start/READY 初始即 0）
+        b2bChain = false // r23：restart 新周期清链（同会话内存口径；OVER 为终态不可观察，出口即 restart，D6）
         state.phase = transition(state.phase, 'restart') // 任意态 → RUNNING
         spawnFirst()
         emit()
@@ -1182,6 +1219,8 @@
       T_SPIN_BONUS: { full: T_SPIN_BONUS.full.slice(), mini: T_SPIN_BONUS.mini.slice() },
       // r20（PRD §5）：combo 递增奖励基数（单一事实来源，verify-game.cjs §15.0 断言）
       COMBO_BONUS_BASE: COMBO_BONUS_BASE,
+      // r23（PRD §5）：Back-to-back 定值基数（单一事实来源，verify-game.cjs §16.0 / qa-e2e B 段断言）
+      B2B_BONUS_BASE: B2B_BONUS_BASE,
       LOCK_DELAY_MS: LOCK_DELAY_MS,
       DAS_DELAY_MS: DAS_DELAY_MS,
       DAS_REPEAT_MS: DAS_REPEAT_MS,
@@ -1213,6 +1252,9 @@
       tspinBonus: tspinBonus,
       // r20：combo 奖励纯函数（Node 可单测，同 tspinBonus）
       comboBonus: comboBonus,
+      // r23：B2B 资格 / 奖励纯函数（Node 可单测，同 comboBonus）
+      b2bQualifies: b2bQualifies,
+      b2bBonus: b2bBonus,
       transition: transition,
       keyAction: keyAction, // v2.1：键盘映射单一来源表（AC-11，Node 可单测）
       // 会话工厂

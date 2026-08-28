@@ -2033,6 +2033,194 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('r21 S10: 独立 env dispose 无异常（含双槽清理，AC-11）', true)
   }
 
+  /* ---------- r23 Back-to-back 奖励倍率段（AC-1~10；独立 createUI animMs:240，TECHNICAL §7.4） ----------
+     在 r21 独立 env 同款基座之上扩展第三路载荷（B2B 轴尾随）：helpers 段内自包含重声明
+     （stageLines/comboComplete/lockTick/tspinLock/buildTSlotQ(_mini)，r13/r21 先例，不引跨脚本共享）；
+     四行布景 = comboStageLines 同构（20-n..19 全 S 缺 miss + 竖 I）；期望一律 T.B2B_BONUS_BASE 公式推导（AC-4 单源）。 */
+  console.log('\n-- r23 Back-to-back 奖励倍率（animMs:240 独立 env，TECHNICAL §7.4 / AC-1~10）--')
+  {
+    const TG = window.TetrisGame
+    const handle4 = window.TetrisUI.createUI({
+      autoLoop: false,
+      rng: function () { return 0 },
+      sfxEngine: spy,
+      animMs: 240,
+    })
+    const game4 = handle4.game
+    const snap4 = function () { return game4.getSnapshot() }
+    const reward4 = function () { return $('#reward-toast') }
+    const fullRowQ = function (type, exceptCol) {
+      const row = []
+      for (let c = 0; c < TG.COLS; c++) row.push(c === exceptCol ? null : type)
+      return row
+    }
+    // 多行布景（rows 20-n..19 全 S 缺 missCol + 竖 I 补缺）＝verify-game comboStageLines 同构
+    const stageLines = function (n, missCol) {
+      const miss = typeof missCol === 'number' ? missCol : 5
+      const b = TG.createBoard()
+      for (let r = 20 - n; r <= 19; r++) for (let c = 0; c < TG.COLS; c++) if (c !== miss) b[r][c] = 'S'
+      game4._debug.setBoard(b)
+      game4._debug.setNext('T')
+      game4._debug.setPiece({ type: 'I', rot: 1, x: miss - 2, y: 16 })
+      return game4.hardDrop()
+    }
+    // 完结消行动画（120+120 = 240 ≥ animMs:240）
+    const comboComplete = function () { game4.tick(120); game4.tick(120) }
+    // 单次 tick dt 上限 250ms：LOCK_DELAY_MS=500 需两次达上限 tick 触发缓冲锁定
+    const lockTick = function () { game4.tick(250); game4.tick(250) }
+    // T 槽内联构造（spec 可传 3 实角 Mini：F3 rot0 缺 TR，verify-game F3 权威样例）＝verify-game buildTSlot 语义
+    const T4Q = { tl: true, tr: true, bl: true, br: true }
+    const MINI_Q = { tl: true, tr: false, bl: true, br: true }
+    const buildTSlotQ = function (clearRows, spec) {
+      const lx = 3
+      const ly = 15
+      const b = TG.createBoard()
+      const cells = TG.pieceCells({ type: 'T', rot: 0, x: lx, y: ly })
+      const tAt = function (r, c) { return cells.some(function (p) { return p.y === r && p.x === c }) }
+      const set = function (r, c) { b[r][c] = 'Z' }
+      const sp = spec || T4Q
+      if (sp.tl) set(ly, lx)
+      if (sp.tr) set(ly, lx + 2)
+      if (sp.bl) set(ly + 2, lx)
+      if (sp.br) set(ly + 2, lx + 2)
+      set(ly + 2, lx + 1) // 底部中心兜底支撑（保 grounded，rot0；T4 槽与 r21 逐格一致）
+      for (const rr of clearRows || []) {
+        const r = ly + rr
+        for (let c = 0; c < TG.COLS; c++) {
+          if (tAt(r, c)) continue
+          set(r, c)
+        }
+      }
+      return b
+    }
+    const tspinLock = function (clearRows, spec) {
+      game4._debug.setBoard(buildTSlotQ(clearRows, spec))
+      game4._debug.setNext('T')
+      game4._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+      const rr = game4.rotate()
+      if (!(rr.ok === true)) throw new Error('r23 tspinLock rotate 应成功: ' + JSON.stringify(rr))
+      lockTick()
+    }
+
+    game4.start()
+
+    // B1：首资格静默（fresh 首 Tetris，链 off → 仅置链不加分；AC-1/3/6）
+    let rB = stageLines(4)
+    check('r23 B1: 首锁 4 行锁定成功（cleared=4）', rB && rB.ok === true && rB.cleared === 4, JSON.stringify(rB))
+    let sB = snap4()
+    check('r23 B1: 首锁 clearing b2bBonus=0（链 off）且 b2bChain=false（结算前值）',
+      sB.b2bBonus === 0 && sB.b2bChain === false, JSON.stringify({ b2b: sB.b2bBonus, chain: sB.b2bChain }))
+    comboComplete()
+    sB = snap4()
+    check('r23 B1: 结算帧 b2bChain=true（置链）、b2bBonus 回 null',
+      sB.b2bChain === true && sB.b2bBonus === null, JSON.stringify({ chain: sB.b2bChain, b2b: sB.b2bBonus }))
+    check('r23 B1: 首资格静默 → #reward-toast 保持 hidden（AC-1/3 E1）', reward4().hidden === true)
+
+    // B2：连发第 2 —— 同帧 combo 与 b2b 增量并存（AC-7），toast Combo·B2B 合并（AC-9），b2b 不进等级（AC-5）
+    rB = stageLines(4)
+    check('r23 B2: 二锁 4 行锁定成功', rB && rB.ok === true && rB.cleared === 4, JSON.stringify(rB))
+    sB = snap4()
+    check('r23 B2: 二锁 clearing b2bBonus=400（400×1 升级前 L1）、comboBonus=50、b2bChain=true（AC-7 双链并行）',
+      sB.b2bBonus === TG.B2B_BONUS_BASE * 1 && sB.comboBonus === 50 && sB.combo === 1 && sB.b2bChain === true,
+      JSON.stringify({ b2b: sB.b2bBonus, combo: sB.combo, cb: sB.comboBonus, chain: sB.b2bChain }))
+    comboComplete()
+    check('r23 B2: 结算 toast === Combo ×1 +50 · B2B +400（Combo 在前 · B2B 尾随，AC-9）',
+      reward4().hidden === false && reward4().textContent === 'Combo ×1 +50 · B2B +400', '"' + reward4().textContent + '"')
+    sB = snap4()
+    check('r23 B2: score===2050 && lines===8 && level===1（b2b/combo 均不推进等级，AC-5）',
+      sB.score === 2050 && sB.lines === 8 && sB.level === 1, JSON.stringify({ score: sB.score, lines: sB.lines, level: sB.level }))
+
+    // B3：三连定值（第 3 仍 400 非 800；乘数取升级前；PRD §5/R4）
+    rB = stageLines(4)
+    check('r23 B3: 三锁 4 行锁定成功', rB && rB.ok === true && rB.cleared === 4, JSON.stringify(rB))
+    sB = snap4()
+    check('r23 B3: 三锁 clearing b2bBonus=400（仍 400 非 800，定值）且 s.level=1（乘数取升级前，R4）',
+      sB.b2bBonus === TG.B2B_BONUS_BASE * 1 && sB.level === 1, JSON.stringify({ b2b: sB.b2bBonus, level: sB.level }))
+    comboComplete()
+    check('r23 B3: 三锁结算 toast === Combo ×2 +100 · B2B +400', reward4().textContent === 'Combo ×2 +100 · B2B +400', '"' + reward4().textContent + '"')
+    sB = snap4()
+    check('r23 B3: 三锁结算帧 lines=12、level=2（升级照常，b2b 不参与）', sB.lines === 12 && sB.level === 2, JSON.stringify({ lines: sB.lines, level: sB.level }))
+
+    // B4：断链（restart → 4 行 → 1 行 → 4 行）：普通 1 行断链后首资格仅置链（AC-2/3）
+    game4.restart()
+    stageLines(4); comboComplete()
+    stageLines(1); comboComplete()
+    rB = stageLines(4)
+    check('r23 B4: 断链后 4 行锁 clearing b2bBonus=0、b2bChain=false（结算前 off）',
+      rB && rB.cleared === 4 && snap4().b2bBonus === 0 && snap4().b2bChain === false,
+      JSON.stringify({ cleared: rB && rB.cleared, b2b: snap4().b2bBonus, chain: snap4().b2bChain }))
+    comboComplete()
+    check('r23 B4: 结算帧 b2bChain=true（重新置链）', snap4().b2bChain === true)
+    check('r23 B4: toast === Combo ×2 +100（无 B2B 轴，AC-9）', reward4().textContent === 'Combo ×2 +100', '"' + reward4().textContent + '"')
+
+    // B5：三轴同帧（restart → T-spin Full Single → T-spin Full Single；AC-4/9/R2）
+    game4.restart()
+    tspinLock([1])
+    comboComplete()
+    check('r23 B5: 前置 T-spin 锁 toast === T-Spin Single +800', reward4().textContent === 'T-Spin Single +800', '"' + reward4().textContent + '"')
+    tspinLock([1])
+    sB = snap4()
+    check('r23 B5: 三轴同帧 clearing：tspin=full、combo=1、b2bBonus=400',
+      sB.tspin === 'full' && sB.combo === 1 && sB.b2bBonus === TG.B2B_BONUS_BASE, JSON.stringify({ tspin: sB.tspin, combo: sB.combo, b2b: sB.b2bBonus }))
+    comboComplete()
+    const b5Text = reward4().textContent
+    check('r23 B5: 结算 toast === T-Spin Single +800 · Combo ×1 +50 · B2B +400（三轴序）',
+      b5Text === 'T-Spin Single +800 · Combo ×1 +50 · B2B +400', '"' + b5Text + '"')
+    check('r23 B5: 三轴 split(·) 恰 3 段、[0] T-Spin 开头、[2] B2B 开头（序断言，AC-9）',
+      b5Text.split(' · ').length === 3 && b5Text.split(' · ')[0].indexOf('T-Spin') === 0 && b5Text.split(' · ')[2].indexOf('B2B +') === 0,
+      b5Text.split(' · ').length + ' parts')
+    sB = snap4()
+    check('r23 B5: 分数 900+1350=2250（R2 四轴素材）', sB.score === 2250, 'score=' + sB.score)
+
+    // B6：No-line 断链（restart → T-spin [1] → No-line [] → T-spin [1]；AC-1/2/R1）
+    game4.restart()
+    tspinLock([1]); comboComplete()
+    tspinLock([])
+    sB = snap4()
+    check('r23 B6: No-line 即时锁结算帧 b2bChain=false（cleared=0 不资格断链）', sB.b2bChain === false, JSON.stringify({ chain: sB.b2bChain }))
+    tspinLock([1])
+    sB = snap4()
+    check('r23 B6: No-line 断链后 T-spin 锁 clearing b2bBonus=0（仅置链）、b2bChain=false（结算前）',
+      sB.b2bBonus === 0 && sB.b2bChain === false, JSON.stringify({ b2b: sB.b2bBonus, chain: sB.b2bChain }))
+    comboComplete()
+    check('r23 B6: 结算帧 b2bChain=true（重新置链）', snap4().b2bChain === true)
+
+    // B7：Mini 断链（restart → 4 行 → Mini 1 行 → 4 行；AC-1/2）
+    game4.restart()
+    stageLines(4); comboComplete()
+    tspinLock([1], MINI_Q)
+    sB = snap4()
+    check('r23 B7: Mini 锁 clearing tspin=mini、b2bBonus=0（不资格，E4）',
+      sB.tspin === 'mini' && sB.b2bBonus === 0, JSON.stringify({ tspin: sB.tspin, b2b: sB.b2bBonus }))
+    comboComplete()
+    check('r23 B7: Mini 锁结算帧 b2bChain=false（断链）', snap4().b2bChain === false)
+    check('r23 B7: Mini 锁 toast === T-Spin Mini +100 · Combo ×1 +50（r21 行为不变，E4）',
+      reward4().textContent === 'T-Spin Mini +100 · Combo ×1 +50', '"' + reward4().textContent + '"')
+    rB = stageLines(4)
+    check('r23 B7: Mini 断链后 4 行锁 clearing b2bBonus=0（仅置链）', rB && rB.cleared === 4 && snap4().b2bBonus === 0, JSON.stringify({ cleared: rB && rB.cleared, b2b: snap4().b2bBonus }))
+    comboComplete()
+    check('r23 B7: 末锁结算帧 b2bChain=true（重新置链）', snap4().b2bChain === true)
+
+    // B8：OVER/restart 清空（显示期出生碰撞 → OVER 帧 0 残留 → restart 引擎归零；AC-6/7）
+    const tower = Array.from({ length: 20 }, function () { return new Array(10).fill(null) })
+    for (let r = 0; r < 4; r++) for (let c = 3; c <= 6; c++) tower[r][c] = 'T'
+    game4._debug.setBoard(tower)
+    game4.softDrop() // 当前块重叠 → 立即锁定（无消行）→ spawn 撞塔 → OVER
+    sB = snap4()
+    check('r23 B8: 出生碰撞 → OVER（AC-6 终局）', sB.phase === 'OVER', sB.phase)
+    check('r23 B8: OVER 帧 #reward-toast hidden（0 残留）', reward4().hidden === true)
+    game4.restart()
+    check('r23 B8: restart 后引擎 b2bChain=false（会话归零，D6）', snap4().b2bChain === false)
+
+    // B9：契约与收尾（AC-10 继承面复断 + 段内 dispose）
+    check('r23 B9: #reward-toast 挂载点仍存在（r21 继承面）', reward4() !== null)
+    check('r23 B9: aria-live=polite + role=status（r21 继承面，AC-10）',
+      reward4().getAttribute('aria-live') === 'polite' && reward4().getAttribute('role') === 'status',
+      'aria-live=' + reward4().getAttribute('aria-live') + ' role=' + reward4().getAttribute('role'))
+    handle4.dispose()
+    check('r23 B9: 独立 env dispose 无异常（AC-11 收尾）', true)
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))
