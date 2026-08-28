@@ -978,15 +978,15 @@
       { action: 'hold', key: 'c', holdable: false },
     ]
 
-    // 触屏能力检测（TECHNICAL §5.8）：Node（window 未定义）恒 false；
-    // jsdom 恒 false——其将事件处理属性初始化为 null 而浏览器为 undefined（jsdom#2429），
-    // 故 `'ontouchstart' in window` 需叠加 `ontouchstart !== null` 才为真（真实触屏设备
-    // 该值为 undefined）。保既有 E2E 默认路径零变化；opts.touch:true 强制注入测试。
+    // 触屏设备检测（r21 语义收窄，原 r16 §5.8 全能力检测）：**主指针为粗指针**
+    // （matchMedia('(pointer: coarse)')，手机/平板）才显示触控键——触屏笔记本/触屏显示器
+    // PC 的主指针是鼠标，不再显示（用户裁定，r21 任务夹；右轨 z-order 缺陷同轮修复）。
+    // Node（window 未定义）恒 false；jsdom 的 matchMedia 恒 matches:false → 恒 false，
+    // 既有 E2E 默认路径零变化；opts.touch:true 强制注入测试（混合设备真触屏用户仍可用
+    // 键盘/鼠标游玩，功能无损）。
     function isTouchDevice() {
       if (typeof window === 'undefined') return false
       try {
-        if ('ontouchstart' in window && window.ontouchstart !== null) return true
-        if (typeof window.navigator === 'object' && window.navigator && window.navigator.maxTouchPoints > 0) return true
         if (typeof window.matchMedia === 'function') {
           const mq = window.matchMedia('(pointer: coarse)')
           return !!(mq && mq.matches)

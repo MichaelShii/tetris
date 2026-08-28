@@ -16,7 +16,8 @@
  *     隐藏（含标签）+ 游戏不受影响、重开即时恢复与 snapshot.queue 一致、关闭期多次
  *     hardDrop 后重开不错位、二次装载持久化恢复、与 Hold 并存（AC-1/3/6/7/8/9/11）
  *   - r17（v3.4）：响应式断点——AC-8 跨档 resize 5 轮快照逐字段不变（无重载无重置）、
- *     AC-5 has-touch 显隐复用、断点框架静态证据（S 列序/--dock-h/M media/按钮 44/stat-grid 基座）
+ *     AC-5 has-touch 显隐复用、断点框架静态证据（r19 起 S 档锚点改为游戏视口：网格 areas/
+ *     棋盘等比/dock 随流；M media/按钮 44/stat-grid 基座延续）
  *   - 装配契约：canvas 尺寸、渲染调用、按钮矩阵、焦点管理、dispose 清理
  *
  * 运行：node scripts/qa-e2e-jsdom.cjs
@@ -1735,13 +1736,14 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     const css17 = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
     const html17 = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
     const sP17 = css17.slice(css17.indexOf('@media (max-width: 599px)'), css17.indexOf('@media (max-width: 599px) and (orientation: landscape)'))
-    check('r17 静态 S 竖屏单列：flex-direction: column + order 列序表（卡片流，AC-1）',
-      /#main\s*\{[^}]*flex-direction\s*:\s*column/.test(sP17) &&
-      /\.stat-grid\s*\{[^}]*order:\s*10/.test(sP17) && /#board-col\s*\{[^}]*order:\s*40/.test(sP17) &&
-      /#controls\s*\{[^}]*order:\s*70/.test(sP17))
-    check('r17 静态 --dock-h 单一事实来源：#main padding-bottom 引用 + .touchpad flex-wrap 两行 + 16.5vh 中心带',
-      /padding-bottom:\s*var\(--dock-h\)/.test(sP17) && /\.touchpad\s*\{[^}]*flex-wrap/.test(sP17) &&
-      /min-height:\s*max\([^;]*16\.5vh/.test(sP17))
+    check('r19 静态 S 竖屏游戏视口：#main 网格 areas（hold board next）+ #board 等比覆盖 + key-hints 隐藏（AC-1/2/8）',
+      /#main\s*\{[^}]*'hold board next'/.test(sP17) &&
+      /#board\s*\{[^}]*width:\s*auto\s*!important/.test(sP17) &&
+      /\.key-hints\s*\{[^}]*display:\s*none/.test(sP17))
+    check('r19 静态一屏骨架：body height 100vh/100dvh 渐进对 + dock 随流 position:static + env 安全区延续（AC-3）',
+      /height:\s*100vh/.test(sP17) && /height:\s*100dvh/.test(sP17) &&
+      /\.touchpad\s*\{[^}]*position:\s*static/.test(sP17) &&
+      /env\(safe-area-inset-bottom\)/.test(css17))
     check('r17 静态 M 档 media 存在（两列 600-767 / 三列 768-1023 minmax 吸收，AC-6）',
       css17.indexOf('@media (min-width: 600px) and (max-width: 767px)') !== -1 &&
       css17.indexOf('@media (min-width: 768px) and (max-width: 1023px)') !== -1 &&

@@ -16,7 +16,8 @@
  *   工程护栏；'c'→Hold 特例由 ui.js onHoldKey 消费）、isTouchDevice/createTouchControls
  *   导出、工厂缺 #touch-controls 元素抛错、Node 加载 isTouchDevice()=false 零 DOM 副作用。
  * r17（响应式重排）：+3 断点源结构断言——S/M 四档 media 存在性与 L 基座不动、
- *   .stat-grid 包裹契约（四统计块原序 + viewport-fit=cover）、--dock-h 单一事实来源 calc 形状；
+ *   .stat-grid 包裹契约（四统计块原序 + viewport-fit=cover）、断点布局锚点
+ *   （r19 起第三条改钳 S 竖屏游戏视口：100dvh 骨架 / 网格 areas / 棋盘等比 / dock 随流）；
  *   只读 style.css/index.html 源文本，Node 零 DOM（PRD R4：jsdom 无法验证真实视口几何）。
  * 浏览器行为（毛玻璃/霓虹/逐帧渲染/FPS）按 PRD AC-07 手测。
  */
@@ -297,7 +298,7 @@ test('r16: createTouchControls 工厂契约（缺 #touch-controls 元素抛错�
  * 本段沿用 r16「Node 契约 + 交叉校验」先例，只读 style.css / index.html
  * 源文本做结构断言（防实现漂移）；真实几何（包围盒/中心带/滚动位移）落
  * QA 真机清单。三条断言分别钳制：断点 media 存在性与 L 基座不动、
- * .stat-grid 包裹契约、--dock-h 单一事实来源 calc 形状。
+ * .stat-grid 包裹契约、断点布局锚点（r19 起：S 竖屏游戏视口锚点）。
  * 注：CSS_FILE/HTML_FILE 可用 DSH_VERIFY_UI_CSS/DSH_VERIFY_UI_HTML 覆盖
  * （测试钩子：T5 收口 / 本任务自检可注入合成源做 dry-run）。
  * ==================================================================== */
@@ -318,8 +319,8 @@ test('r17: 断点框架源结构——S/M 四档 media + 派生样式锚点存�
   ]) {
     assert.ok(css.includes(mq), 'style.css 缺断点 media：' + mq)
   }
-  // ② 派生样式锚点：--dock-h（多档重声明的单一事实来源）、display:contents
-  //    （S 档跨面板摊平；§6.2 警告：order 挂在 display:contents 无盒会静默失效 → 防该漂移）
+  // ② 派生样式锚点：--dock-h（M 档 dock 预留的单一事实来源；r19 起 S 档随流无预留）、
+  //    display:contents（面板摊平；§6.2 警告：order 挂在 display:contents 无盒会静默失效 → 防该漂移）
   assert.ok(css.includes('--dock-h'), 'style.css 缺 --dock-h 自定义属性')
   assert.match(css, /display\s*:\s*contents/, 'style.css 缺 display: contents（S 档卡片流摊平）')
   // ③ L 档零改动证据：基座 #main grid 规则仍在首个 @media 之前（媒体查询外）
@@ -355,20 +356,32 @@ test('r17: index.html .stat-grid 包裹契约——四统计块原序包入 + vi
   assert.match(html, /viewport-fit=cover/, 'index.html viewport meta 缺 viewport-fit=cover（AC-3）')
 })
 
-test('r17: --dock-h 单一事实来源——S 两行 dock calc 形状 + #main 引用 + .touchpad 两行（AC-2/AC-6）', () => {
+test('r19: S 竖屏游戏视口锚点——body 100dvh 渐进对 + #main 网格 areas + #board 等比覆盖 + dock 随流（AC-1/2/3）', () => {
   const css = fs.readFileSync(CSS_FILE, 'utf8')
   const sStart = css.indexOf('@media (max-width: 599px)')
   const sLand = css.indexOf('@media (max-width: 599px) and (orientation: landscape)')
   assert.ok(sStart !== -1 && sLand > sStart, 'S 竖屏块须先于 S 横屏块（可切片）')
   const sPortrait = css.slice(sStart, sLand)
-  // ① S 两行 dock 的 --dock-h = 2×键 + 行距 + 2×内边距 + inset（§6.3：禁 ui.js/常量表硬编码数值副本）
-  assert.match(sPortrait, /--dock-h\s*:\s*calc\(\s*2\s*\*\s*var\(--tpad-key\)/,
-    'S --dock-h calc 缺 2*var(--tpad-key)（两行 dock）')
-  assert.match(sPortrait, /env\(safe-area-inset-bottom\)/, 'S 档 dock 缺 env(safe-area-inset-bottom)（AC-3 渐进增强）')
-  // ② #main 预留必须引用 var(--dock-h)（而非数值字面量——否则与 dock 高度两处漂移）
-  assert.match(sPortrait, /#main\s*\{[^}]*padding-bottom\s*:\s*var\(--dock-h\)/,
-    'S 档 #main 缺 padding-bottom: var(--dock-h) 引用')
-  // ③ .touchpad 两行 dock：flex-wrap 换行 + min-height:max( 中心带 16.5vh 抬升（§6.4）
-  assert.match(sPortrait, /\.touchpad\s*\{[^}]*flex-wrap/, 'S 档 .touchpad 缺 flex-wrap（两行 dock）')
-  assert.match(sPortrait, /min-height\s*:\s*max\(/, 'S 档缺 min-height: max(（16.5vh 中心带抬升）')
+  // ① 视口骨架：body 纵向 flex + height 100vh 兜底/100dvh 渐进双行（r19 §7.1：
+  //    钉高一屏——min-height 会被画布固有高度撑开、dock 出折叠线）
+  assert.match(sPortrait, /body\s*\{[^}]*display:\s*flex/, 'S 档 body 缺 flex 骨架（一屏适配前提）')
+  assert.match(sPortrait, /height:\s*100vh/, 'S 档 body 缺 height:100vh 兜底行（渐进增强惯例）')
+  assert.match(sPortrait, /height:\s*100dvh/, 'S 档 body 缺 height:100dvh 渐进行')
+  // ② 主区网格：'hold board next' 三列 areas（对局区 1fr 吃满，侧栏 auto 轨随开关塌缩）
+  assert.match(sPortrait, /#main\s*\{[^}]*'hold board next'/,
+    'S 档 #main 缺 \'hold board next\' 网格 areas（棋盘优先布局锚点）')
+  // ③ 棋盘等比：renderer.resize() 内联尺寸以 !important 压过 + 双 max 约束保 280:560（AC-2）
+  assert.match(sPortrait, /#board\s*\{[^}]*width:\s*auto\s*!important/,
+    'S 档 #board 缺 width:auto !important 等比覆盖（§7.2 横屏先例同款）')
+  assert.match(sPortrait, /#board\s*\{[^}]*max-height:\s*100%/,
+    'S 档 #board 缺 max-height:100%（吃满剩余高度）')
+  // ④ dock 随流：单行 position:static（废弃 r17 悬浮/滚动预留）；safe-area 避让由
+  //    r16 基座 .touchpad padding 承载（本档不再重写 padding，基座 env() 延续即 AC-3）
+  assert.match(sPortrait, /\.touchpad\s*\{[^}]*position:\s*static/,
+    'S 档 .touchpad 缺 position:static（随流 dock）')
+  assert.ok(css.includes('env(safe-area-inset-bottom)'),
+    'style.css 缺 env(safe-area-inset-bottom)（AC-3 渐进增强，r16 基座）')
+  // ⑤ 键位图例 S 竖屏隐藏（PRD AC-8 已确认行为变更）
+  assert.match(sPortrait, /\.key-hints\s*\{[^}]*display:\s*none/,
+    'S 档缺 .key-hints display:none（PRD AC-8）')
 })
