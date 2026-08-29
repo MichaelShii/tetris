@@ -2221,6 +2221,126 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('r23 B9: 独立 env dispose 无异常（AC-11 收尾）', true)
   }
 
+  /* ---------- r24 触控双簇 + 操作区背景四皮肤 E2E 段（AC-3/7/8/12；TECHNICAL §6.4） ----------
+  DOM 静态契约（双簇结构/hub 三层保险/radio×4）由 verify-ui 源扫描锁定；本段验行为：
+  默认皮肤类装配 / radio 切换即时生效（引擎快照无漂移）/ restart 保持 / 持久化恢复
+  （共享 backing 二次装载，r15/r14 同源注入先例）/ ✛ 点击零事件 / 桌面门控。 ---------- */
+  console.log('\n-- r24 触控双簇 + 背景四皮肤（默认类 / 即时生效 / 恢复 / ✛ 零事件 / 门控） --')
+  {
+    window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+    const backing = {}
+    const sharedStore = {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(backing, k) ? backing[k] : null },
+      setItem: function (k, v) { backing[k] = String(v) },
+      removeItem: function (k) { delete backing[k] },
+    }
+    const padEl = function () { return doc.querySelector('#touch-controls') }
+    const skinClasses = function () {
+      const p = padEl()
+      if (!p) return []
+      return Array.prototype.slice.call(p.classList).filter(function (c) { return c.indexOf('touchpad--skin-') === 0 })
+    }
+    const pickSnap = function (s) {
+      return {
+        board: s.board,
+        piece: s.piece ? { type: s.piece.type, x: s.piece.x, y: s.piece.y, rot: s.piece.rot } : null,
+        score: s.score, lines: s.lines, level: s.level,
+        next: s.next, queue: s.queue, holdPiece: s.holdPiece,
+      }
+    }
+    const snapEq = function (a, b) { return JSON.stringify(pickSnap(a)) === JSON.stringify(pickSnap(b)) }
+    const radio = function (v) { return doc.querySelector('input[name="dock-skin"][value="' + v + '"]') }
+
+    // ① 初始装配（touch:true）：默认皮肤类 fade 挂载 + radio 默认 checked=fade
+    const r24p1 = window.TetrisPersist.createPersistence({ storage: sharedStore })
+    const h1 = window.TetrisUI.createUI({
+      autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0,
+      touch: true, persist: r24p1,
+    })
+    const g1 = h1.game
+    check('r24: 装配即挂默认皮肤类 touchpad--skin-fade（AC-7 默认 C）',
+      skinClasses().length === 1 && skinClasses()[0] === 'touchpad--skin-fade', JSON.stringify(skinClasses()))
+    check('r24: 默认 radio checked=fade（AC-14 语义）', radio('fade').checked === true, 'checked=' + radio('fade').checked)
+
+    // ② 即时生效（AC-7）：点「A 玻璃 dock」→ 类全量替换恰一皮肤类 + persist 写回 + 引擎快照无漂移。
+    //    radio 切换本体在弹层内但 jsdom 无布局/命中拦截，直接点按即可；先于打开弹层断言 phase RUNNING
+    //    （req-12 弹层打开自动暂停属弹层行为，与皮肤切换正交，避免混入快照比对）
+    g1.start()
+    const sSkin0 = g1.getSnapshot()
+    radio('glass').click()
+    check('r24: 点玻璃 radio → 恰一皮肤类 touchpad--skin-glass（applyDockSkin 全量替换）',
+      skinClasses().length === 1 && skinClasses()[0] === 'touchpad--skin-glass', JSON.stringify(skinClasses()))
+    check('r24: radio checked 同步（glass 选中、fade 取消）',
+      radio('glass').checked === true && radio('fade').checked === false)
+    const saved0 = r24p1.load()
+    check('r24: 切换写持久化（settings.dockSkin === glass，AC-8 通道同源）',
+      saved0.settings && saved0.settings.dockSkin === 'glass', JSON.stringify(saved0.settings && saved0.settings.dockSkin))
+    const sSkin1 = g1.getSnapshot()
+    check('r24: 切换零引擎触达（快照逐字段无漂移、phase 仍 RUNNING，AC-7）',
+      snapEq(sSkin0, sSkin1) && sSkin1.phase === 'RUNNING', sSkin1.phase)
+    // 弹层正交：打开设置弹层（req-12 自动暂停）后皮肤类保持——外观组即时切换不受弹层生命周期影响
+    $('#btn-settings').click()
+    check('r24: 设置弹层打开后皮肤类保持 glass（外观组与弹层正交）',
+      skinClasses().length === 1 && skinClasses()[0] === 'touchpad--skin-glass', JSON.stringify(skinClasses()))
+
+    // ③ restart 保持（AC-7）：切换后 restart → 皮肤类不变（会话内不重置）
+    g1.restart()
+    check('r24: restart 后皮肤类保持 glass', skinClasses().length === 1 && skinClasses()[0] === 'touchpad--skin-glass',
+      JSON.stringify(skinClasses()))
+    h1.dispose()
+
+    // ④ 持久化恢复（AC-8）：同 backing 新 persist + 新 UI 实例 → 皮肤类与 radio checked 恢复 glass
+    const r24p2 = window.TetrisPersist.createPersistence({ storage: sharedStore })
+    const h2 = window.TetrisUI.createUI({
+      autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0,
+      touch: true, persist: r24p2,
+    })
+    const g2 = h2.game
+    check('r24: 二次装载恢复皮肤类 glass（AC-8 持久化恢复）',
+      skinClasses().length === 1 && skinClasses()[0] === 'touchpad--skin-glass', JSON.stringify(skinClasses()))
+    check('r24: 恢复后 radio checked=glass 同步', radio('glass').checked === true, 'checked=' + radio('glass').checked)
+
+    // ⑤ ✛ 零事件（AC-3）：touchstart/touchend/click → 无合成 keydown、piece.x 不变、无音效；
+    //    对照真实方向键照常（六键 .tkey[data-action] 命中回放器——DOM 重组零回归）
+    g2.start()
+    const sHub0 = g2.getSnapshot()
+    const hubEl = doc.querySelector('.tpad-cross__hub')
+    check('r24: hub 为 span 且无 data-action + aria-hidden（三层保险之二：标记层）',
+      hubEl !== null && hubEl.tagName === 'SPAN' && !hubEl.hasAttribute('data-action') && hubEl.getAttribute('aria-hidden') === 'true')
+    const plays0 = spy.plays.length
+    const keyLog = []
+    const hubKeySpy = function (e) { keyLog.push(e.key) }
+    doc.addEventListener('keydown', hubKeySpy)
+    hubEl.dispatchEvent(new window.Event('touchstart', { bubbles: true, cancelable: true }))
+    hubEl.dispatchEvent(new window.Event('touchend', { bubbles: true, cancelable: true }))
+    hubEl.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    doc.removeEventListener('keydown', hubKeySpy)
+    const sHub1 = g2.getSnapshot()
+    check('r24: hub 三事件零合成 keydown（无 data-action 不命中回放器，AC-3）', keyLog.length === 0, keyLog.length + ' keydown')
+    check('r24: hub 点击零副作用（piece.x 不变、无音效）',
+      sHub1.piece.x === sHub0.piece.x && spy.plays.length === plays0,
+      'x ' + sHub0.piece.x + '→' + sHub1.piece.x + ' plays+' + (spy.plays.length - plays0))
+    const dirBtn = doc.querySelector('.tkey[data-action="moveLeft"]')
+    dirBtn.dispatchEvent(new window.Event('touchstart', { bubbles: true, cancelable: true }))
+    dirBtn.dispatchEvent(new window.Event('touchend', { bubbles: true, cancelable: true }))
+    check('r24: 对照——十字簇真实方向键 touch 照常（DOM 重组六键零回归）',
+      g2.getSnapshot().piece.x === sHub1.piece.x - 1, 'x ' + sHub1.piece.x + '→' + g2.getSnapshot().piece.x)
+    h2.dispose()
+
+    // ⑥ 桌面门控（AC-12）：touch:false 实例 → 无 has-touch；外观组隐藏规则存在（jsdom 无布局，显隐走源码断言先例）
+    const h3 = window.TetrisUI.createUI({
+      autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0,
+    })
+    check('r24: 桌面实例无 has-touch（外观组整组隐藏，AC-12）', !doc.documentElement.classList.contains('has-touch'))
+    const cssR24e = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
+    check('r24: 外观组基座 display:none（不入可访问性树）',
+      /\.settings-group--appearance\s*\{[^}]*display:\s*none/.test(cssR24e))
+    check('r24: html.has-touch 下外观组显示（纯 CSS 门控，r16 先例）',
+      /html\.has-touch\s+\.settings-group--appearance\s*\{[^}]*display:\s*block/.test(cssR24e))
+    h3.dispose()
+    check('r24: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))

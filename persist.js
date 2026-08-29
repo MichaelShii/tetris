@@ -1,7 +1,7 @@
 /* ============================================================================
  * persist.js — Tetris 应用层统一持久化基础设施（v2.6）
  *
- * 职责：把「最高分」与「音量/静音/幽灵块/BGM/踢墙/暂存/预览队列」七设置持久化到 localStorage。
+ * 职责：把「最高分」与「音量/静音/幽灵块/BGM/踢墙/暂存/预览队列/操作区背景」八设置持久化到 localStorage。
  *   - createStorage(): localStorage 能力探测 → 不可用自动降级为内存 Map，绝不 throw
  *   - createPersistence(): 返回 load() / saveHighScore(n) / saveSettings(s) / dispose()
  *   - sanitize(value, schema): 纯函数清洗，highScore 非负整数、volume 收敛 0~1 浮点、
@@ -38,6 +38,10 @@
     // 负载结构版本（与模块 VERSION 解耦：此值仅标识存储格式，改结构才 +1）
     const PAYLOAD_VERSION = 1
 
+    // r24 操作区背景四皮肤枚举（单一事实来源链：persist ↔ ui.js ↔ index.html radio value，
+    // verify-ui 交叉断言防漂移；随 settings 包络持久化，PAYLOAD_VERSION 不变——纯增量向后兼容）
+    const DOCK_SKINS = ['glass', 'float', 'fade', 'pod']
+
     // 最高分默认 0（无历史时 HUD 显示 0，后续调用 saveHighScore 只增不减）
     const DEFAULT_HIGH_SCORE = 0
     // 五设置布尔白名单默认值（对齐 ui.js 现状：音量→audio 用 0~1，此处存布尔开关语义见说明）
@@ -50,6 +54,7 @@
       wallKickEnabled: true, // v2.9 信息面板踢墙开关默认开（AC-19.1）
       holdEnabled: true, // v3.2 暂存方块开关默认开（AC-14）
       previewQueueEnabled: true, // v3.2 多格预览队列开关默认开（AC-8）
+      dockSkin: 'fade', // r24 操作区背景四皮肤默认 C 渐隐（AC-7/8）
     }
 
     /* ======================================================================
@@ -61,6 +66,7 @@
      *   { type: 'integer', min: 0, max: Infinity, def: 0 }   // 非负整数（最高分）
      *   { type: 'float', min: 0, max: 1, def: 0.8 }           // 收敛浮点（音量），超界收敛上界
      *   { type: 'boolean', def: true }                        // 布尔白名单（其余五设置）
+     *   { type: 'string', values: [...], def: 'fade' }        // 字符串枚举白名单（r24 操作区背景）
      * @param {*} value   待清洗值（任意）
      * @param {object} schema  清洗规则
      * @returns {*} 清洗后的安全值（绝不抛异常）
@@ -93,6 +99,13 @@
       if (schema.type === 'boolean') {
         if (typeof value === 'boolean') return value
         return def // 非布尔 → 回默认（白名单）
+      }
+
+      if (schema.type === 'string') {
+        // r24：字符串枚举白名单——命中 values 返回原值，非法/缺失 → 回 def（AC-8 非法回退）
+        const values = Array.isArray(schema.values) ? schema.values : []
+        if (typeof value === 'string' && values.indexOf(value) !== -1) return value
+        return def
       }
 
       return def
@@ -277,6 +290,7 @@
             wallKickEnabled: sanitize(settings.wallKickEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.wallKickEnabled }),
             holdEnabled: sanitize(settings.holdEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.holdEnabled }),
             previewQueueEnabled: sanitize(settings.previewQueueEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.previewQueueEnabled }),
+            dockSkin: sanitize(settings.dockSkin, { type: 'string', values: DOCK_SKINS, def: DEFAULT_SETTINGS.dockSkin }),
           },
         }
       }
@@ -297,6 +311,7 @@
               wallKickEnabled: state.settings.wallKickEnabled,
               holdEnabled: state.settings.holdEnabled,
               previewQueueEnabled: state.settings.previewQueueEnabled,
+              dockSkin: state.settings.dockSkin,
             },
           })
         } catch (_e) {
@@ -397,6 +412,7 @@
       PAYLOAD_VERSION: PAYLOAD_VERSION,
       DEFAULT_HIGH_SCORE: DEFAULT_HIGH_SCORE,
       DEFAULT_SETTINGS: DEFAULT_SETTINGS,
+      DOCK_SKINS: DOCK_SKINS,
       sanitize: sanitize,
       createStorage: createStorage,
       createPersistence: createPersistence,

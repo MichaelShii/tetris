@@ -569,3 +569,160 @@ test('r23: buildRewardText 三轴矩阵（T-Spin · Combo · B2B，AC-9）', () 
     delete globalThis.TetrisGame
   }
 })
+
+/* ======================================================================
+ * r24 触控区掌机双簇 + 操作区背景四皮肤（T5 收口；TECHNICAL §6.3）
+ * 纯追加段：DOCK_SKINS 导出交叉 / applyDockSkin 纯函数矩阵 / DOM 双簇结构 /
+ * ✛ 非交互三层保险 / 尺寸 token 与紧凑两媒体 / 皮肤作用域切片 / 外观组门控
+ * ==================================================================== */
+const fsR24 = require('fs')
+const pathR24 = require('path')
+const P24 = require('../persist.js')
+const cssR24 = fsR24.readFileSync(process.env.DSH_VERIFY_UI_CSS || pathR24.join(__dirname, '..', 'style.css'), 'utf8')
+const htmlR24 = fsR24.readFileSync(process.env.DSH_VERIFY_UI_HTML || pathR24.join(__dirname, '..', 'index.html'), 'utf8')
+
+// 作用域切片（与 r19 先例同款）：S 竖屏块 / 横屏侧轨块
+const sStartR24 = cssR24.indexOf('@media (max-width: 599px)')
+const sLandR24 = cssR24.indexOf('@media (max-width: 599px) and (orientation: landscape)')
+const landStartR24 = cssR24.indexOf('@media (orientation: landscape)')
+const landEndR24 = cssR24.indexOf('6. 可访问性与降级')
+const sPortraitR24 = cssR24.slice(sStartR24, sLandR24)
+const landSliceR24 = cssR24.slice(landStartR24, landEndR24)
+assert.ok(sStartR24 !== -1 && sLandR24 > sStartR24 && landStartR24 !== -1 && landEndR24 > landStartR24, 'r24 切片锚点齐备')
+
+test('r24: DOCK_SKINS 导出交叉（ui ↔ persist ↔ index.html radio value 三处单一事实来源）', () => {
+  assert.deepEqual(T.DOCK_SKINS, P24.DOCK_SKINS, 'ui/persist 枚举深等')
+  assert.deepEqual(T.DOCK_SKINS, ['glass', 'float', 'fade', 'pod'], '四枚举值域')
+  // index.html 四 radio value 与枚举交叉（防漂移）
+  const radioValues = []
+  const re = /<input type="radio" name="dock-skin" value="([^"]+)"[^>]*>/g
+  let m
+  while ((m = re.exec(htmlR24)) !== null) radioValues.push(m[1])
+  assert.equal(radioValues.length, 4, 'radio 恰 4 个')
+  assert.deepEqual(radioValues.slice().sort(), T.DOCK_SKINS.slice().sort(), 'radio value ↔ DOCK_SKINS 全等')
+  assert.ok(/> C 渐隐托盘<\/label>/.test(htmlR24) && /<input type="radio" name="dock-skin" value="fade" checked>/.test(htmlR24),
+    '默认 C 渐隐 checked（AC-7/8）')
+})
+
+test('r24: applyDockSkin 纯函数矩阵（合法/非法/幂等/全量替换/custom set）', () => {
+  const makeFake = () => ({
+    classList: {
+      set: new Set(),
+      remove: function (c) { this.set.delete(c) },
+      add: function (c) { this.set.add(c) },
+    },
+  })
+  const el = makeFake()
+  assert.equal(T.applyDockSkin(el, 'glass'), true, '合法枚举 → true 且挂类')
+  assert.deepEqual(Array.from(el.classList.set), ['touchpad--skin-glass'])
+  // 全量替换：快速连续切换不残留双类（裁定 D4 class 层面配套）
+  T.applyDockSkin(el, 'pod')
+  T.applyDockSkin(el, 'fade')
+  assert.deepEqual(Array.from(el.classList.set), ['touchpad--skin-fade'], '切换后恰一皮肤类')
+  // 幂等：重复同值不产生多类
+  T.applyDockSkin(el, 'fade')
+  assert.deepEqual(Array.from(el.classList.set), ['touchpad--skin-fade'], '幂等')
+  // 非法输入：不加类、返回 false——但「全量去旧类」先于合法性校验（契约：移除四类后不添加）
+  assert.equal(T.applyDockSkin(el, 'neon'), false, '非枚举 → false')
+  assert.deepEqual(Array.from(el.classList.set), [], '非法输入 → 旧皮肤类已清、无新类（全量去类语义）')
+  assert.equal(T.applyDockSkin(null, 'glass'), false, 'null 元素 → false')
+  assert.equal(T.applyDockSkin(el), false, '无 skin 参数 → false')
+  // custom skins 集（独立注入）
+  const el2 = makeFake()
+  assert.equal(T.applyDockSkin(el2, 'x', ['x', 'y']), true)
+  assert.deepEqual(Array.from(el2.classList.set), ['touchpad--skin-x'], 'custom set 生效')
+})
+
+test('r24: 触控区双簇 DOM 契约（AC-1：六 .tkey[data-action] 字面量/数量零改名，仅集合断言）', () => {
+  const all = []
+  let m
+  const re = /data-action="([^"]+)"/g
+  while ((m = re.exec(htmlR24)) !== null) all.push(m[1])
+  assert.equal(all.length, 6, '六键零增删')
+  assert.deepEqual(all.slice().sort(), T.TOUCH_KEYS.map(function (e) { return e.action }).sort(),
+    'data-action 集合 ↔ TOUCH_KEYS 全等（既有 AC-1 交叉断言并存）')
+  // 左十字簇恰 4 键（dir 区）+ 右旋转簇恰 2 键（Hold/旋转）
+  const crossStart = htmlR24.indexOf('class="tpad-cross"')
+  const mainStart = htmlR24.indexOf('class="tpad-main"')
+  assert.ok(crossStart !== -1 && mainStart > crossStart, '双簇 wrapper 存在且源序 cross→main')
+  const crossActions = []
+  const re2 = /data-action="([^"]+)"/g
+  while ((m = re2.exec(htmlR24.slice(crossStart, mainStart))) !== null) crossActions.push(m[1])
+  assert.deepEqual(crossActions, ['hardDrop', 'moveLeft', 'moveRight', 'softDrop'],
+    '十字簇 4 键（上硬降/左右横移/下软降，DOM 源序）')
+  const mainActions = []
+  const re3 = /data-action="([^"]+)"/g
+  while ((m = re3.exec(htmlR24.slice(mainStart, htmlR24.indexOf('</div>', mainStart)))) !== null) mainActions.push(m[1])
+  assert.deepEqual(mainActions, ['hold', 'rotate'], '右旋转簇 2 键（Hold 上/旋转下）')
+})
+
+test('r24: ✛ hub 非交互三层保险（AC-3：无 data-action / aria-hidden / pointer-events:none）', () => {
+  const hubIdx = htmlR24.indexOf('tpad-cross__hub')
+  assert.ok(hubIdx !== -1, 'hub 元素存在')
+  const hubTag = htmlR24.slice(htmlR24.lastIndexOf('<', hubIdx), htmlR24.indexOf('>', hubIdx))
+  assert.ok(hubTag.indexOf('data-action') === -1, 'hub 无 data-action（createTouchControls 选择器不命中）')
+  assert.ok(hubTag.indexOf('aria-hidden="true"') !== -1, 'hub aria-hidden（不入读屏）')
+  assert.ok(hubTag.indexOf('class="tpad-cross__hub"') !== -1, 'hub 为 span.tpad-cross__hub（无 .tkey 键类）')
+  assert.match(cssR24, /\.tpad-cross__hub\s*\{[^}]*pointer-events:\s*none/, 'CSS 事件层保险（pointer-events:none）')
+  // 无 .tkey 类 → 键样三态/尺寸规则不命中（基座 hub 规则独立）
+  assert.ok(cssR24.indexOf('.tpad-cross__hub') !== -1)
+})
+
+test('r24: 尺寸 token 三元组与三档规格（AC-2/AC-4/AC-10，DESIGN §4.2）', () => {
+  // 基座兼容别名保留（qa-e2e 1642/1644/1647 与 M/L --dock-h 算式零改动，裁定 D1）
+  assert.match(cssR24, /--tpad-key:\s*3rem/, '基座 --tpad-key: 3rem 保留（M/L 兼容别名）')
+  // S 标准档（竖屏块内）：dir 4rem=64 / hero 6rem=96 / hold 3.5rem=56 / gap 12px
+  assert.match(sPortraitR24, /--tpad-key-dir:\s*4rem/, 'S 标准 dir 4rem(64px)')
+  assert.match(sPortraitR24, /--tpad-key-hero:\s*6rem/, 'S 标准 hero 6rem(96px)')
+  assert.match(sPortraitR24, /--tpad-key-hold:\s*3\.5rem/, 'S 标准 hold 3.5rem(56px)')
+  assert.match(sPortraitR24, /--tpad-gap:\s*12px/, 'S 标准 gap 12px')
+  // 紧凑两 media 分支（portrait && 宽≤359 ∥ 高≤639）：3.5/5/3rem + gap 10px
+  assert.ok(cssR24.indexOf('@media (max-width: 359px)') !== -1, '紧凑分支①（宽≤359）存在')
+  assert.ok(cssR24.indexOf('@media (max-height: 639px)') !== -1, '紧凑分支②（高≤639）存在')
+  assert.ok((cssR24.match(/--tpad-key-dir:\s*3\.5rem/g) || []).length >= 3, 'dir 3.5rem 至少三处（紧凑×2 + 横屏×1）')
+  assert.ok(cssR24.indexOf('--tpad-key-hero: 5rem') !== -1, 'hero 5rem(80px) 存在')
+  assert.ok(cssR24.indexOf('--tpad-key-hold: 3rem') !== -1, 'hold 3rem(48px) 存在')
+  assert.ok(cssR24.indexOf('--tpad-gap: 10px') !== -1, 'gap 10px 存在')
+  // 横屏块内同径（D5：56/80/48）
+  assert.match(landSliceR24, /--tpad-key-dir:\s*3\.5rem/, '横屏 dir 3.5rem')
+  assert.match(landSliceR24, /--tpad-key-hero:\s*5rem/, '横屏 hero 5rem')
+  assert.match(landSliceR24, /--tpad-key-hold:\s*3rem/, '横屏 hold 3rem')
+  assert.match(landSliceR24, /--tpad-gap:\s*10px/, '横屏 gap 10px')
+  // 320px 验算比值锚定（316 = 32 padding + 188 十字 + 16 簇距 + 80 右簇 ≤ 320，AC-4）
+  assert.ok(cssR24.indexOf('316') !== -1 && cssR24.indexOf('320') !== -1, '320 验算注释锚定')
+})
+
+test('r24: 皮肤四类作用域（AC-7/AC-9：仅 S 竖屏 + 横屏块内，M/L 恒玻璃构造保证）', () => {
+  const skins = ['glass', 'float', 'fade', 'pod']
+  const inSlice = function (idx) {
+    return (idx >= sStartR24 && idx < sLandR24) || (idx >= landStartR24 && idx < landEndR24)
+  }
+  for (const s of skins) {
+    const needle = '.touchpad--skin-' + s
+    const idxs = []
+    let from = 0
+    let i
+    while ((i = cssR24.indexOf(needle, from)) !== -1) { idxs.push(i); from = i + needle.length }
+    assert.ok(idxs.length >= 2, s + ' 皮肤类至少两处（S 竖屏 + 横屏）')
+    for (const idx of idxs) assert.ok(inSlice(idx), s + ' 皮肤类全部落在 S/横屏作用域内（M/L 零新增，AC-9）')
+  }
+  // 键型覆写选择器（特异性高于基座 .tkey）
+  assert.match(sPortraitR24, /\.tpad-cross\s+\.tkey\s*\{[^}]*var\(--tpad-key-dir\)/, '十字键走 dir token')
+  assert.match(sPortraitR24, /\.tpad-main\s+\.tkey--rotate\s*\{[^}]*var\(--tpad-key-hero\)/, '旋转主键走 hero token')
+  assert.match(sPortraitR24, /\.tpad-main\s+\.tkey--hold\s*\{[^}]*var\(--tpad-key-hold\)/, 'Hold 键走 hold token')
+  // 皮肤类含「去整条底」语义：float/pod 无 blur
+  assert.match(sPortraitR24, /\.touchpad--skin-float\s*\{[^}]*backdrop-filter:\s*none/, 'float 去容器底（S）')
+})
+
+test('r24: 外观组门控与 radio 语义（AC-12/AC-14：CSS 显隐 + 原生 radio 键盘可达）', () => {
+  assert.match(cssR24, /\.settings-group--appearance\s*\{[^}]*display:\s*none/, '外观组基座 display:none（不入可访问性树）')
+  assert.match(cssR24, /html\.has-touch\s+\.settings-group--appearance\s*\{[^}]*display:\s*block/, 'has-touch 下显示（纯 CSS 显隐）')
+  assert.ok(htmlR24.indexOf('settings-group--appearance') !== -1, '外观组静态 DOM 恒在')
+  assert.ok(htmlR24.indexOf('name="dock-skin"') !== -1, '原生 radio name=dock-skin')
+  // AC-14：最小触控键 48px（紧凑 hold 3rem=48px）≥ 44
+  assert.ok(cssR24.indexOf('--tpad-key-hold: 3rem') !== -1, '紧凑 hold 3rem')
+  assert.ok(3 * 16 >= 44, '3rem → 48px ≥ 44 最小可点击目标（AC-14）')
+  // S 竖屏 grid 双簇布局锚点
+  assert.match(sPortraitR24, /\.tpad-cross\s*\{[^}]*display:\s*grid/, '十字簇 grid 布局')
+  assert.match(sPortraitR24, /\.tpad-main\s*\{[^}]*flex-direction:\s*column/, '旋转簇纵列布局')
+})

@@ -70,7 +70,8 @@ test('persist: 最高分/设置键读写往返（跨实例持久）', () => {
   assert.deepEqual(loaded1.settings, P.DEFAULT_SETTINGS, '初始设置默认值')
 
   p1.saveHighScore(120)
-  p1.saveSettings({ volume: 0.5, muted: true, ghostEnabled: false, bgmEnabled: true, wallKickEnabled: false, holdEnabled: false, previewQueueEnabled: false })
+  // r24 登记改写（唯一一处）：往返用例补 dockSkin 字段——新字段进入真实写/读往返覆盖
+  p1.saveSettings({ volume: 0.5, muted: true, ghostEnabled: false, bgmEnabled: true, wallKickEnabled: false, holdEnabled: false, previewQueueEnabled: false, dockSkin: 'pod' })
 
   // 新实例（等价刷新重开）读回同一底层 → 恢复
   const p2 = P.createPersistence({ storage: backing })
@@ -84,7 +85,8 @@ test('persist: 最高分/设置键读写往返（跨实例持久）', () => {
     wallKickEnabled: false,
     holdEnabled: false,
     previewQueueEnabled: false,
-  }, '七设置跨实例恢复（含暂存/预览队列开关）')
+    dockSkin: 'pod',
+  }, '八设置跨实例恢复（含 dockSkin 操作区背景）')
 })
 
 /* ============================================================================
@@ -316,4 +318,50 @@ test('persist: dispose 后不再写、load/save* 不抛错', () => {
   let stRet
   assert.doesNotThrow(() => { stRet = p.saveSettings({ ghostEnabled: false }) })
   assert.equal(stRet, false, 'dispose 后 saveSettings 返回 false（不写）')
+})
+
+/* ============================================================================
+ * 8. r24 操作区背景 dockSkin（纯追加段：AC-8 通道同源、additive 不升版）
+ * ========================================================================== */
+test('persist: DOCK_SKINS 枚举导出与默认值（r24）', () => {
+  assert.deepEqual(P.DOCK_SKINS, ['glass', 'float', 'fade', 'pod'], 'DOCK_SKINS 四枚举单一事实来源')
+  assert.equal(P.DEFAULT_SETTINGS.dockSkin, 'fade', 'DEFAULT_SETTINGS.dockSkin 默认 C 渐隐')
+})
+
+test('persist: sanitize string 枚举矩阵（白名单/非法/非字符串/def 缺省，r24）', () => {
+  const skin = (v, def) => P.sanitize(v, { type: 'string', values: P.DOCK_SKINS, def })
+  assert.equal(skin('glass', 'fade'), 'glass', '白名单命中保留')
+  assert.equal(skin('pod', 'fade'), 'pod', '白名单命中保留')
+  assert.equal(skin('opaque', 'fade'), 'fade', '枚举外非法值 → 回 def')
+  assert.equal(skin('', 'fade'), 'fade', '空字符串非法 → 回 def')
+  assert.equal(skin(42, 'fade'), 'fade', '非字符串 → 回 def')
+  assert.equal(skin(null, 'fade'), 'fade', 'null → 回 def')
+  assert.equal(skin(undefined, 'fade'), 'fade', 'undefined/缺失 → 回 def')
+  assert.equal(skin('glass'), 'glass', 'def 缺省但值合法 → 返回原值（不 throw）')
+  assert.equal(P.sanitize('glass', null), undefined, 'schema 非法 → 安全 undefined')
+})
+
+test('persist: 旧载荷缺 dockSkin 字段 → 恢复默认 fade（additive 向后兼容，r24）', () => {
+  const backing = makeBacking()
+  // 伪造一份不含 dockSkin 的 r23 载荷（四轴计分后格式）
+  const legacy = {
+    version: P.PAYLOAD_VERSION,
+    highScore: 300,
+    settings: { volume: 0.7, muted: false, ghostEnabled: true, bgmEnabled: false, wallKickEnabled: true, holdEnabled: false, previewQueueEnabled: true },
+  }
+  seedRaw(backing, P.TETRIS_PERSIST_KEY, JSON.stringify(legacy))
+  const p = P.createPersistence({ storage: backing })
+  const loaded = p.load()
+  assert.equal(loaded.highScore, 300, '旧载荷最高分恢复')
+  assert.equal(loaded.settings.dockSkin, 'fade', '无 dockSkin 字段 → 回默认 fade')
+  assert.equal(P.PAYLOAD_VERSION, 1, 'additive 新增字段不升 PAYLOAD_VERSION')
+})
+
+test('persist: 非法 dockSkin 值经 saveSettings/readState 清洗回默认 fade（AC-8 非法回退）', () => {
+  const backing = makeBacking()
+  const p = P.createPersistence({ storage: backing })
+  p.saveSettings({ volume: 0.5, dockSkin: 'neon' })
+  const loaded = p.load()
+  assert.equal(loaded.settings.dockSkin, 'fade', 'saveSettings 非法枚举 → 清洗回默认 fade')
+  assert.equal(loaded.settings.volume, 0.5, '其余字段不受影响')
 })

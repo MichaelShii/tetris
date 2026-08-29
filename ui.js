@@ -1068,6 +1068,23 @@
       { action: 'hold', key: 'c', holdable: false },
     ]
 
+    // r24 操作区背景四皮肤枚举（与 persist.DOCK_SKINS / index.html radio value 三处单一事实
+    // 来源，verify-ui 交叉断言防漂移；值域与 persist 深等）
+    const DOCK_SKINS = ['glass', 'float', 'fade', 'pod']
+
+    // r24 纯函数：全量移除四皮肤类再添加目标类（防快速连续切换双类残留竞争，裁定 D4 的
+    // class 层面配套）；非枚举输入（含空/缺失）不加类返回 false；幂等；无 DOM 亦可 Node 单测
+    function applyDockSkin(el, skin, skins) {
+      if (!el) return false
+      const set = skins || DOCK_SKINS
+      ;(set).forEach(function (s) {
+        el.classList.remove('touchpad--skin-' + s)
+      })
+      if (set.indexOf(skin) === -1) return false
+      el.classList.add('touchpad--skin-' + skin)
+      return true
+    }
+
     // 触屏设备检测（r21 语义收窄，原 r16 §5.8 全能力检测）：**主指针为粗指针**
     // （matchMedia('(pointer: coarse)')，手机/平板）才显示触控键——触屏笔记本/触屏显示器
     // PC 的主指针是鼠标，不再显示（用户裁定，r21 任务夹；右轨 z-order 缺陷同轮修复）。
@@ -1448,6 +1465,45 @@
       }
       previewQueueBtn.addEventListener('click', onPreviewQueueToggle)
 
+      /* ---- 操作区背景四皮肤（r24，AC-7/8/12/14） ----
+         会话闭包 dockSkin（默认 C 渐隐）：装配期 applyDockSkin 挂类、即时切换全量替换类
+         （不重载 / 不重置对局 / 零引擎触达——快照无漂移由构造保证，AC-7）；
+         设置弹层「外观」组（原生 radio name=dock-skin）由 CSS 门控显隐（基座 display:none、
+         html.has-touch 才显示，AC-12），元素恒在 DOM → 绑定恒可执行；
+         选择写持久化（settings.dockSkin，AC-8）；#touch-controls 缺失（r16 可选）时
+         皮肤类无处可挂即无效果，radio 仍可操作、仍持久化。 ---- */
+      let dockSkin = 'fade'
+      if (touchPadEl) applyDockSkin(touchPadEl, dockSkin)
+
+      function syncDockSkin() {
+        const radios = root.querySelectorAll ? root.querySelectorAll('[name="dock-skin"]') : null
+        if (!radios) return
+        for (let i = 0; i < radios.length; i++) {
+          radios[i].checked = radios[i].value === dockSkin
+        }
+      }
+      syncDockSkin()
+
+      function onDockSkinChange() {
+        const radios = root.querySelectorAll ? root.querySelectorAll('[name="dock-skin"]') : null
+        if (!radios) return
+        for (let i = 0; i < radios.length; i++) {
+          if (radios[i].checked) {
+            dockSkin = radios[i].value
+            break
+          }
+        }
+        if (touchPadEl) applyDockSkin(touchPadEl, dockSkin)
+        persistSettings()
+        syncDockSkin()
+      }
+      const dockSkinRadios = root.querySelectorAll ? root.querySelectorAll('[name="dock-skin"]') : null
+      if (dockSkinRadios) {
+        for (let i = 0; i < dockSkinRadios.length; i++) {
+          dockSkinRadios[i].addEventListener('change', onDockSkinChange)
+        }
+      }
+
       /* ---- Hold 暂存按键（r14，C/Shift → game.hold()） ----
          与 M 键同层：设置级操作（holdEnabled guard），不走 game.js keyAction 表。 ---- */
       function onHoldKey(e) {
@@ -1637,6 +1693,7 @@
             wallKickEnabled: wallKickEnabled,
             holdEnabled: holdEnabled,
             previewQueueEnabled: previewQueueEnabled,
+            dockSkin: dockSkin, // r24 操作区背景四皮肤（枚举白名单，persist readState 清洗）
           })
         } catch (e) { /* 持久化层契约不 throw；再兜底一层保证永不中断游戏 */ }
       }
@@ -1662,8 +1719,13 @@
             if (typeof st.holdEnabled === 'boolean') holdEnabled = st.holdEnabled
             // r15 预览队列：恢复开关态
             if (typeof st.previewQueueEnabled === 'boolean') previewQueueEnabled = st.previewQueueEnabled
+            // r24 操作区背景：恢复开关态（双保险——persist readState 已按枚举白名单清洗，
+            // 此处再自校验兜底；任一兜住即回默认 fade，AC-8）
+            if (typeof st.dockSkin === 'string' && DOCK_SKINS.indexOf(st.dockSkin) !== -1) dockSkin = st.dockSkin
           }
         }
+        if (touchPadEl) applyDockSkin(touchPadEl, dockSkin)
+        syncDockSkin() // radio checked 镜像（含 #touch-controls 缺失时的纯状态恢复）
         audioPanel.sync() // 音量/静音 DOM 镜像
         syncGhostBtn()
         syncBgmBtn()
@@ -1889,6 +1951,11 @@
         wallKickBtn.removeEventListener('click', onWallKickToggle)
         holdBtn.removeEventListener('click', onHoldToggle) // r14
         previewQueueBtn.removeEventListener('click', onPreviewQueueToggle) // r15
+        if (dockSkinRadios) {
+          for (let i = 0; i < dockSkinRadios.length; i++) {
+            dockSkinRadios[i].removeEventListener('change', onDockSkinChange) // r24
+          }
+        }
         if (typeof window !== 'undefined') window.removeEventListener('keydown', onHoldKey) // r14
         closeSettingsModal() // 关闭弹层并清理内部事件（ESC keydown / 焦点陷阱）
         mousedownGuards.forEach(function (entry) {
@@ -1975,6 +2042,9 @@
       TOUCH_KEYS: TOUCH_KEYS,
       isTouchDevice: isTouchDevice,
       createTouchControls: createTouchControls,
+      // r24：操作区背景四皮肤枚举 + 全量替换纯函数（Node 可单测，与 persist 白名单双保险）
+      DOCK_SKINS: DOCK_SKINS,
+      applyDockSkin: applyDockSkin,
     }
   }
 )
