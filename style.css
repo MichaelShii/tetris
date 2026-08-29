@@ -1070,6 +1070,14 @@ html.has-touch .touchpad {
   margin-left: var(--sp-2);
 }
 
+/* r26 .rail 元素化（AC-2，裁定 R-D2/R-D3）：基座 display:contents 中性化——竖屏/M/L 布局中
+   .rail 不产生盒，双簇按 r24 直子参与 .touchpad flex 布局（逐字节等、零回归风险面）；
+   横屏作用域由 .rail--l/--r 覆写为轨道视觉盒（同特异性源序胜出）。
+   皮肤挂点随轨迁移（pseudo 轨 → .rail 轨盒）；.rail 无 data-action/无 .tkey 键类（回放器与键聚合零命中） */
+.touchpad .rail {
+  display: contents;
+}
+
 /* ✛ 装饰 hub 基座隐藏（M/L 行式底栏不呈现十字格；S 竖屏/横屏簇内显示）。
    三层保险（AC-3）：无 data-action（createTouchControls 选择器不命中）、pointer-events:none、
    aria-hidden（不入读屏，见 index.html 标记） */
@@ -1086,6 +1094,127 @@ html.has-touch .touchpad {
 
 html.has-touch .settings-group--appearance {
   display: block;
+}
+
+/* r26 外观组 2×2 缩略选择器（AC-7~9/15，裁定 R-D5）：四 label > input[radio name=dock-skin]
+   原生 radio（键盘可达 + 选中态驱动）+ tile 真实皮肤 mini 预览 + 名称另起一行；
+   选中描边 + ✓ 徽标 + 焦点环。tile 类 dock-skin-option__tile--* 刻意避开 .touchpad--skin-
+   needle（AC-12：保护 r24 皮肤作用域切片断言）；radio 视觉隐藏但保焦点（AC-15 读屏结构） */
+.dock-skin-control__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dock-skin-option {
+  position: relative;         /* radio 绝对定位基准（TECH §3.2 blueprint） */
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;               /* 名称 ellipsis 兜底（窄卡不挤出） */
+  cursor: pointer;
+}
+
+.dock-skin-option input[type='radio'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;                 /* 视觉隐藏原生 radio（AC-9），焦点/选中态仍可达 */
+  pointer-events: none;       /* 命中经 label（点 label 触发 radio） */
+}
+
+/* tile 缩略预览：真实皮肤变量 mini 化（AC-8）——玻璃/浮键/渐隐/座舱四皮肤视觉缩影；
+   高 48px 宽 100%（DESIGN §2.3 预览面 48px，TECH §3.2 blueprint），flex 居中迷你键点 */
+.dock-skin-option__tile {
+  position: relative;         /* ✓ 徽标绝对定位基准 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;                   /* 迷你键点行距 */
+  width: 100%;
+  height: 48px;
+  max-width: 125px;           /* 320 预算：卡片 294 − padding 32 − 列距 12 = 250 → tile ≈125 ≥ 110 */
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(23, 23, 23, 0.45);
+  overflow: hidden;
+  transition: border-color 120ms ease-out;
+}
+
+/* 迷你键点示意（AC-8 真实皮肤非静态图标，DESIGN §2.3）：十字四小点 7px（--surface-2 底 + --line 描边）
+   + 主键点 10px（--primary 描边） */
+.dskin-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.dskin-dot--hero {
+  width: 10px;
+  height: 10px;
+  border-color: var(--primary);
+}
+
+.dock-skin-option__tile--glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+}
+
+.dock-skin-option__tile--float {
+  background: transparent;
+  border-color: transparent;
+}
+
+.dock-skin-option__tile--fade {
+  background: linear-gradient(180deg, rgba(23, 23, 23, 0), rgba(35, 35, 45, 0.82) 36%, rgba(26, 26, 34, 0.95));
+}
+
+.dock-skin-option__tile--pod {
+  background: radial-gradient(closest-side, rgba(139, 124, 246, 0.30), rgba(139, 124, 246, 0));
+}
+
+.dock-skin-option__name {
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  white-space: nowrap;        /* 320 预算 + ellipsis 兜底：0 横向挤出/堆叠（TECH §3.2） */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 选中态双信号（AC-9）：描边 primary + ✓ 徽标（input 直居 label 首位、tile 紧邻 → 相邻兄弟选择器） */
+input:checked + .dock-skin-option__tile {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+input:checked + .dock-skin-option__tile::after {
+  content: '✓';
+  position: absolute;         /* 右上 16px 圆徽标（DESIGN §2.3：--surface-2 底 + --primary 描边 + --primary-hi ✓） */
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--primary);
+  color: var(--primary-hi);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* 焦点环（AC-9/15）：键盘导航可见 */
+input:focus-visible + .dock-skin-option__tile {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* 键组件 .tkey（DESIGN §2.3 三态：静态 / :active 按下 / 松手回静态；PAUSED/OVER 视觉不变，AC-2） */
@@ -1177,10 +1306,11 @@ html.has-touch .settings-group--appearance {
   }
 }
 
-/* r24 横屏侧轨（orientation: landscape，AC-10 / DESIGN §2.3）：左轨十字簇 + 右轨 Hold/旋转，
+/* r26 横屏侧轨（orientation: landscape 且 S 档 <600px，AC-10 / DESIGN §2.3）：左轨十字簇 + 右轨 Hold/旋转，
    键径 56/80/48（裁定 D5：取代设计稿内 52/76/46）；轨宽 3×56+2×10+2×12=212px 贴 safe-area；
-   中列留白承接板框（裁定 D6：板框包围盒居中内嵌于 [212, vw−212]，余量 ≥13px） */
-@media (orientation: landscape) {
+   中列留白承接板框（裁定 D6：板框包围盒居中内嵌于 [212, vw−212]，余量 ≥13px）；
+   AC-3 门控（裁定 R-D1）：and (max-width: 599px)——M/L（≥600px）横屏恒落基座行式底栏（恒玻璃），不引入侧轨 */
+@media (orientation: landscape) and (max-width: 599px) {
   .touchpad {
     --tpad-key-dir: 3.5rem;   /* 56px */
     --tpad-key-hero: 5rem;    /* 80px */
@@ -1204,33 +1334,37 @@ html.has-touch .settings-group--appearance {
     box-shadow: none;
   }
 
-  /* 键 z-index 盖轨（r21 修复保留：::before/::after 为后位子盒、z-order 在键之上，
-     右轨键被玻璃轨遮成空胶囊，z-index:1 复位层级） */
+  /* 键 z-index 盖轨（r21 修复保留：z-index:1 复位层级，轨盒为后位兄弟盒、z-order 在键之下） */
   .touchpad .tkey {
     position: relative;
     z-index: 1;
   }
 
-  /* 玻璃侧轨容器（DESIGN §2.3：rgba(35,35,45,.45) + --line 描边；皮肤覆写见块 4） */
-  .touchpad::before,
-  .touchpad::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
+  /* r26 独立轨道元素（AC-2，取代 r24 伪元素全边描边轨）：
+     .rail--l 左轨 ≈212（单边右描边）/ .rail--r 右轨 ≈104（单边左描边，DESIGN 窄面板裁定）；
+     display:flex 承簇居中、align-self:stretch 撑满轨高、safe-area 贴边；皮肤挂点随轨迁移 */
+  .touchpad .rail--l {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
     width: calc(3 * var(--tpad-key-dir) + 2 * var(--tpad-gap) + 2 * 12px); /* ≈212px */
-    background: rgba(35, 35, 45, 0.45);
-    border: 1px solid var(--line);
+    border-right: 1px solid var(--line);
     border-radius: var(--radius-md);
-    pointer-events: none;
+    background: rgba(35, 35, 45, 0.45);
+    margin-left: env(safe-area-inset-left);
   }
 
-  .touchpad::before {
-    left: env(safe-area-inset-left);
-  }
-
-  .touchpad::after {
-    right: env(safe-area-inset-right);
+  .touchpad .rail--r {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    width: calc(var(--tpad-key-hero) + 2 * 12px); /* ≈104px */
+    border-left: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: rgba(35, 35, 45, 0.45);
+    margin-right: env(safe-area-inset-right);
   }
 
   /* 左轨：十字簇 grid 3×3（键径 56，gap 10）——上硬降 / 左右横移 / 下软降 / 中心 ✛ */
@@ -1246,6 +1380,11 @@ html.has-touch .settings-group--appearance {
   .touchpad .tpad-cross .tkey:nth-child(2) { grid-area: lf; }
   .touchpad .tpad-cross .tkey:nth-child(3) { grid-area: rt; }
   .touchpad .tpad-cross .tkey:nth-child(4) { grid-area: dn; }
+
+  /* r26 键帽质感统一（AC-5）：横屏十字键正圆补漏（r24 仅旋转主键正圆） */
+  .touchpad .tpad-cross .tkey {
+    border-radius: 50%;
+  }
 
   .touchpad .tpad-cross__hub {
     display: flex;                          /* 基座隐藏 → 轨内显示 */
@@ -1272,6 +1411,7 @@ html.has-touch .settings-group--appearance {
     height: var(--tpad-key-hold);
     min-width: var(--tpad-key-hold);
     min-height: var(--tpad-key-hold);
+    border-radius: 50%;                     /* r26 AC-5：Hold 键正圆补漏 */
   }
 
   .touchpad .tpad-main .tkey--rotate {
@@ -1282,7 +1422,7 @@ html.has-touch .settings-group--appearance {
     border-radius: 50%;                     /* 旋转主键：主色微底 + 常亮细环（DESIGN §4.1） */
     background: #363050;                    /* color-mix fallback */
     background: color-mix(in oklch, var(--primary) 16%, var(--surface-2));
-    border-color: rgba(139, 124, 246, 0.55);
+    border-color: color-mix(in oklch, var(--primary) 55%, transparent); /* r26 AC-6：常亮环 55% 强度（零新 token） */
   }
 
   .touchpad .tpad-main .tkey--rotate::after {
@@ -1299,38 +1439,42 @@ html.has-touch .settings-group--appearance {
   .touchpad .tpad-cross .tkey__label { font-size: 10px; }
   .touchpad .tpad-main .tkey--hold .tkey__icon { font-size: 13px; }
   .touchpad .tpad-main .tkey--hold .tkey__label { font-size: 9px; }
-  .touchpad .tpad-main .tkey--rotate .tkey__icon { font-size: 24px; }
+  .touchpad .tpad-main .tkey--rotate .tkey__icon { font-size: 24px; color: var(--primary-hi); } /* r26 AC-6 图标 primary-hi */
   .touchpad .tpad-main .tkey--rotate .tkey__label { font-size: 11px; }
 
-  /* r24 操作区背景四皮肤（DESIGN §4.3，仅本 landscape 作用域，AC-9：M/L 零新增）——
-     轨道背景覆写 + D 双簇光环 */
-  .touchpad--skin-glass::before,
-  .touchpad--skin-glass::after {
+  /* r26 操作区背景四皮肤（DESIGN §4.3，仅本 landscape 作用域，AC-9：M/L 零新增）——
+     皮肤挂点迁 .rail 轨盒（轨道背景覆写）+ D 双簇光环；多选择器逗号分行保持
+     .touchpad--skin-* needle 计数（r24 皮肤作用域切片断言依赖） */
+  .touchpad--skin-glass .rail--l,
+  .touchpad--skin-glass .rail--r {
     background: var(--glass-bg);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
     backdrop-filter: blur(20px) saturate(140%);
   }
 
-  .touchpad--skin-float::before,
-  .touchpad--skin-float::after {
+  .touchpad--skin-float .rail--l,
+  .touchpad--skin-float .rail--r {
     background: transparent;
-    border: none;
+    border-right: none;
+    border-left: none;
   }
 
   .touchpad--skin-float .tkey {
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);   /* 键帽自带投影（DESIGN §4.3 B） */
   }
 
-  .touchpad--skin-fade::before,
-  .touchpad--skin-fade::after {
+  .touchpad--skin-fade .rail--l,
+  .touchpad--skin-fade .rail--r {
     background: linear-gradient(180deg, rgba(23, 23, 23, 0), rgba(35, 35, 45, 0.82) 36%, rgba(26, 26, 34, 0.95));
-    border: none;
+    border-right: none;
+    border-left: none;
   }
 
-  .touchpad--skin-pod::before,
-  .touchpad--skin-pod::after {
+  .touchpad--skin-pod .rail--l,
+  .touchpad--skin-pod .rail--r {
     background: transparent;
-    border: none;
+    border-right: none;
+    border-left: none;
   }
 
   .touchpad--skin-pod .tpad-cross,
@@ -1647,6 +1791,7 @@ html.has-touch .settings-group--appearance {
       height: var(--tpad-key-hold);
       min-width: var(--tpad-key-hold);
       min-height: var(--tpad-key-hold);
+      border-radius: 50%;                     /* r26 AC-5：Hold 键正圆补漏 */
     }
     .touchpad .tpad-main .tkey--hold .tkey__icon { font-size: 15px; }
     .touchpad .tpad-main .tkey--hold .tkey__label { font-size: 10px; }
@@ -1659,7 +1804,7 @@ html.has-touch .settings-group--appearance {
       border-radius: 50%;                     /* 旋转主键：主色微底 + 常亮细环（DESIGN §4.1） */
       background: #363050;                    /* color-mix fallback */
       background: color-mix(in oklch, var(--primary) 16%, var(--surface-2));
-      border-color: rgba(139, 124, 246, 0.55);
+      border-color: color-mix(in oklch, var(--primary) 55%, transparent); /* r26 AC-6：常亮环 55% 强度（零新 token） */
     }
     .touchpad .tpad-main .tkey--rotate::after {
       content: '';
@@ -1669,7 +1814,7 @@ html.has-touch .settings-group--appearance {
       box-shadow: 0 0 10px rgba(139, 124, 246, 0.22);  /* 常亮细环（静态，非动画） */
       pointer-events: none;
     }
-    .touchpad .tpad-main .tkey--rotate .tkey__icon { font-size: 30px; }
+    .touchpad .tpad-main .tkey--rotate .tkey__icon { font-size: 30px; color: var(--primary-hi); } /* r26 AC-6 图标 primary-hi */
     .touchpad .tpad-main .tkey--rotate .tkey__label { font-size: var(--fs-sm); }
 
     /* ── r24 操作区背景四皮肤（DESIGN §4.3，仅本 S 竖屏作用域，AC-9：M/L 零新增）──

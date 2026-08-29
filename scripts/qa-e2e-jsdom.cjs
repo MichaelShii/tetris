@@ -2341,6 +2341,104 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('r24: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
   }
 
+  /* ---------- r26 rail 元素化 + 2×2 皮肤选择器 E2E 段（AC-2/3/7~9/14；TECHNICAL §7） ----------
+  DOM 静态契约（rail 双元素/包裹关系/radio×4 tile 结构/描边轨道盒/横屏门控）由 verify-ui 源扫描
+  锁定；jsdom 无布局——几何/媒体断言留在 verify-ui 源码层，本段纯追加证明 DOM 重组后交互路径逐
+  字节等价：① rail 结构运行时断言（恰 2 轨、左右轨包裹关系、.rail 非键类无 data-action → 回放器/
+  键聚合零命中、六键数量与动作字面量零回归）；② 新结构（label>radio+name span）下 radio 点击仍
+  即时生效并写持久化（对齐 r24 快照比对先例：默认 fade → 点 glass → 类全量替换 + checked 同步 +
+  引擎快照无漂移）。-------- */
+  console.log('\n-- r26 rail 元素化 + 2×2 皮肤选择器（rail 结构 / 新结构 radio 即时生效写持久化） --')
+  {
+    // ① rail 结构运行时断言（静态 DOM，不依赖 UI 实例）
+    const rails = doc.querySelectorAll('#touch-controls > .rail')
+    check('r26: rail 恰 2 个（左 .rail--l / 右 .rail--r）', rails.length === 2, String(rails.length))
+    const railL26 = doc.querySelector('#touch-controls > .rail--l')
+    const railR26 = doc.querySelector('#touch-controls > .rail--r')
+    check('r26: 左右轨均存在且 class 含 rail--l/rail--r（定向选择器可命中）',
+      railL26 !== null && railR26 !== null &&
+      railL26.classList.contains('rail--l') && railR26.classList.contains('rail--r'))
+    const isNonKeyRail26 = function (el) {
+      return el !== null && el.tagName === 'DIV' && !el.classList.contains('tkey') && !el.hasAttribute('data-action')
+    }
+    check('r26: .rail 为非键类、无 data-action（回放器/键聚合零命中）',
+      isNonKeyRail26(railL26) && isNonKeyRail26(railR26))
+    // 包裹关系：左轨包十字簇（恰 4 dir 键 + hub），右轨包旋转簇（Hold/旋转）
+    check('r26: 左轨包 .tpad-cross 恰 4 键 + hub；右轨包 .tpad-main 恰 2 键（Hold/旋转）',
+      railL26.querySelector('.tpad-cross') !== null && railL26.querySelectorAll('.tkey').length === 4 &&
+      railL26.querySelectorAll('.tpad-cross__hub').length === 1 &&
+      railR26.querySelector('.tpad-main') !== null && railR26.querySelectorAll('.tkey').length === 2 &&
+      railR26.querySelector('.tkey--hold') !== null && railR26.querySelector('.tkey--rotate') !== null)
+    check('r26: 左右轨互不串簇（rail--l 无 .tpad-main、rail--r 无 .tpad-cross）',
+      railL26.querySelector('.tpad-main') === null && railR26.querySelector('.tpad-cross') === null)
+    // 六键零回归：数量与动作字面量（r16/r24 交叉断言防漂移；rail 包裹下键聚合不命中）
+    const tkeys26 = doc.querySelectorAll('#touch-controls .tkey')
+    const acts26 = Array.prototype.map.call(tkeys26, function (b) { return b.getAttribute('data-action') })
+    check('r26: 六 .tkey[data-action] 数量/动作零回归',
+      tkeys26.length === 6 && acts26.slice().sort().join(',') === 'hardDrop,hold,moveLeft,moveRight,rotate,softDrop',
+      acts26.slice().sort().join(','))
+    check('r26: #touch-controls 内 [data-action] 恰 6（rail 零额外挂点）',
+      doc.querySelectorAll('#touch-controls [data-action]').length === 6)
+    // 回放器锚点：.tkey[data-action="X"] 定向查询穿越 rail 包裹仍命中
+    check('r26: 回放器锚点 .tkey[data-action=moveLeft/hold/rotate] 穿越 rail 包裹命中',
+      doc.querySelector('.tkey[data-action="moveLeft"]') !== null &&
+      doc.querySelector('.tkey[data-action="hold"]') !== null &&
+      doc.querySelector('.tkey[data-action="rotate"]') !== null)
+
+    // ② 新结构（label>radio + tile + name）下 radio 点击仍即时生效写持久化（AC-7/8/14）
+    window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+    const backingR26 = {}
+    const storeR26 = {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(backingR26, k) ? backingR26[k] : null },
+      setItem: function (k, v) { backingR26[k] = String(v) },
+      removeItem: function (k) { delete backingR26[k] },
+    }
+    const skinR26 = function () {
+      const p = doc.querySelector('#touch-controls')
+      if (!p) return []
+      return Array.prototype.slice.call(p.classList).filter(function (c) { return c.indexOf('touchpad--skin-') === 0 })
+    }
+    const radioR26 = function (v) { return doc.querySelector('input[name="dock-skin"][value="' + v + '"]') }
+    const r26p = window.TetrisPersist.createPersistence({ storage: storeR26 })
+    const hr26 = window.TetrisUI.createUI({
+      autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0,
+      touch: true, persist: r26p,
+    })
+    const gr26 = hr26.game
+    // 新结构静态断言：四 label > input[radio name=dock-skin] + tile + name（名称另起一行承载，AC-8）
+    const opts26 = doc.querySelectorAll('#dock-skin-control .dock-skin-option')
+    check('r26: 2×2 选择器恰 4 个 label.dock-skin-option（AC-7）', opts26.length === 4, String(opts26.length))
+    let optStructOk26 = true
+    Array.prototype.forEach.call(opts26, function (lb) {
+      const inp = lb.querySelector('input[type="radio"][name="dock-skin"]')
+      if (inp === null || lb.querySelector('.dock-skin-option__tile') === null ||
+          lb.querySelector('.dock-skin-option__name') === null) optStructOk26 = false
+    })
+    check('r26: 每 option = label>radio[name=dock-skin]+tile+name（radio 非文本直承，AC-8 重构车道）', optStructOk26)
+    check('r26: 装配即挂默认皮肤类 touchpad--skin-fade + radio checked=fade（AC-7 默认 C）',
+      skinR26().length === 1 && skinR26()[0] === 'touchpad--skin-fade' && radioR26('fade').checked === true,
+      JSON.stringify(skinR26()))
+    gr26.start()
+    const snapR26a = gr26.getSnapshot()
+    radioR26('glass').click()
+    check('r26: 新结构下点玻璃 radio → 恰一皮肤类 touchpad--skin-glass（applyDockSkin 全量替换）',
+      skinR26().length === 1 && skinR26()[0] === 'touchpad--skin-glass', JSON.stringify(skinR26()))
+    check('r26: radio checked 同步（glass 选中、fade 取消）',
+      radioR26('glass').checked === true && radioR26('fade').checked === false)
+    const savedR26 = r26p.load()
+    check('r26: 切换写持久化（settings.dockSkin === glass，AC-8 通道同源）',
+      savedR26.settings && savedR26.settings.dockSkin === 'glass',
+      JSON.stringify(savedR26.settings && savedR26.settings.dockSkin))
+    const snapR26b = gr26.getSnapshot()
+    check('r26: 切换零引擎触达（board/piece/score/lines/level 快照无漂移、phase RUNNING）',
+      JSON.stringify(snapR26a.board) === JSON.stringify(snapR26b.board) &&
+      JSON.stringify(snapR26a.piece) === JSON.stringify(snapR26b.piece) &&
+      snapR26a.score === snapR26b.score && snapR26a.lines === snapR26b.lines &&
+      snapR26a.level === snapR26b.level && snapR26b.phase === 'RUNNING', snapR26b.phase)
+    hr26.dispose()
+    check('r26: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))

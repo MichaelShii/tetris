@@ -102,26 +102,33 @@
     </section>
   </main>
 
-  <!-- 触屏操控区（r24，AC-1~15）：掌机式双簇重排——左十字簇 .tpad-cross（4 键 + ✛ 装饰 hub）+
-       右旋转簇 .tpad-main（Hold/旋转 2 键）；六 .tkey[data-action] 字面量/数量与 r16 零改名（TOUCH_KEYS
-       交叉断言防漂移），DOM 顺序可随簇重排（验证只断言集合非顺序）；
+  <!-- 触屏操控区（r26，AC-1~15）：r24 掌机双簇 + 独立轨道元素 .rail--l/.rail--r（AC-2）——横屏承载
+       单边描边玻璃轨（左轨 ≈212 右描边 / 右轨 ≈104 左描边，皮肤挂点迁至 .rail）；竖屏与 M/L 由 CSS
+       display:contents 中性化（布局与 r24 逐字节等）；六 .tkey[data-action] 字面量/数量与 r16 零改名
+       （TOUCH_KEYS 交叉断言防漂移），.rail 无 data-action/无 .tkey 键类（回放器与键聚合不命中）；
        ✛ hub 三层保险（AC-3）：无 data-action（createTouchControls 选择器不命中）、pointer-events:none、
        aria-hidden（不入读屏）；
        显隐：默认 CSS display:none，仅 html.has-touch（触屏设备）下显示——纯 CSS 显隐不重置对局（AC-1）；
        位置：位于设置弹层之前（createUI 装配期同步查找元素，与设置弹层同一约束） -->
   <div id="touch-controls" class="touchpad" aria-label="触屏操控区">
-    <!-- 左十字簇：grid-template-areas ". up ." "lf hub rt" ". dn ."；源序 up→lf→rt→dn 恰落四区 -->
-    <div class="tpad-cross">
-      <button type="button" class="tkey tkey--dir" data-action="hardDrop" aria-label="硬降"><span class="tkey__icon">⤓</span><span class="tkey__label">硬降</span></button>
-      <button type="button" class="tkey tkey--dir" data-action="moveLeft" aria-label="左移"><span class="tkey__icon">◀</span><span class="tkey__label">左</span></button>
-      <button type="button" class="tkey tkey--dir" data-action="moveRight" aria-label="右移"><span class="tkey__icon">▶</span><span class="tkey__label">右</span></button>
-      <button type="button" class="tkey tkey--dir" data-action="softDrop" aria-label="软降"><span class="tkey__icon">▼</span><span class="tkey__label">软降</span></button>
-      <span class="tpad-cross__hub" aria-hidden="true">✛</span><!-- 纯装饰：无 data-action、pointer-events:none、grid-area:hub -->
+    <!-- r26 左轨：包十字簇；横屏为视觉轨盒（单边右描边），基座 display:contents 中性化 -->
+    <div class="rail rail--l">
+      <!-- 左十字簇：grid-template-areas ". up ." "lf hub rt" ". dn ."；源序 up→lf→rt→dn 恰落四区 -->
+      <div class="tpad-cross">
+        <button type="button" class="tkey tkey--dir" data-action="hardDrop" aria-label="硬降"><span class="tkey__icon">⤓</span><span class="tkey__label">硬降</span></button>
+        <button type="button" class="tkey tkey--dir" data-action="moveLeft" aria-label="左移"><span class="tkey__icon">◀</span><span class="tkey__label">左</span></button>
+        <button type="button" class="tkey tkey--dir" data-action="moveRight" aria-label="右移"><span class="tkey__icon">▶</span><span class="tkey__label">右</span></button>
+        <button type="button" class="tkey tkey--dir" data-action="softDrop" aria-label="软降"><span class="tkey__icon">▼</span><span class="tkey__label">软降</span></button>
+        <span class="tpad-cross__hub" aria-hidden="true">✛</span><!-- 纯装饰：无 data-action、pointer-events:none、grid-area:hub -->
+      </div>
     </div>
-    <!-- 右旋转簇：纵列，Hold 上 / 旋转下 -->
-    <div class="tpad-main">
-      <button type="button" class="tkey tkey--hold" data-action="hold" aria-label="Hold 暂存"><span class="tkey__icon">📦</span><span class="tkey__label">Hold</span></button>
-      <button type="button" class="tkey tkey--rotate" data-action="rotate" aria-label="旋转"><span class="tkey__icon">⟳</span><span class="tkey__label">旋转</span></button>
+    <!-- r26 右轨：包旋转簇；横屏为视觉轨盒（单边左描边），基座 display:contents 中性化 -->
+    <div class="rail rail--r">
+      <!-- 右旋转簇：纵列，Hold 上 / 旋转下 -->
+      <div class="tpad-main">
+        <button type="button" class="tkey tkey--hold" data-action="hold" aria-label="Hold 暂存"><span class="tkey__icon">📦</span><span class="tkey__label">Hold</span></button>
+        <button type="button" class="tkey tkey--rotate" data-action="rotate" aria-label="旋转"><span class="tkey__icon">⟳</span><span class="tkey__label">旋转</span></button>
+      </div>
     </div>
   </div>
 
@@ -189,19 +196,46 @@
             </div>
           </div>
         </div>
-        <!-- r24 外观组（AC-7/12/14）：静态 DOM + CSS 门控——基座 .settings-group--appearance 默认
-             display:none，仅 html.has-touch（触屏设备）显示（纯 CSS 显隐先例）；四 radio 原生语义
-             键盘可达（AC-14），默认 checked=fade；value 与 persist.DOCK_SKINS 单一事实来源交叉断言 -->
+        <!-- r26 外观组（AC-7~9/12/14，取代 r24 横排单选）：静态 DOM + CSS 门控——基座
+             .settings-group--appearance 默认 display:none，仅 html.has-touch（触屏设备）显示（纯 CSS
+             显隐先例）；2×2 缩略选择器：四 label > input[radio name=dock-skin] + tile 真实皮肤 mini
+             预览（aria-hidden）+ name span（名称另起一行，AC-8）；input 属性顺序 type→name→value(→checked)
+             与 r24 逐字节同（value 选择器驱动绑定与验证），默认 checked=fade；radio 原生语义键盘可达
+             （AC-14）；value 与 persist.DOCK_SKINS 单一事实来源交叉断言 -->
         <div class="settings-group settings-group--appearance">
           <h3 class="settings-group__title">外观</h3>
           <div class="settings-group__content">
             <div id="dock-skin-control" class="ghost-control" role="group" aria-label="操作区背景">
               <span class="stat__label">操作区背景</span>
               <div class="dock-skin-control__list" role="radiogroup">
-                <label class="dock-skin-option"><input type="radio" name="dock-skin" value="glass">A 玻璃 dock</label>
-                <label class="dock-skin-option"><input type="radio" name="dock-skin" value="float">B 无底浮键</label>
-                <label class="dock-skin-option"><input type="radio" name="dock-skin" value="fade" checked> C 渐隐托盘</label>
-                <label class="dock-skin-option"><input type="radio" name="dock-skin" value="pod">D 双簇座舱</label>
+                <label class="dock-skin-option">
+                  <input type="radio" name="dock-skin" value="glass">
+                  <span class="dock-skin-option__tile dock-skin-option__tile--glass" aria-hidden="true">
+                    <span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot dskin-dot--hero"></span>
+                  </span>
+                  <span class="dock-skin-option__name">A 玻璃 dock</span>
+                </label>
+                <label class="dock-skin-option">
+                  <input type="radio" name="dock-skin" value="float">
+                  <span class="dock-skin-option__tile dock-skin-option__tile--float" aria-hidden="true">
+                    <span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot dskin-dot--hero"></span>
+                  </span>
+                  <span class="dock-skin-option__name">B 无底浮键</span>
+                </label>
+                <label class="dock-skin-option">
+                  <input type="radio" name="dock-skin" value="fade" checked>
+                  <span class="dock-skin-option__tile dock-skin-option__tile--fade" aria-hidden="true">
+                    <span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot dskin-dot--hero"></span>
+                  </span>
+                  <span class="dock-skin-option__name">C 渐隐托盘</span>
+                </label>
+                <label class="dock-skin-option">
+                  <input type="radio" name="dock-skin" value="pod">
+                  <span class="dock-skin-option__tile dock-skin-option__tile--pod" aria-hidden="true">
+                    <span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot"></span><span class="dskin-dot dskin-dot--hero"></span>
+                  </span>
+                  <span class="dock-skin-option__name">D 双簇座舱</span>
+                </label>
               </div>
             </div>
           </div>
