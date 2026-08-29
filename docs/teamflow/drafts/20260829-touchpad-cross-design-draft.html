@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>设计草案 v1 · 触控操作区重设计（十字键 + 大旋转）</title>
+<!--
+  设计草案（供评审，非实现代码）：r24 候选 · 移动端触控操作区重设计
+  参考：经典掌机十字键 + 右侧大旋转键布局；仅取「操作按钮布局」，配色/风格沿用产品 token（DESIGN §5.1）
+  打开方式：双击本文件（file://），键帽可按住体验按压态
+-->
+<style>
+  /* ── 产品 token（照抄 style.css §1，保证所见即产品风格） ── */
+  :root {
+    --bg:            #171717;
+    --bg-deep:       #0c0c0c;
+    --surface:       #23232d;
+    --surface-2:     #2d2d39;
+    --ink:           #ececf2;
+    --muted:         #9a9aac;
+    --line:          rgba(94, 90, 110, 0.55);
+    --grid-line:     rgba(242, 242, 242, 0.06);
+    --board-bg:      rgba(15, 14, 22, 0.92);
+    --primary:       #8b7cf6;
+    --primary-hi:    #a294ff;
+    --primary-glow:  rgba(139, 124, 246, 0.45);
+    --accent:        #ffd95c;
+    --accent-hi:     #ffe98a;
+    --glass-bg:      rgba(35, 35, 45, 0.72);
+    --glow-primary:  0 0 12px rgba(139, 124, 246, 0.45), 0 0 32px rgba(139, 124, 246, 0.27);
+    --font-ui:  system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px;
+  }
+  @supports (color: oklch(0 0 0)) {
+    :root {
+      --bg: oklch(0.09 0.000 0); --bg-deep: oklch(0.05 0.000 0);
+      --surface: oklch(0.16 0.012 270); --surface-2: oklch(0.20 0.014 270);
+      --ink: oklch(0.93 0.005 270); --muted: oklch(0.66 0.020 270);
+      --line: oklch(0.30 0.015 270 / 0.55); --grid-line: oklch(0.95 0.000 0 / 0.06);
+      --board-bg: oklch(0.07 0.005 270 / 0.92);
+      --primary: oklch(0.70 0.170 270); --primary-hi: oklch(0.76 0.180 270);
+      --accent: oklch(0.78 0.130 85); --accent-hi: oklch(0.84 0.130 85);
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); }
+  body {
+    min-height: 100vh;
+    padding: 40px 32px 64px;
+    background-image:
+      radial-gradient(600px 400px at 15% 0%, rgba(139, 124, 246, 0.14), transparent 70%),
+      radial-gradient(700px 500px at 85% 10%, rgba(255, 217, 92, 0.07), transparent 70%);
+  }
+  button { font-family: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+  /* ── 页头 ── */
+  .doc-head { max-width: 1240px; margin: 0 auto 28px; }
+  .doc-head .kicker { font-size: var(--fs-xs); letter-spacing: 0.22em; color: var(--primary-hi); text-transform: uppercase; margin-bottom: 8px; }
+  .doc-head h1 { font-size: 26px; font-weight: 700; letter-spacing: 0.02em; }
+  .doc-head p { margin-top: 8px; color: var(--muted); font-size: var(--fs-md); line-height: 1.7; max-width: 860px; }
+  .doc-head .tag { display: inline-block; margin-left: 10px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: var(--fs-xs); color: var(--accent); vertical-align: middle; }
+
+  /* ── 画框区 ── */
+  .frames { max-width: 1240px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 36px; align-items: flex-start; }
+  .frame-col h2 { font-size: var(--fs-md); font-weight: 600; color: var(--muted); margin-bottom: 12px; letter-spacing: 0.06em; }
+  .phone {
+    background: #000;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 34px;
+    padding: 10px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(139, 124, 246, 0.10);
+  }
+  .screen {
+    position: relative;
+    background: var(--bg-deep);
+    border-radius: 26px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .screen--portrait  { width: 370px; height: 740px; }
+  .screen--landscape { width: 720px; height: 340px; flex-direction: row; }
+
+  /* 屏内页头（示意 r19 现状结构） */
+  .p-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(35, 35, 45, 0.55);
+  }
+  .p-header .t { font-weight: 800; letter-spacing: 0.18em; font-size: var(--fs-md); }
+  .p-header .s { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px rgba(70, 224, 138, 0.5); }
+
+  /* 屏内顶部区（统计行 + 系统按钮行）——沿用现状示意，本次重设计不触碰 */
+  .p-stats { display: flex; align-items: stretch; gap: 6px; padding: 8px 10px 0; }
+  .p-stats .st { flex: 1; text-align: center; padding: 4px 0; border: 1px solid rgba(94, 90, 110, 0.30); border-radius: 6px; background: rgba(35, 35, 45, 0.45); }
+  .p-stats .st span { display: block; font-size: 8px; color: var(--muted); margin-bottom: 2px; }
+  .p-stats .st b { font-size: 11px; letter-spacing: 0.02em; }
+  .p-sysrow { display: flex; gap: 8px; padding: 8px 10px 0; }
+  .sys-btn {
+    border: 1px solid var(--line); border-radius: 8px; background: rgba(35, 35, 45, 0.6);
+    color: var(--ink); font-size: 10px; padding: 7px 8px; text-align: center; pointer-events: none;
+  }
+  .p-sysrow .sys-btn { flex: 1; padding: 10px 4px; }
+  .sys-btn--accent { border-color: rgba(139, 124, 246, 0.5); color: var(--primary-hi); }
+
+  /* 屏内棋盘占位（示意，非实现） */
+  .p-board { flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px; min-height: 0; }
+  .side-col { display: flex; flex-direction: column; gap: 8px; width: 58px; }
+  .side-col .cell-mini {
+    border: 1px solid var(--line); border-radius: 6px; background: rgba(35, 35, 45, 0.6);
+    color: var(--muted); font-size: 10px; text-align: center; padding: 5px 2px;
+  }
+  .well { height: 52px; border: 1px solid var(--line); border-radius: 6px; background: var(--board-bg); }
+  .well--tall { height: 120px; }
+  .side-col .lbl { font-size: 10px; color: var(--muted); text-align: center; }
+  .board-frame {
+    position: relative; height: 100%; aspect-ratio: 1 / 2; max-width: 100%;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--board-bg);
+    box-shadow: 0 0 22px rgba(139, 124, 246, 0.16);
+    background-image:
+      repeating-linear-gradient(0deg,  var(--grid-line) 0 1px, transparent 1px 27px),
+      repeating-linear-gradient(90deg, var(--grid-line) 0 1px, transparent 1px 27px);
+    background-size: 100% 27.2px, 27.2px 100%;
+    overflow: hidden;
+  }
+  .blk { position: absolute; width: 26px; height: 26px; border-radius: 4px; opacity: 0.92; }
+  .blk--i { background: #46c8e0; box-shadow: 0 0 8px rgba(70, 200, 224, 0.5); }
+  .blk--t { background: #b58cf6; box-shadow: 0 0 8px rgba(181, 140, 246, 0.5); }
+  .blk--o { background: #ffd95c; box-shadow: 0 0 8px rgba(255, 217, 92, 0.45); }
+  .blk--s { background: #46e08a; box-shadow: 0 0 8px rgba(70, 224, 138, 0.45); }
+  .blk--j { background: #6c8cf6; box-shadow: 0 0 8px rgba(108, 140, 246, 0.5); }
+  .blk--ghost { background: transparent; border: 1px dashed rgba(236, 236, 242, 0.35); box-shadow: none; opacity: 0.6; }
+
+  /* ═══════════ 新案操作区（本稿核心） ═══════════ */
+  /* 尺寸变量（标准档）：方向键 64 / 旋转 96 / Hold 56，键距 12 */
+  .pad { --k-dir: 64px; --k-hero: 96px; --k-hold: 56px; --k-gap: 12px; }
+
+  .p-dock {
+    padding: 14px 16px calc(14px + 6px);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    background: var(--glass-bg);
+    border-top: 1px solid var(--line);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  /* 左簇：十字方向键（grid 3×3；上=硬降，左/右=移动，下=软降，中心为装饰罗盘） */
+  .cross {
+    display: grid;
+    grid-template-columns: var(--k-dir) var(--k-dir) var(--k-dir);
+    grid-template-rows: var(--k-dir) var(--k-dir) var(--k-dir);
+    gap: var(--k-gap);
+    grid-template-areas:
+      ". up  ."
+      "lf hub rt"
+      ". dn  .";
+  }
+  .key {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--ink);
+    position: relative;
+    transition: transform 60ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+    user-select: none; -webkit-user-select: none;
+  }
+  .key::before { /* 辉光走伪元素 opacity（产品性能红线：不动画 box-shadow） */
+    content: ''; position: absolute; inset: -1px; border-radius: 50%;
+    box-shadow: var(--glow-primary); opacity: 0; transition: opacity 120ms ease-out; pointer-events: none;
+  }
+  .key:active, .key.is-pressed { border-color: var(--primary); transform: scale(0.94); }
+  .key:active::before, .key.is-pressed::before { opacity: 1; }
+  .key .ic { font-size: 19px; line-height: 1; }
+  .key .lb { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; line-height: 1; color: var(--muted); transition: color 120ms ease-out; }
+  .key:active .lb, .key.is-pressed .lb { color: var(--accent-hi); }
+
+  .k-up    { grid-area: up; }
+  .k-left  { grid-area: lf; }
+  .k-right { grid-area: rt; }
+  .k-down  { grid-area: dn; }
+  .k-hard  { grid-area: up; }
+  .hub {
+    grid-area: hub; display: flex; align-items: center; justify-content: center;
+    color: rgba(154, 154, 172, 0.45); font-size: 15px; letter-spacing: 2px;
+    pointer-events: none; user-select: none;
+  }
+
+  /* 右簇：Hold 卫星键（小）+ 旋转主键（大，主色微底） */
+  .main-cluster { display: flex; flex-direction: column; align-items: center; gap: var(--k-gap); padding-right: 4px; }
+  .k-hold { width: var(--k-hold); height: var(--k-hold); }
+  .k-hold .ic { font-size: 15px; }
+  .k-hold .lb { font-size: 10px; }
+  .k-hero {
+    width: var(--k-hero); height: var(--k-hero);
+    background: #363050; /* color-mix 兜底 ≈ primary 16% + surface-2 */
+    border-color: rgba(139, 124, 246, 0.55);
+  }
+  @supports (background: color-mix(in oklch, red 50%, blue)) {
+    .k-hero {
+      background: color-mix(in oklch, var(--primary) 16%, var(--surface-2));
+      border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+    }
+  }
+  .k-hero::after { /* 主键常亮微光（静态、非动画） */
+    content: ''; position: absolute; inset: -1px; border-radius: 50%;
+    box-shadow: 0 0 10px rgba(139, 124, 246, 0.22); pointer-events: none;
+  }
+  .k-hero .ic { font-size: 30px; }
+  .k-hero .lb { font-size: var(--fs-sm); }
+
+  /* 紧凑档示意（宽 <360 或 高 <640 时启用）：整体缩一号 */
+  .pad--compact { --k-dir: 56px; --k-hero: 80px; --k-hold: 48px; --k-gap: 10px; }
+
+  /* ── 横屏：左右侧轨（沿用 r16「双轨」思路，换十字布局） ── */
+  .rail { display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+    gap: 10px; padding: 10px 12px calc(10px + 4px); }
+  .rail--l { border-right: 1px solid var(--line); background: rgba(35, 35, 45, 0.45); }
+  .rail--r { border-left: 1px solid var(--line); background: rgba(35, 35, 45, 0.45); }
+  .rail--l .pad, .rail--r .pad { --k-dir: 52px; --k-hero: 76px; --k-hold: 46px; --k-gap: 9px; }
+  .rail .cross { grid-template-columns: var(--k-dir) var(--k-dir) var(--k-dir);
+    grid-template-rows: var(--k-dir) var(--k-dir) var(--k-dir); gap: var(--k-gap); }
+  .rail .key .ic { font-size: 16px; } .rail .key .lb { font-size: 10px; }
+  .rail .k-hero .ic { font-size: 24px; } .rail .k-hero .lb { font-size: 11px; }
+  .rail .k-hold .ic { font-size: 13px; } .rail .k-hold .lb { font-size: 9px; }
+
+  /* ── 操作区背景方案对比（A/B/C/D） ── */
+  .variants { max-width: 1240px; margin: 36px auto 0; }
+  .variants > h3 { font-size: var(--fs-lg); margin-bottom: 6px; }
+  .variants > .v-lead { color: var(--muted); font-size: var(--fs-sm); line-height: 1.7; margin-bottom: 16px; }
+  .v-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 20px; }
+  .v-card { border: 1px solid var(--line); border-radius: 14px; background: rgba(35, 35, 45, 0.45); padding: 16px; margin: 0; }
+  .v-card.is-pick { border-color: rgba(255, 217, 92, 0.55); }
+  .v-card h4 { font-size: var(--fs-md); }
+  .v-card h4 .rec { color: var(--accent); font-size: var(--fs-xs); border: 1px solid rgba(255, 217, 92, 0.4); border-radius: 999px; padding: 1px 8px; margin-left: 8px; vertical-align: 1px; }
+  .v-sub { font-size: var(--fs-xs); color: var(--muted); margin: 4px 0 12px; }
+  .v-stage {
+    position: relative; height: 224px; border-radius: 12px; overflow: hidden;
+    background: radial-gradient(120% 100% at 50% 0%, #1c1c27 0%, var(--bg-deep) 72%);
+    display: flex; align-items: flex-end;
+  }
+  .v-stage .p-dock { width: 100%; --k-dir: 46px; --k-hero: 66px; --k-hold: 40px; --k-gap: 8px; padding: 12px 14px; }
+  .v-stage .key .ic { font-size: 14px; }
+  .v-stage .key .lb { font-size: 9px; }
+  .v-stage .k-hero .ic { font-size: 20px; }
+  .v-stage .k-hero .lb { font-size: 10px; }
+  .v-stage .hub { font-size: 11px; }
+  .v-note { font-size: var(--fs-sm); color: var(--ink); line-height: 1.7; margin-top: 10px; }
+  .v-note b { color: var(--accent-hi); }
+
+  /* B 无底浮键 */
+  .v-b .p-dock { background: transparent; border-top: none; box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .v-b .key { box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5); }
+
+  /* C 渐隐托盘 */
+  .v-c .p-dock {
+    background: linear-gradient(180deg, rgba(23, 23, 23, 0) 0%, rgba(35, 35, 45, 0.82) 36%, rgba(26, 26, 34, 0.95) 100%);
+    border-top: none; box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+
+  /* D 双簇座舱（无整条底；十字与旋转各带主色光环托） */
+  .v-d .p-dock { background: transparent; border-top: none; box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .v-d .cross, .v-d .main-cluster { position: relative; }
+  .v-d .cross::before {
+    content: ''; position: absolute; inset: -16px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(139, 124, 246, 0.13), rgba(139, 124, 246, 0.05) 58%, transparent 74%);
+    pointer-events: none;
+  }
+  .v-d .main-cluster::before {
+    content: ''; position: absolute; inset: -18px -22px; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(139, 124, 246, 0.16), rgba(139, 124, 246, 0.06) 60%, transparent 76%);
+    pointer-events: none;
+  }
+
+  /* ── 标注（相对 dock 定位，悬于其上方 20px） ── */
+  .anno { position: absolute; font-size: 10px; color: var(--accent); letter-spacing: 0.04em;
+    display: flex; align-items: center; gap: 4px; pointer-events: none;
+    background: rgba(12, 12, 12, 0.78); border: 1px solid rgba(255, 217, 92, 0.30);
+    border-radius: 999px; padding: 2px 8px; }
+  .anno .ln { width: 14px; height: 1px; background: var(--accent); opacity: 0.7; }
+  .p-dock { position: relative; }
+  .anno--dir  { top: -20px; left: 14px; }
+  .anno--hero { top: -20px; right: 12px; }
+  .anno--board { top: 74px; left: 24px; }
+
+  /* ── 对比条：现况 vs 新案 ── */
+  .compare { max-width: 1240px; margin: 40px auto 0; border: 1px solid var(--line); border-radius: 14px;
+    background: rgba(35, 35, 45, 0.45); padding: 20px 24px; }
+  .compare h3 { font-size: var(--fs-md); margin-bottom: 14px; color: var(--ink); }
+  .cmp-row { display: flex; flex-wrap: wrap; gap: 28px; align-items: center; }
+  .cmp-item .cap { font-size: var(--fs-xs); color: var(--muted); margin-bottom: 8px; }
+  .cmp-old { display: flex; gap: 6px; }
+  .cmp-old i { width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--surface-2); display: flex; align-items: center; justify-content: center;
+    font-style: normal; font-size: 11px; color: var(--muted); }
+  .cmp-note { font-size: var(--fs-sm); color: var(--muted); line-height: 1.7; }
+
+  /* ── 规格表 ── */
+  .spec { max-width: 1240px; margin: 24px auto 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; }
+  .card { border: 1px solid var(--line); border-radius: 14px; background: rgba(35, 35, 45, 0.45); padding: 20px 24px; }
+  .card h3 { font-size: var(--fs-md); margin-bottom: 12px; }
+  .card table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+  .card th, .card td { text-align: left; padding: 7px 8px; border-bottom: 1px solid rgba(94, 90, 110, 0.28); vertical-align: top; }
+  .card th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .card td { color: var(--ink); }
+  .card ul { padding-left: 18px; color: var(--ink); font-size: var(--fs-sm); line-height: 1.9; }
+  .card .dim { color: var(--muted); }
+  .open { border-color: rgba(255, 217, 92, 0.4); }
+  .open h3 { color: var(--accent); }
+  .foot { max-width: 1240px; margin: 28px auto 0; color: var(--muted); font-size: var(--fs-xs); line-height: 1.8; }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="kicker">TETRIS · DESIGN DRAFT · 候选 r24</div>
+  <h1>触控操作区重设计 — 十字键 + 大旋转 <span class="tag">草案 v1 · 待评审</span></h1>
+  <p>
+    参考「经典掌机」操作布局：<b>左侧十字方向键（上=硬降 / 左右=移动 / 下=软降），右侧大号旋转键</b>。
+    仅取其<b>操作按钮布局</b>；配色、玻璃质感、按压反馈全部沿用本产品既有 token 与交互语言（DESIGN §5.1 / r16 三态）。
+    六键变五键簇 + 1 卫星键：方向键从 48px 放大到 <b>64px</b>，旋转键放大到 <b>96px</b>。
+    操作区背景提供 <b>四套方案并做成设置项</b>（默认渐隐托盘，见下方对比区）。下方键帽可按住体验按压反馈。
+  </p>
+</header>
+
+<section class="frames">
+
+  <!-- ═══ 竖屏 ═══ -->
+  <div class="frame-col">
+    <h2>竖屏 · 标准档（≥360×640，示意 370×740）</h2>
+    <div class="phone">
+      <div class="screen screen--portrait pad">
+        <div class="p-header">
+          <span class="t">TETRIS</span>
+          <span class="s"><span class="dot"></span>PLAYING · Lv2 · 12400</span>
+        </div>
+        <div class="p-stats">
+          <div class="st"><span>分数</span><b>12400</b></div>
+          <div class="st"><span>最高分</span><b>41900</b></div>
+          <div class="st"><span>等级</span><b>2</b></div>
+          <div class="st"><span>消除行数</span><b>18</b></div>
+          <button type="button" class="sys-btn sys-btn--accent" style="flex:0 0 auto; align-self:center">⚙ 设置</button>
+        </div>
+        <div class="p-sysrow">
+          <button type="button" class="sys-btn">开始游戏</button>
+          <button type="button" class="sys-btn">暂停</button>
+          <button type="button" class="sys-btn">重新开始</button>
+        </div>
+        <div class="p-board">
+          <div class="side-col">
+            <span class="lbl">Hold</span><div class="well"></div>
+            <span class="lbl">Next</span><div class="well well--tall"></div>
+          </div>
+          <div class="board-frame">
+            <span class="blk blk--ghost" style="left:81px; bottom:108px"></span>
+            <span class="blk blk--t" style="left:55px; bottom:135px"></span>
+            <span class="blk blk--t" style="left:81px; bottom:135px"></span>
+            <span class="blk blk--t" style="left:107px; bottom:135px"></span>
+            <span class="blk blk--t" style="left:81px; bottom:162px"></span>
+          </div>
+          <div class="side-col">
+            <span class="lbl">分数</span><div class="cell-mini">12400</div>
+            <span class="lbl">等级</span><div class="cell-mini">2</div>
+            <span class="lbl">行数</span><div class="cell-mini">18</div>
+          </div>
+        </div>
+        <div class="p-dock">
+          <div class="anno anno--dir"><span class="ln"></span>方向键 ⌀ 64 · 键距 12</div>
+          <div class="anno anno--hero"><span class="ln"></span>旋转 ⌀ 96 · Hold ⌀ 56</div>
+          <div class="cross">
+            <button type="button" class="key k-hard"><span class="ic">⤓</span><span class="lb">硬降</span></button>
+            <div class="hub">✛</div>
+            <button type="button" class="key k-left"><span class="ic">◀</span><span class="lb">左</span></button>
+            <button type="button" class="key k-right"><span class="ic">▶</span><span class="lb">右</span></button>
+            <button type="button" class="key k-down"><span class="ic">▼</span><span class="lb">软降</span></button>
+          </div>
+          <div class="main-cluster">
+            <button type="button" class="key k-hold"><span class="ic">📦</span><span class="lb">Hold</span></button>
+            <button type="button" class="key k-hero"><span class="ic">⟳</span><span class="lb">旋转</span></button>
+          </div>
+        </div>
+        <div class="anno anno--board">顶部区与棋盘布局沿用现状（本次不改），仅重排底部操作键</div>
+      </div>
+    </div>
+    <p class="cmp-note" style="margin-top:10px; max-width:360px">
+      左手拇指以十字中心为轴小幅滑动覆盖四键（硬降/左/右/软降），右手拇指主管旋转与 Hold——
+      与键盘「左手移动、右手旋转」的左右脑分区一致。所有键 ≥ 48px 主操作目标，旋转键 96px 为最大接触面。
+    </p>
+  </div>
+
+  <!-- ═══ 紧凑档 ═══ -->
+  <div class="frame-col">
+    <h2>竖屏 · 紧凑档（宽 &lt;360 或高 &lt;640）</h2>
+    <div class="phone">
+      <div class="screen screen--portrait pad pad--compact" style="width:320px; height:568px">
+        <div class="p-header">
+          <span class="t">TETRIS</span>
+          <span class="s"><span class="dot"></span>PLAYING</span>
+        </div>
+        <div class="p-stats">
+          <div class="st"><span>分数</span><b>3250</b></div>
+          <div class="st"><span>等级</span><b>1</b></div>
+          <button type="button" class="sys-btn sys-btn--accent" style="flex:0 0 auto; align-self:center">⚙</button>
+        </div>
+        <div class="p-sysrow">
+          <button type="button" class="sys-btn">开始游戏</button>
+          <button type="button" class="sys-btn">暂停</button>
+          <button type="button" class="sys-btn">重新开始</button>
+        </div>
+        <div class="p-board">
+          <div class="side-col">
+            <span class="lbl">Hold</span><div class="well"></div>
+            <span class="lbl">Next</span><div class="well well--tall"></div>
+          </div>
+          <div class="board-frame">
+            <span class="blk blk--s" style="left:13px; bottom:135px"></span>
+            <span class="blk blk--s" style="left:39px; bottom:135px"></span>
+            <span class="blk blk--s" style="left:39px; bottom:162px"></span>
+            <span class="blk blk--s" style="left:65px; bottom:162px"></span>
+          </div>
+          <div class="side-col">
+            <span class="lbl">分数</span><div class="cell-mini">3250</div>
+          </div>
+        </div>
+        <div class="p-dock">
+          <div class="cross">
+            <button type="button" class="key k-hard"><span class="ic">⤓</span><span class="lb">硬降</span></button>
+            <div class="hub">✛</div>
+            <button type="button" class="key k-left"><span class="ic">◀</span><span class="lb">左</span></button>
+            <button type="button" class="key k-right"><span class="ic">▶</span><span class="lb">右</span></button>
+            <button type="button" class="key k-down"><span class="ic">▼</span><span class="lb">软降</span></button>
+          </div>
+          <div class="main-cluster">
+            <button type="button" class="key k-hold"><span class="ic">📦</span><span class="lb">Hold</span></button>
+            <button type="button" class="key k-hero"><span class="ic">⟳</span><span class="lb">旋转</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="cmp-note" style="margin-top:10px; max-width:340px">
+      320px 宽仍不溢出：十字 188 + 旋转 80 + 间距 ≈ 296 ≤ 320。
+      小屏棋盘略小（操作舒适性优先），断点值实现期待真机对拍微调。
+    </p>
+  </div>
+
+  <!-- ═══ 横屏 ═══ -->
+  <div class="frame-col">
+    <h2>横屏 · 双侧轨（沿用 r16 左右轨思路，换十字布局）</h2>
+    <div class="phone">
+      <div class="screen screen--landscape">
+        <div class="rail rail--l pad">
+          <div class="cross">
+            <button type="button" class="key k-hard"><span class="ic">⤓</span><span class="lb">硬降</span></button>
+            <div class="hub">✛</div>
+            <button type="button" class="key k-left"><span class="ic">◀</span><span class="lb">左</span></button>
+            <button type="button" class="key k-right"><span class="ic">▶</span><span class="lb">右</span></button>
+            <button type="button" class="key k-down"><span class="ic">▼</span><span class="lb">软降</span></button>
+          </div>
+        </div>
+        <div class="p-board" style="flex-direction:column">
+          <div class="p-header" style="border:none; width:100%; gap:8px">
+            <span class="t">TETRIS</span>
+            <span class="s"><span class="dot"></span>PLAYING</span>
+            <span style="flex:1"></span>
+            <button type="button" class="sys-btn">开始</button>
+            <button type="button" class="sys-btn">暂停</button>
+            <button type="button" class="sys-btn">重开</button>
+            <button type="button" class="sys-btn sys-btn--accent">⚙</button>
+          </div>
+          <div class="board-frame" style="height:auto; flex:1">
+          </div>
+        </div>
+        <div class="rail rail--r pad">
+          <button type="button" class="key k-hold"><span class="ic">📦</span><span class="lb">Hold</span></button>
+          <button type="button" class="key k-hero"><span class="ic">⟳</span><span class="lb">旋转</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ═══ 操作区背景方案对比 ═══ -->
+<section class="variants">
+  <h3>操作区背景：四套全部实现，做成设置项「操作区背景」</h3>
+  <p class="v-lead">用户裁定：A/B/C/D 不再单选，<b style="color:var(--accent-hi)">四套全部实现，作为设置弹层里的新设置项（默认 C 渐隐托盘，实时切换、持久化保存）</b>。本节即为四套效果的视觉基准。示例为缩小演示，实际键径仍按前述 64/96/56。</p>
+  <div class="v-grid">
+
+    <figure class="v-card">
+      <h4>A · 玻璃 dock <span class="tag" style="font-size:10px; margin-left:6px">设置项之一</span></h4>
+      <div class="v-sub">--glass-bg 毛玻璃 + 上描边（与信息面板同源）</div>
+      <div class="v-stage v-a">
+        <div class="p-dock">
+          <div class="cross">
+            <div class="key k-hard" aria-hidden="true"><span class="ic">⤓</span><span class="lb">硬降</span></div>
+            <div class="hub">✛</div>
+            <div class="key k-left" aria-hidden="true"><span class="ic">◀</span><span class="lb">左</span></div>
+            <div class="key k-right" aria-hidden="true"><span class="ic">▶</span><span class="lb">右</span></div>
+            <div class="key k-down" aria-hidden="true"><span class="ic">▼</span><span class="lb">软降</span></div>
+          </div>
+          <div class="main-cluster">
+            <div class="key k-hold" aria-hidden="true"><span class="ic">📦</span><span class="lb">Hold</span></div>
+            <div class="key k-hero" aria-hidden="true"><span class="ic">⟳</span><span class="lb">旋转</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="v-note">优点：区域感最强、与面板统一。<br>缺点：<b>整条灰带横贯屏幕</b>、上缘硬线；毛玻璃下面没有内容可折射，显闷。</p>
+    </figure>
+
+    <figure class="v-card">
+      <h4>B · 无底浮键</h4>
+      <div class="v-sub">去掉容器底，键帽自带投影直接浮在背景上</div>
+      <div class="v-stage v-b">
+        <div class="p-dock">
+          <div class="cross">
+            <div class="key k-hard" aria-hidden="true"><span class="ic">⤓</span><span class="lb">硬降</span></div>
+            <div class="hub">✛</div>
+            <div class="key k-left" aria-hidden="true"><span class="ic">◀</span><span class="lb">左</span></div>
+            <div class="key k-right" aria-hidden="true"><span class="ic">▶</span><span class="lb">右</span></div>
+            <div class="key k-down" aria-hidden="true"><span class="ic">▼</span><span class="lb">软降</span></div>
+          </div>
+          <div class="main-cluster">
+            <div class="key k-hold" aria-hidden="true"><span class="ic">📦</span><span class="lb">Hold</span></div>
+            <div class="key k-hero" aria-hidden="true"><span class="ic">⟳</span><span class="lb">旋转</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="v-note">优点：<b>最轻、屏幕最透气</b>，棋盘和操作区无分界。<br>缺点：操作区「地盘感」弱，暗背景上键帽轮廓对比略低（可再提键帽描边亮度补偿）。</p>
+    </figure>
+
+    <figure class="v-card is-pick">
+      <h4>C · 渐隐托盘 <span class="rec">默认值</span></h4>
+      <div class="v-sub">无描边；背景从透明渐入深玻璃，操作区像从底部升起</div>
+      <div class="v-stage v-c">
+        <div class="p-dock">
+          <div class="cross">
+            <div class="key k-hard" aria-hidden="true"><span class="ic">⤓</span><span class="lb">硬降</span></div>
+            <div class="hub">✛</div>
+            <div class="key k-left" aria-hidden="true"><span class="ic">◀</span><span class="lb">左</span></div>
+            <div class="key k-right" aria-hidden="true"><span class="ic">▶</span><span class="lb">右</span></div>
+            <div class="key k-down" aria-hidden="true"><span class="ic">▼</span><span class="lb">软降</span></div>
+          </div>
+          <div class="main-cluster">
+            <div class="key k-hold" aria-hidden="true"><span class="ic">📦</span><span class="lb">Hold</span></div>
+            <div class="key k-hero" aria-hidden="true"><span class="ic">⟳</span><span class="lb">旋转</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="v-note">优点：<b>保留区域感又去掉硬切线</b>，与深色背景自然融合，手游常用手法；实现仅一条渐变。<br>缺点：区域上边界弱化，需靠键群自身排布识别。</p>
+    </figure>
+
+    <figure class="v-card">
+      <h4>D · 双簇座舱</h4>
+      <div class="v-sub">无整条底；十字与旋转各自带一枚主色光环「座舱」</div>
+      <div class="v-stage v-d">
+        <div class="p-dock">
+          <div class="cross">
+            <div class="key k-hard" aria-hidden="true"><span class="ic">⤓</span><span class="lb">硬降</span></div>
+            <div class="hub">✛</div>
+            <div class="key k-left" aria-hidden="true"><span class="ic">◀</span><span class="lb">左</span></div>
+            <div class="key k-right" aria-hidden="true"><span class="ic">▶</span><span class="lb">右</span></div>
+            <div class="key k-down" aria-hidden="true"><span class="ic">▼</span><span class="lb">软降</span></div>
+          </div>
+          <div class="main-cluster">
+            <div class="key k-hold" aria-hidden="true"><span class="ic">📦</span><span class="lb">Hold</span></div>
+            <div class="key k-hero" aria-hidden="true"><span class="ic">⟳</span><span class="lb">旋转</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="v-note">优点：<b>最有手柄感、个性最强</b>，主色光环呼应旋转主键与霓虹语言，拇指分区一眼可辨。<br>缺点：光环叠深底需控制强度防「发光污染」；实现稍多（两个径向渐变托）。</p>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ═══ 现况对比 ═══ -->
+<section class="compare">
+  <h3>现况 vs 新案（竖屏底部操作区）</h3>
+  <div class="cmp-row">
+    <div class="cmp-item">
+      <div class="cap">现况 r16/r19：单行 6 键 × 48px（点按容错低、盲按易误触）</div>
+      <div class="cmp-old">
+        <i>◀</i><i>▶</i><i>⟳</i><i>▼</i><i>⤓</i><i>📦</i>
+      </div>
+    </div>
+    <div class="cmp-item">
+      <div class="cap">新案：左手十字（64px×4）+ 右手大旋转（96px）+ Hold 卫星（56px），拇指双区分工</div>
+      <div class="cmp-old">
+        <i style="width:44px;height:44px;border-radius:50%">⤓</i><i style="width:44px;height:44px;border-radius:50%">◀</i><i style="width:44px;height:44px;border-radius:50%">▶</i><i style="width:44px;height:44px;border-radius:50%">▼</i>
+        <i style="width:60px;height:60px;border-radius:50%;border-color:rgba(139,124,246,.55);color:var(--primary-hi)">⟳</i>
+        <i style="width:36px;height:36px;border-radius:50%">📦</i>
+      </div>
+    </div>
+    <div class="cmp-note" style="flex:1; min-width:260px">
+      面积对比：方向键 48²→64²（<b>+78%</b>）、旋转 48²→96²（<b>4 倍</b>）、键距 8→12px；
+      全部 ≥ Android/苹果推荐的主操作目标（≥48dp / 44pt），高频键（旋转）显著大于低频键（Hold）。
+      十字布局手指不换位：拇指以中心为轴小幅滑动即可覆盖四键。
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 规格 ═══ -->
+<section class="spec">
+  <div class="card">
+    <h3>键位与尺寸（标准档）</h3>
+    <table>
+      <tr><th>键</th><th>动作</th><th>尺寸</th><th>位置 / 理由</th></tr>
+      <tr><td>⤓ 硬降</td><td>hardDrop</td><td>⌀ 64</td><td>十字<b>上</b>位（参考图同款「落」）</td></tr>
+      <tr><td>◀ / ▶</td><td>moveLeft / Right</td><td>⌀ 64</td><td>十字左右，最高频移动</td></tr>
+      <tr><td>▼ 软降</td><td>softDrop</td><td>⌀ 64</td><td>十字下位，长按连降</td></tr>
+      <tr><td>⟳ 旋转</td><td>rotate</td><td>⌀ <b>96</b></td><td>右手主键，主色微底 + 常亮细环，最大接触面</td></tr>
+      <tr><td>📦 Hold</td><td>hold</td><td>⌀ 56</td><td>旋转键上方卫星位，低频且防误触</td></tr>
+      <tr><td>✛ 中心</td><td>—（装饰）</td><td>—</td><td>不可点，仅十字视觉锚点</td></tr>
+    </table>
+    <ul>
+      <li>紧凑档（宽&lt;360 或高&lt;640）：56 / 80 / 48；横屏侧轨再缩：52 / 76 / 46。</li>
+      <li>键距 12px（紧凑 10px）≥ WCAG 2.5.8 相邻目标建议。</li>
+      <li>操作区总高（标准档）≈ 248px；<b>棋盘相应让高</b>——竖屏 390×844 类机型棋盘仍近原生尺寸，矮屏走紧凑档（舒适度优先于棋盘一档缩放）。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>视觉与交互（全部沿用既有语言，零新风格）</h3>
+    <table>
+      <tr><th>项</th><th>沿用</th></tr>
+      <tr><td>键帽</td><td>圆形玻璃键帽：--surface-2 底 + --line 描边；图标+文字双层标签（自说明，替代参考图的键外文字）</td></tr>
+      <tr><td>旋转主键</td><td>color-mix(primary 16%, surface-2) 微底 + primary 描边 —— 唯一的主色键，一眼可辨</td></tr>
+      <tr><td>按压态</td><td>r16 三态：primary 描边 + 标签 accent-hi + glow 辉光（伪元素 opacity）+ scale 0.94</td></tr>
+      <tr><td>容器</td><td><b>四套背景做成设置项「操作区背景」</b>：A 玻璃 dock / B 浮键 / C 渐隐托盘（默认）/ D 双簇座舱；设置弹层新增「外观」分组四选一，切换即时生效，选择持久化（横屏侧轨同享四套）</td></tr>
+      <tr><td>防误触</td><td>touch-action:none、tap-highlight 透明、hover 仅 (hover:hover)、safe-area 避让 —— 全部保留</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>改动面与契约（实现期预估）</h3>
+    <ul>
+      <li><b>index.html</b>：<code>#touch-controls</code> 内部加两簇 wrapper（.tpad-cross / .tpad-main），6 个 <code>.tkey[data-action]</code> 原样保留 → ui.js 按 data-action 绑定，触控绑定逻辑 0 改动；设置弹层新增「外观」分组（操作区背景四选一 segmented 按钮）。</li>
+      <li><b>style.css</b>：重写 .touchpad 布局块；新增 3 个尺寸 token（--tpad-key-dir / -hero / -hold，替代单一 --tpad-key）；四套背景各为一个修饰类（如 .touchpad--skin-glass / -float / -fade / -pod），html 根类或容器类驱动。</li>
+      <li><b>ui.js</b>：新增 dockSkin 设置项读写（枚举 'glass'|'float'|'fade'|'pod'，默认 'fade'），装配时给 #touch-controls 挂对应类、设置弹层切换即时生效。</li>
+      <li><b>persist.js</b>：settings 新增 dockSkin 键（tetris.dockSkin），非法值回退默认；沿用「能力探测失败降级内存」约定。</li>
+      <li><b>验证脚本</b>：verify-ui（四套类 ↔ 枚举值交叉断言、设置项持久化往返）与 qa-e2e（切换即时生效 + restart 保持）同步补；data-action ↔ TOUCH_KEYS 交叉断言不变。</li>
+      <li>键盘路径、桌面视觉、遮罩/弹层层级（--z-touchpad:5）零变化。</li>
+      <li><b>不在本次范围</b>：顶部统计行、开始游戏/暂停/重新开始、⚙ 设置按钮——位置与样式均保持现状（r19 布局），本稿画出仅为呈现完整屏幕。</li>
+    </ul>
+  </div>
+
+  <div class="card open">
+    <h3>已裁定与默认定稿（无异议即按此开发）</h3>
+    <ul>
+      <li><b>✅ 已裁定</b>：操作区背景四套全部实现，做成设置项「操作区背景」（默认 C 渐隐托盘，设置弹层切换、持久化）。</li>
+      <li><b>默认 ① Hold</b>：旋转键上方卫星位（本稿画法）；如想放十字中心请明说。</li>
+      <li><b>默认 ② 硬降</b>：十字上位（参考图「落」同款）；真机手感偏远再议互换。</li>
+      <li><b>默认 ③ 棋盘让高</b>：接受（舒适度优先），矮屏走紧凑档兜底；不接受则改「L 形低矮变体」。</li>
+    </ul>
+  </div>
+</section>
+
+<p class="foot">
+  本文件为设计评审稿（候选 r24），非产品代码；评审通过后按流程落 DESIGN.md → TECHNICAL → 开发 → QA。
+  键帽可直接按住体验按压态；标注尺寸为 CSS 逻辑像素。
+</p>
+
+<script>
+  // 桌面端鼠标按下无法长按 :active 之外的演示增强：pointerdown 加类，保证演示一致（实现不引入此脚本）
+  document.querySelectorAll('.key').forEach(function (k) {
+    k.addEventListener('pointerdown', function () { k.classList.add('is-pressed') })
+    ;['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) {
+      k.addEventListener(ev, function () { k.classList.remove('is-pressed') })
+    })
+  })
+</script>
+</body>
+</html>
