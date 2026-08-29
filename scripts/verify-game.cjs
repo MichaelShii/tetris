@@ -2655,3 +2655,480 @@ test('§15.10 soak：50 局确定性注入混合动作（旋转/移动/软降/�
   }
 })
 
+/* ============================================================================
+ * 16. r23 Back-to-back 奖励倍率（AC-1~8；TECHNICAL §7.2，链态推导权威 §4.1/§6）
+ * ============================================================================ */
+
+// 旋转入 T4 槽锁定（animMs 会话由调用方 comboComplete 步进完结；同 tspinSession 落位几何）
+function b2bTSpinFull(g, clearRows) {
+  g._debug.setBoard(buildTSlot(0, 3, 15, T4, clearRows))
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+  const r = g.rotate()
+  if (!(r.ok === true)) throw new Error('b2bTSpinFull rotate 应成功: ' + JSON.stringify(r))
+  lockTick(g)
+}
+
+// 旋转入 3 实角 Mini 槽（F3：rot0 缺 TR → Mini；§14.3/§14.7 权威样例）锁定
+function b2bTSpinMini(g, clearRows) {
+  g._debug.setBoard(buildTSlot(0, 3, 15, { tl: true, tr: false, bl: true, br: true }, clearRows))
+  g._debug.setNext('T')
+  g._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+  const r = g.rotate()
+  if (!(r.ok === true)) throw new Error('b2bTSpinMini rotate 应成功: ' + JSON.stringify(r))
+  lockTick(g)
+}
+
+test('§16.0 常量/导出：B2B_BONUS_BASE=400；b2bQualifies 资格矩阵；b2bBonus 数值表 + 防御（AC-1/4/E6）', () => {
+  assert.equal(T.B2B_BONUS_BASE, 400, 'B2B_BONUS_BASE 单一事实来源（qa-e2e B 段期望对齐基准）')
+  // 资格矩阵：cleared===4 与 kind 无关（防御性，D8）
+  assert.equal(T.b2bQualifies('none', 4), true, 'cleared=4 kind=none → 资格（Tetris 定 4 行）')
+  assert.equal(T.b2bQualifies('full', 4), true)
+  assert.equal(T.b2bQualifies('mini', 4), true)
+  // full 1/2/3 行 → 资格
+  assert.equal(T.b2bQualifies('full', 1), true)
+  assert.equal(T.b2bQualifies('full', 2), true)
+  assert.equal(T.b2bQualifies('full', 3), true)
+  // mini 1/2/3 行 → 不资格
+  assert.equal(T.b2bQualifies('mini', 1), false)
+  assert.equal(T.b2bQualifies('mini', 2), false)
+  assert.equal(T.b2bQualifies('mini', 3), false)
+  // 普通 1/2/3 行 → 不资格
+  assert.equal(T.b2bQualifies('none', 1), false)
+  assert.equal(T.b2bQualifies('none', 2), false)
+  assert.equal(T.b2bQualifies('none', 3), false)
+  // cleared 0 任意 kind（含 No-line）→ 不资格
+  assert.equal(T.b2bQualifies('full', 0), false)
+  assert.equal(T.b2bQualifies('none', 0), false)
+  assert.equal(T.b2bQualifies('mini', 0), false)
+  assert.equal(T.b2bQualifies(undefined, 0), false)
+  // b2bBonus 数值表：chain off → 0；不资格 → 0；400×level
+  assert.equal(T.b2bBonus(false, 'full', 1, 1), 0, 'chain off → 0（E1）')
+  assert.equal(T.b2bBonus(true, 'none', 1, 1), 0, '普通 1 行不资格 → 0')
+  assert.equal(T.b2bBonus(true, 'mini', 2, 1), 0, 'Mini 消行不资格 → 0')
+  assert.equal(T.b2bBonus(true, 'full', 4, 1), 400, 'Tetris 链 on L1 → 400×1')
+  assert.equal(T.b2bBonus(true, 'none', 4, 1), 400, 'cleared=4 与 kind 无关 → 400×1')
+  assert.equal(T.b2bBonus(true, 'full', 1, 2), 800, 'T-Spin Full Single L2 → 400×2')
+  assert.equal(T.b2bBonus(true, 'full', 3, 3), 1200, 'T-Spin Full Triple L3 → 400×3')
+  // 防御（E6 同款）：NaN / level<1 / 负 → 0
+  assert.equal(T.b2bBonus(true, 'full', 1, NaN), 0, 'level NaN → 0（E6）')
+  assert.equal(T.b2bBonus(true, 'full', NaN, 1), 0, 'cleared NaN → 不资格 → 0')
+  assert.equal(T.b2bBonus(true, 'full', 1, 0), 0, 'level<1 → 0（E6）')
+  assert.equal(T.b2bBonus(true, 'full', 1, -3), 0, '负 level → 0（E6）')
+})
+
+test('§16.1 链递增：comboStageLines(g,4) ×2 → 首锁 b2b=0（链 off 仅置链）、二锁 400×1；分数 2050（AC-2/3/5）', () => {
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  // 首锁：fresh 4 行（链 off）→ 仅置链不加分（E1）
+  const r1 = comboStageLines(g, 4)
+  assert.equal(r1.cleared, 4)
+  let s = g.getSnapshot()
+  assert.equal(s.b2bBonus, 0, '首资格锁（链 off）→ b2bBonus=0')
+  assert.equal(s.b2bChain, false, 'clearing 期 s.b2bChain 显示结算前值（off）')
+  assert.equal(s.score, 0, 'clearing 期未落分（结算帧才累加）')
+  comboComplete(g)
+  s = g.getSnapshot()
+  assert.equal(s.b2bChain, true, '结算帧 b2bChain=新值（资格→true）')
+  assert.equal(s.b2bBonus, null, '完结帧 b2bBonus 回 null（对齐 comboBonus 生命周期）')
+  assert.equal(s.score, 800, '单 Tetris L1 = 800（纯置链零增量）')
+  assert.equal(s.lines, 4, 'lines=4')
+  assert.equal(s.level, 1, '4 行不足升级 → level 1')
+  // 二锁：链 on → 400×1；combo 轴并存（AC-7 双链并行）
+  const r2 = comboStageLines(g, 4)
+  assert.equal(r2.cleared, 4)
+  s = g.getSnapshot()
+  assert.equal(s.b2bBonus, T.B2B_BONUS_BASE * 1, '连发第 2 锁 b2bBonus = 400×升级前 L1')
+  assert.equal(s.b2bChain, true, 'clearing 期显示结算前值（链 on）')
+  assert.equal(s.combo, 1, '同帧 combo 索引 1 并存')
+  assert.equal(s.comboBonus, 50, '同帧 comboBonus 50×1×L1 并存')
+  comboComplete(g)
+  s = g.getSnapshot()
+  assert.equal(s.score, 800 + (800 + 50 + 400), '2×4 行：800 + (基分 800 + combo 50 + b2b 400) = 2050')
+  assert.equal(s.lines, 8, 'lines=8（b2b 不触碰 lines）')
+  assert.equal(s.level, 1, 'level 1（b2b 不推进等级）')
+})
+
+test('§16.2 断链：普通 1 行 / No-line / Mini 断链 → 后资格锁 b2b=0 重新置链（AC-2/R1）', () => {
+  // ① 普通 1 行断链：4 → 1 → 4
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  comboStageLines(g, 4)
+  comboComplete(g)
+  assert.equal(g.getSnapshot().b2bChain, true, '锁 1 置链')
+  comboStageLines(g, 1)
+  assert.equal(g.getSnapshot().b2bBonus, 0, '非资格消行 b2b=0')
+  assert.equal(g.getSnapshot().b2bChain, true, 'clearing 期显示结算前值（真）')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().b2bChain, false, '非资格消行结算帧断链（false）')
+  comboStageLines(g, 4)
+  assert.equal(g.getSnapshot().b2bBonus, 0, '断链后首资格锁 b2b=0（仅置链，AC-3）')
+  assert.equal(g.getSnapshot().b2bChain, false, 'clearing 期显示结算前值（off）')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().b2bChain, true, '断链后首资格锁结算帧重新置链')
+  // ② No-line 断链（T4 槽 clearRows:[] → full×0 行即时锁）
+  const g2 = mk({ animMs: 240, rng: () => 0 })
+  g2.start()
+  comboStageLines(g2, 4)
+  comboComplete(g2)
+  assert.equal(g2.getSnapshot().b2bChain, true)
+  g2._debug.setBoard(buildTSlot(0, 3, 15, T4, []))
+  g2._debug.setNext('T')
+  g2._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+  assert.equal(g2.rotate().ok, true)
+  lockTick(g2)
+  assert.equal(g2.getSnapshot().b2bChain, false, 'No-line 锁定结算帧断链（cleared=0 不资格）')
+  comboStageLines(g2, 4)
+  assert.equal(g2.getSnapshot().b2bBonus, 0, 'No-line 断链后首资格锁 b2b=0')
+  comboComplete(g2)
+  assert.equal(g2.getSnapshot().b2bChain, true, '重新置链')
+  // ③ Mini 断链（3 实角 Mini 槽消 1 行）：4 → Mini 1 行 → 4
+  const g3 = mk({ animMs: 240, rng: () => 0 })
+  g3.start()
+  comboStageLines(g3, 4)
+  comboComplete(g3)
+  assert.equal(g3.getSnapshot().b2bChain, true)
+  b2bTSpinMini(g3, [1])
+  assert.equal(g3.getSnapshot().b2bBonus, 0, 'Mini 消行不资格 → b2b=0')
+  assert.equal(g3.getSnapshot().tspin, 'mini', 'Mini 判定透出（r21 行为不变，E4）')
+  comboComplete(g3)
+  assert.equal(g3.getSnapshot().b2bChain, false, 'Mini 锁定结算帧断链')
+  comboStageLines(g3, 4)
+  assert.equal(g3.getSnapshot().b2bBonus, 0, 'Mini 断链后首资格锁 b2b=0')
+  comboComplete(g3)
+  assert.equal(g3.getSnapshot().b2bChain, true, '重新置链')
+})
+
+test('§16.3 操作无关：rotate/move/softDrop 不迁移链 → 二锁 400（AC-2）', () => {
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  comboStageLines(g, 4)
+  comboComplete(g)
+  assert.equal(g.getSnapshot().b2bChain, true, '首锁置链')
+  comboStageLines(g, 4)
+  assert.equal(g.getSnapshot().b2bBonus, 400, '二锁链 on → 400')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().score, 2050)
+  // 三锁：rotate/move/softDrop（均不锁定）后 4 行 → 链保持 → 400
+  assert.equal(g.rotate().ok, true)
+  assert.equal(g.softDrop().ok, true)
+  assert.equal(g.move(1).ok, true)
+  comboStageLines(g, 4)
+  const s = g.getSnapshot()
+  assert.equal(s.b2bBonus, 400, '操作不迁移链 → 三锁仍 400×L1（边操作边链）')
+  assert.equal(s.b2bChain, true, 'clearing 期链保真')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().score, 2050 + (800 + 100 + 400), '三锁增量含 combo2=100')
+})
+
+test('§16.4 混链：all-qualify 链 2/3 锁均 400；普通 1 行断链后 T-spin 锁 b2b=0（AC-1/2）', () => {
+  // ① 4 行 → T-Spin Full Single → 4 行（全资格链）
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  comboStageLines(g, 4)
+  comboComplete(g)
+  b2bTSpinFull(g, [1])
+  assert.equal(g.getSnapshot().b2bBonus, 400, 'T-Spin Full Single（链 on）→ 400×L1')
+  assert.equal(g.getSnapshot().tspin, 'full', 'tspin 载荷透出')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().b2bChain, true, '资格锁保持链')
+  comboStageLines(g, 4)
+  assert.equal(g.getSnapshot().b2bBonus, 400, '链第 3 锁仍 400（定值）')
+  comboComplete(g)
+  // ② T-Spin Full Double → 普通 1 行（断链）→ T-Spin Full Single（b2b=0）
+  const g2 = freshGame({ animMs: 240 })
+  g2.g.start()
+  b2bTSpinFull(g2.g, [1, 2])
+  assert.equal(g2.g.getSnapshot().b2bBonus, 0, '首 T-Spin Double（链 off）→ b2b=0')
+  comboComplete(g2.g)
+  assert.equal(g2.g.getSnapshot().b2bChain, true)
+  comboStageLines(g2.g, 1)
+  comboComplete(g2.g)
+  assert.equal(g2.g.getSnapshot().b2bChain, false, '普通 1 行断链')
+  b2bTSpinFull(g2.g, [1])
+  assert.equal(g2.g.getSnapshot().b2bBonus, 0, '断链后 T-spin Full Single b2b=0（仅置链）')
+  comboComplete(g2.g)
+  assert.equal(g2.g.getSnapshot().b2bChain, true, '重新置链')
+})
+
+test('§16.5 公式样例（权威，qa-e2e B 段对齐基准）：400×升级前 level；PRD §5 表为「主奖励轴+B2B 轴」口径（§5.1 澄清，AC-4 公式为准）', () => {
+  // 例 1：单 Tetris（fresh 首锁，链 off）→ 800，b2b 轴 0（E1）
+  const a = freshGame({ animMs: 240 })
+  a.g.start()
+  comboStageLines(a.g, 4)
+  assert.equal(a.g.getSnapshot().b2bBonus, 0, '单 Tetris b2b=0（链 off）')
+  comboComplete(a.g)
+  assert.equal(a.g.getSnapshot().score, 800, '单 Tetris = 800')
+  assert.equal(a.g.getSnapshot().b2bChain, true, '结算帧置链')
+  // 例 2：连发第 2 个 4 行 → 真实增量 800 基分 + 50 combo1 + 400 b2b = 1250
+  //        （PRD §5 表「主+b2b 轴」口径 = 800+400 = 1200，不含 combo 轴，§5.1 澄清）
+  const b = freshGame({ animMs: 240 })
+  b.g.start()
+  comboStageLines(b.g, 4)
+  comboComplete(b.g)
+  const bPre = b.g.getSnapshot().score
+  assert.equal(bPre, 800)
+  comboStageLines(b.g, 4)
+  const bSnap = b.g.getSnapshot()
+  assert.equal(bSnap.b2bBonus, T.B2B_BONUS_BASE * 1, '连发第 2 锁 b2b = 400×1 升级前 L1')
+  assert.equal(bSnap.comboBonus, 50, 'combo1×L1=50 并存')
+  comboComplete(b.g)
+  const bTotal = b.g.getSnapshot().score
+  assert.equal(bTotal - bPre, 800 + 50 + 400, '真实增量 800+50+400=1250（PRD 口径 800+400=1200 + combo 50）')
+  // 例 3：T-Spin Full Double 连发：首 1500（b2b 0）、第 2 真实增量 300+1200+50+400=1950
+  //        （PRD 口径 1500+400=1900 + combo 50）
+  const c = freshGame({ animMs: 240 })
+  c.g.start()
+  b2bTSpinFull(c.g, [1, 2])
+  assert.equal(c.g.getSnapshot().b2bBonus, 0, '首 T-Spin Double（链 off）→ b2b=0')
+  comboComplete(c.g)
+  const c1 = c.g.getSnapshot().score
+  assert.equal(c1, 1500, 'T-Spin Full Double 首锁 = 300+1200 = 1500')
+  b2bTSpinFull(c.g, [1, 2])
+  assert.equal(c.g.getSnapshot().b2bBonus, 400, '连发第 2 Double b2b = 400×L1')
+  comboComplete(c.g)
+  assert.equal(c.g.getSnapshot().score - c1, 300 + 1200 + 50 + 400, '第 2 Double 真实增量 1950（PRD 口径 1900 + combo 50）')
+  // 例 4：三连 Tetris 第 3 仍 400（定值，不随链长递增）、PRD 口径 800+400=1200
+  const d = freshGame({ animMs: 240 })
+  d.g.start()
+  comboStageLines(d.g, 4)
+  comboComplete(d.g)
+  comboStageLines(d.g, 4)
+  comboComplete(d.g)
+  const dPre = d.g.getSnapshot().score
+  assert.equal(dPre, 2050)
+  comboStageLines(d.g, 4)
+  const dSnap = d.g.getSnapshot()
+  assert.equal(dSnap.b2bBonus, 400, '三连第 3 仍 400×1（定值基数，非 800）')
+  assert.equal(dSnap.combo, 2, 'combo2 并存')
+  comboComplete(d.g)
+  assert.equal(d.g.getSnapshot().score - dPre, 800 + 100 + 400, '三连第 3 真实增量 1300（PRD 口径 800+400=1200 + combo 100）')
+  assert.equal(d.g.getSnapshot().level, 2, '12 行 → 结算帧 level 2（b2b 不推进等级）')
+  // 例 5：L2 乘数 → 400×2=800（setLines(12) 只动 lines/level，不动链——E4 语义）
+  const e = freshGame({ animMs: 240 })
+  e.g.start()
+  comboStageLines(e.g, 4)
+  comboComplete(e.g)
+  e.g._debug.setLines(12)
+  assert.equal(e.g.getSnapshot().level, 2, 'setLines(12) → level 2')
+  comboStageLines(e.g, 4)
+  assert.equal(e.g.getSnapshot().b2bBonus, 800, 'L2 链 on → b2b = 400×2 = 800')
+  // 例 6：升级边界（R4/D5）：setLines(9) 后 4 行锁 clearing s.level=1 && b2b=400（乘数取升级前）
+  const f = freshGame({ animMs: 240 })
+  f.g.start()
+  comboStageLines(f.g, 4)
+  comboComplete(f.g)
+  f.g._debug.setLines(9)
+  assert.equal(f.g.getSnapshot().level, 1, 'setLines(9) → 仍 level 1')
+  comboStageLines(f.g, 4)
+  const fSnap = f.g.getSnapshot()
+  assert.equal(fSnap.level, 1, 'clearing 期 s.level 为升级前 L1（实证 D5）')
+  assert.equal(fSnap.b2bBonus, 400, '升级前乘数 → 400×1')
+  comboComplete(f.g)
+  const fDone = f.g.getSnapshot()
+  assert.equal(fDone.lines, 13, '结算帧 lines=9+4')
+  assert.equal(fDone.level, 2, '结算帧 level 升级到 2')
+})
+
+test('§16.6 四轴叠加恰一次 + 等级进度：4 行 → T-Spin Full Single（combo1 链 on）→ 二锁增量 1350（AC-5/R2）', () => {
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  comboStageLines(g, 4)
+  comboComplete(g)
+  assert.equal(g.getSnapshot().score, 800)
+  b2bTSpinFull(g, [1])
+  const s = g.getSnapshot()
+  assert.equal(s.tspin, 'full', 'tspin 载荷透出')
+  assert.equal(s.clearedIndices.length, 1, '恰消 1 行')
+  assert.equal(s.combo, 1, 'combo1 并存')
+  assert.equal(s.comboBonus, 50, 'comboBonus 50')
+  assert.equal(s.b2bBonus, 400, 'b2b 400（链 on）')
+  comboComplete(g)
+  const done = g.getSnapshot()
+  assert.equal(done.score, 800 + (100 + 800 + 50 + 400), '二锁增量 = 基分 100 + tspin 800 + combo 50 + b2b 400 = 1350；总分 2150')
+  assert.equal(done.lines, 5, 'lines=4+1（b2b/combo 均不追加行数）')
+  assert.equal(done.level, 1, 'level=1（b2b/combo 不推进等级）')
+})
+
+test('§16.7 载荷/事件：clearing 期 b2b 载荷暴露、完结回 null；clear 恰 1 次且首帧；onGameOver 总分=逐锁增量之和（AC-6/非目标：onSfx 0 变化）', () => {
+  const { g, events } = freshGame({ animMs: 240 })
+  g.start()
+  // ① clearing 载荷暴露 + clear 恰 1 次且首帧
+  comboStageLines(g, 4)
+  let s = g.getSnapshot()
+  assert.equal(s.b2bBonus, 0, 'clearing 期 s.b2bBonus 暴露（0）')
+  assert.equal(s.b2bChain, false, 'clearing 期 s.b2bChain 暴露（结算前 off）')
+  assert.deepEqual(events.sfx, ['hardDrop', 'clear'], 'clear 恰 1 次且首帧（hardDrop→clear，无新 sfx）')
+  comboComplete(g)
+  s = g.getSnapshot()
+  assert.equal(s.b2bBonus, null, '完结帧 b2bBonus 回 null')
+  assert.equal(s.b2bChain, true, '完结帧 b2bChain 保真（新值）')
+  // ② 连发第 2：clearing 载荷 400 + 完结清零
+  comboStageLines(g, 4)
+  s = g.getSnapshot()
+  assert.equal(s.b2bBonus, 400, 'clearing 期 b2bBonus=400')
+  assert.equal(s.comboBonus, 50, 'clearing 期 comboBonus=50（同帧并存）')
+  comboComplete(g)
+  s = g.getSnapshot()
+  assert.equal(s.b2bBonus, null)
+  assert.equal(s.b2bChain, true)
+  assert.equal(s.score, 800 + 1250, '2×4 行累计 2050')
+  // ③ onGameOver 总分 = 逐锁增量之和（含 b2b）；末锁（OVER 锁）1 行普通消 → combo2=100、b2b 断
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  b[0][4] = 'J'; b[0][5] = 'J' // 塌缩后 spawn 即碰撞（r13⑦ 模式）
+  g._debug.setBoard(b)
+  g._debug.setNext('I')
+  g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  g.hardDrop()
+  g.tick(120)
+  g.tick(120)
+  assert.equal(g.getPhase(), 'OVER')
+  assert.equal(events.gameOver.length, 1)
+  assert.equal(events.gameOver[0], 2050 + (100 + 100), 'onGameOver 总分 2250 = 逐锁增量之和（含全部 b2b）')
+  const over = g.getSnapshot()
+  assert.equal(over.b2bChain, false, 'OVER 锁（普通 1 行）断链')
+  assert.deepEqual(events.sfx, ['hardDrop', 'clear', 'hardDrop', 'clear', 'hardDrop', 'clear', 'gameOver'],
+    '事件序列与既有同构（无新 sfx 事件）')
+})
+
+test('§16.8 会话隔离：restart 清链；OVER→restart 同；非 clearing 期 b2bBonus 恒 null；双链并行（AC-6/7）', () => {
+  const { g } = freshGame({ animMs: 240 })
+  g.start()
+  comboStageLines(g, 4)
+  comboComplete(g)
+  comboStageLines(g, 4)
+  comboComplete(g)
+  assert.equal(g.getSnapshot().score, 2050, '链 2 锁前置')
+  assert.equal(g.getSnapshot().b2bChain, true, '前置链 on')
+  assert.equal(g.getSnapshot().b2bBonus, null, '非 clearing 期 b2bBonus 恒 null')
+  assert.equal(typeof g.getSnapshot().b2bChain, 'boolean', 'b2bChain 恒 boolean 连续暴露（AC-6）')
+  // restart 清链
+  assert.equal(g.restart().ok, true)
+  assert.equal(g.getSnapshot().b2bChain, false, 'restart 后链 off')
+  comboStageLines(g, 4)
+  let s = g.getSnapshot()
+  assert.equal(s.b2bBonus, 0, 'restart 后首资格锁 b2b=0')
+  assert.equal(s.b2bChain, false, 'clearing 期链 off')
+  comboComplete(g)
+  assert.equal(g.getSnapshot().b2bChain, true, 'restart 后首锁结算帧置链')
+  // OVER→restart 同（r13⑦ 顶堆强制 OVER）
+  const b = T.createBoard()
+  b[19] = fullRow('I', 5)
+  b[0][4] = 'J'; b[0][5] = 'J'
+  g._debug.setBoard(b)
+  g._debug.setNext('I')
+  g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+  g.hardDrop()
+  g.tick(120)
+  g.tick(120)
+  assert.equal(g.getPhase(), 'OVER')
+  assert.equal(g.restart().ok, true)
+  comboStageLines(g, 4)
+  s = g.getSnapshot()
+  assert.equal(s.b2bBonus, 0, 'OVER→restart 后首资格锁 b2b=0')
+  assert.equal(s.b2bChain, false, 'OVER→restart 后链 off')
+  // 双链并行：同 clearing 帧 combo 与 b2b 增量并存（AC-7）
+  const g2 = freshGame({ animMs: 240 })
+  g2.g.start()
+  comboStageLines(g2.g, 4)
+  comboComplete(g2.g)
+  comboStageLines(g2.g, 4)
+  const s2 = g2.g.getSnapshot()
+  assert.equal(s2.combo, 1, '双链并行：clearing 帧 combo=1')
+  assert.equal(s2.comboBonus, 50, '双链并行：clearing 帧 comboBonus=50')
+  assert.equal(s2.b2bBonus, 400, '双链并行：clearing 帧 b2bBonus=400')
+  assert.equal(s2.b2bChain, true, '双链并行：clearing 帧 b2bChain=true（AC-7 同帧并存）')
+})
+
+test('§16.9 零回归：孤立单消 1/2/3/4 行 ×L1/L2 逐值=r18/r20 基线（fresh 会话 b2b 恒 0 增量）（AC-8）', () => {
+  const table = [
+    { n: 1, l1: 100, l2: 200 },
+    { n: 2, l1: 300, l2: 600 },
+    { n: 3, l1: 500, l2: 1000 },
+    { n: 4, l1: 800, l2: 1600 },
+  ]
+  for (const t of table) {
+    const a = freshGame()
+    a.g.start()
+    comboStageLines(a.g, t.n)
+    const sa = a.g.getSnapshot()
+    assert.equal(sa.score, t.l1, t.n + ' 行 L1 孤立消 = ' + t.l1 + '（b2b 零增量）')
+    assert.equal(sa.b2bChain, t.n === 4, t.n + ' 行 L1 结算帧链 = ' + (t.n === 4) + '（Tetris 置链，其余 off）')
+    const b2 = freshGame()
+    b2.g.start()
+    b2.g._debug.setLines(12)
+    comboStageLines(b2.g, t.n)
+    const sb = b2.g.getSnapshot()
+    assert.equal(sb.score, t.l2, t.n + ' 行 L2 = ' + t.l2 + '（b2b 零增量）')
+    assert.equal(typeof sb.b2bChain, 'boolean', t.n + ' 行 b2bChain 恒 boolean')
+    assert.equal(sb.b2bBonus, null, t.n + ' 行非 clearing 期 b2bBonus 恒 null')
+  }
+})
+
+test('§16.10 B2B 感知 soak：50 局确定性注入（n 周期 3→4→4→2 构造相邻 4 行对 + rotate/move/soft 混合）→ 逐锁增量累和 == onGameOver 总分；无 NaN/负分（AC-8/14）', () => {
+  function lcg(seed) { // 确定性 LCG → [0,1)（与 rng 注入口径一致）
+    let s = seed >>> 0
+    return function () {
+      s = (s * 1664525 + 1013904223) >>> 0
+      return s / 4294967296
+    }
+  }
+  const N_GAMES = 50
+  const LOCKS = 60
+  const NCYCLE = [3, 4, 4, 2] // 构造相邻 4 行对（i%4==1,2）→ 链 on 场景必然出现（B2B 感知）
+  for (let gi = 0; gi < N_GAMES; gi++) {
+    const rng = lcg(gi * 7919 + 13)
+    const over = []
+    const g = T.createGame({
+      rng: rng, autoLoop: false, keyboard: false, autoPauseOnBlur: false, animMs: 0,
+      onGameOver: (s) => over.push(s),
+    })
+    g.start()
+    let sum = 0
+    let prevScore = 0
+    let prevCleared = 0
+    for (let i = 0; i < LOCKS; i++) {
+      const n = NCYCLE[i % 4]
+      const miss = 3 + (i % 5)
+      const b = T.createBoard()
+      for (let r = 20 - n; r <= 19; r++) for (let c = 0; c < T.COLS; c++) if (c !== miss) b[r][c] = 'S'
+      g._debug.setBoard(b)
+      g._debug.setNext('T')
+      g._debug.setPiece({ type: 'I', rot: 1, x: miss - 2, y: 20 - n - 5 })
+      const op = Math.floor(rng() * 4)
+      if (op === 0) g.rotate()
+      else if (op === 1) g.move(-1)
+      else if (op === 2) g.move(1)
+      else g.softDrop()
+      const r = g.hardDrop()
+      assert.equal(r.ok, true, '局 ' + gi + ' 第 ' + i + ' 锁 hardDrop ok')
+      const s = g.getSnapshot()
+      assert.equal(Number.isFinite(s.score) && s.score >= 0, true, '局 ' + gi + ' 第 ' + i + ' 锁分数合法（无 NaN/负分）')
+      assert.ok(s.score >= prevScore, '局 ' + gi + ' 第 ' + i + ' 锁无负增量')
+      assert.ok(r.cleared >= 0 && r.cleared <= 4, '局 ' + gi + ' 第 ' + i + ' 锁清行 0~4')
+      assert.equal(typeof s.b2bChain, 'boolean', '局 ' + gi + ' 第 ' + i + ' 锁 b2bChain 恒 boolean')
+      const delta = s.score - prevScore
+      // B2B 感知断言：前一锁 4 行且本次 4 行 → 增量必含 b2b 轴（≥800×L + 400×L ≥ 1200）
+      if (prevCleared === 4 && r.cleared === 4) {
+        assert.ok(delta >= 800 + 400, '局 ' + gi + ' 第 ' + i + ' 锁相邻 4 行对增量 ≥ 1200（含 B2B 轴）')
+      }
+      sum += delta
+      prevScore = s.score
+      prevCleared = r.cleared
+    }
+    assert.ok(sum >= 0 && Number.isFinite(sum), '局 ' + gi + ' 逐锁增量累和合法')
+    const b = T.createBoard()
+    b[19] = fullRow('I', 5)
+    b[0][4] = 'J'; b[0][5] = 'J'
+    g._debug.setBoard(b)
+    g._debug.setNext('I')
+    g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+    g.hardDrop()
+    assert.equal(g.getPhase(), 'OVER', '局 ' + gi + ' 强制 OVER')
+    assert.equal(over.length, 1, '局 ' + gi + ' gameOver 恰 1 次')
+    sum += g.getSnapshot().score - prevScore
+    assert.equal(over[0], sum, '局 ' + gi + ' onGameOver 总分 == 逐锁增量累和（含 b2b）')
+  }
+})
+

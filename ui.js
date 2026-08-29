@@ -191,6 +191,12 @@
       if (p && typeof p.comboBonus === 'number' && p.comboBonus > 0 && p.combo >= 1) {
         parts.push('Combo ×' + p.combo + ' +' + p.comboBonus) // 'Combo ×2 +100'
       }
+      // 轴序：T-Spin 在前 · Combo 在中 · B2B 末尾追加（r21 合并规则扩展为三轴，AC-9）；
+      // B2B 轴 = 载荷 b2bBonus 直读（引擎 finishLock 已累加同一值 → 与结算恒等，AC-9 同源）；
+      // 防御：b2bBonus 非正数 / 缺省 / NaN → 轴跳过 → 既有双轴文案零变化（AC-9/E10）
+      if (p && typeof p.b2bBonus === 'number' && p.b2bBonus > 0) {
+        parts.push('B2B +' + p.b2bBonus) // 'B2B +400'
+      }
       return parts.length > 0 ? parts.join(REWARD_JOIN) : null
     }
 
@@ -1738,6 +1744,7 @@
               tspin: s.tspin,
               combo: s.combo,
               comboBonus: s.comboBonus,
+              b2bBonus: s.b2bBonus, // r23（AC-9）：B2B 第三路载荷直读暂存（同 comboBonus 机制，引擎结算恒等）
               cleared: s.clearedIndices.length,
               level: s.level,
             }

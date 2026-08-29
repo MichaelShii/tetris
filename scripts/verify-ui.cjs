@@ -511,3 +511,61 @@ test('r21: index.html 源扫描——#reward-toast 挂载点契约（AC-8）', (
   assert.ok(rewardOpen > feedbackOpen,
     '#reward-toast 须位于 #feedback-toast 之后（idx=' + rewardOpen + ' > ' + feedbackOpen + '，AC-6 双槽序）')
 })
+
+/* ============================================================================
+ * r23 Back-to-back：buildRewardText 三轴矩阵（T-Spin · Combo · B2B 合并序，AC-9；
+ *   挂 globalThis.TetrisGame=G 同 r21 段；b2bBonus 载荷直读，缺省/0/NaN 跳轴 → 既有双轴文案逐字不变）
+ * ============================================================================ */
+
+test('r23: buildRewardText 三轴矩阵（T-Spin · Combo · B2B，AC-9）', () => {
+  globalThis.TetrisGame = G
+  try {
+    // ① 三轴同帧合并序：T-Spin 在前 · Combo 在中 · B2B 尾随（AC-9，E5）
+    assert.equal(
+      T.buildRewardText({ combo: 1, comboBonus: 50, tspin: 'full', cleared: 1, level: 1, b2bBonus: 400 }),
+      'T-Spin Single +800 · Combo ×1 +50 · B2B +400',
+      '三轴合并序 = T-Spin Single +800 · Combo ×1 +50 · B2B +400'
+    )
+    // ② Tetris（无 T-spin 轴）：Combo · B2B
+    assert.equal(
+      T.buildRewardText({ combo: 1, comboBonus: 50, tspin: 'none', cleared: 4, level: 1, b2bBonus: 400 }),
+      'Combo ×1 +50 · B2B +400',
+      'Tetris 无 T-spin 轴 → Combo ×1 +50 · B2B +400'
+    )
+    // ③ 纯 B2B（无 combo / 无 T-spin）
+    assert.equal(
+      T.buildRewardText({ combo: null, comboBonus: null, tspin: 'none', cleared: 4, level: 1, b2bBonus: 400 }),
+      'B2B +400',
+      '纯 B2B → B2B +400'
+    )
+    // ④ 断链/静默：b2bBonus 0 / 缺省 / NaN / 负 → 轴跳过 → 既有双轴文案逐字不变（AC-9/E10）
+    assert.equal(
+      T.buildRewardText({ combo: 2, comboBonus: 100, tspin: 'none', cleared: 4, level: 1, b2bBonus: 0 }),
+      'Combo ×2 +100',
+      'b2bBonus=0 → 跳轴'
+    )
+    assert.equal(
+      T.buildRewardText({ combo: 1, comboBonus: 50, tspin: 'full', cleared: 1, level: 1, b2bBonus: undefined }),
+      'T-Spin Single +800 · Combo ×1 +50',
+      'b2bBonus 缺省 → 跳轴（既有双轴文案零变化）'
+    )
+    assert.equal(
+      T.buildRewardText({ combo: 1, comboBonus: 50, tspin: 'full', cleared: 1, level: 1, b2bBonus: NaN }),
+      'T-Spin Single +800 · Combo ×1 +50',
+      'b2bBonus NaN → 跳轴（无 NaN 文案路径）'
+    )
+    assert.equal(
+      T.buildRewardText({ combo: 1, comboBonus: 50, tspin: 'full', cleared: 1, level: 1, b2bBonus: -5 }),
+      'T-Spin Single +800 · Combo ×1 +50',
+      'b2bBonus 负 → 跳轴'
+    )
+    // ⑤ 三轴序断言：split(' · ') 恰 3 段、[0] T-Spin 开头、[2] B2B + 开头
+    const three = T.buildRewardText({ combo: 1, comboBonus: 50, tspin: 'full', cleared: 1, level: 1, b2bBonus: 400 })
+    const parts = three.split(' · ')
+    assert.equal(parts.length, 3, '三轴恰 3 段（split 序断言）')
+    assert.ok(parts[0].indexOf('T-Spin') === 0, '序①：T-Spin 在前')
+    assert.ok(parts[2].indexOf('B2B +') === 0, '序③：B2B 尾随（内容 ' + parts[2] + '）')
+  } finally {
+    delete globalThis.TetrisGame
+  }
+})
