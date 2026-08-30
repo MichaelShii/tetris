@@ -2665,6 +2665,136 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('r28: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
   }
 
+  /* ---------- r29 横屏 ≥600px 内容让位 E2E 段（AC-1~8；TECHNICAL §5.2） ----------
+   jsdom 不执行媒体查询/无布局几何 → 本段全部为源码级断言（cssText 源扫描即行为证明）：
+    ① 让位规则存在（html.has-touch #main 含 212/104 + safe-area 左右 padding、flex-column 列回退）；
+    ② 双轨 DOM 不变（r28 承继：2 rail、三件套互不串簇、六键 data-action 集合、hub 三保险）；
+    ③ 触控语义零回归（源序首键 touch→y+1、末键 touch→落锁，r28 序列承继）；
+    ④ 桌面非触控零触控区（touch:false → html 无 has-touch，AC-5 门控归属）；
+    ⑤ 竖屏/S 横屏零回归（§7.1/§7.2 档 + §7.3/§7.4/L grid 模板原文仍在 + M 两档切片零触控规则）；
+    ⑥ 段内 dispose 无异常 + has-touch 归属回收（mirror r28 2665）。-------- */
+  console.log('\n-- r29 横屏 ≥600px 内容让位（让位规则 / 双轨承继 / 触控语义 / 桌面零触控 / 竖屏零回归） --')
+  {
+    const cssR29 = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
+
+    // ① 让位规则存在（源扫描）：landscape + min-width:600px 门控前缀存在且无 max-width 尾缀；
+    //    其内 html.has-touch #main 规则含 212/104 + safe-area 左右 padding 让位与 flex-column 列回退（AC-1）
+    const r29Media = '@media (orientation: landscape) and (min-width: 600px)'
+    const r29MediaIdx = cssR29.indexOf(r29Media)
+    const r29MediaSeg = r29MediaIdx === -1 ? '' : cssR29.slice(r29MediaIdx, r29MediaIdx + r29Media.length)
+    check('r29: 让位门控存在 = @media (orientation: landscape) and (min-width: 600px)（裸组合，无 max-width 尾缀）',
+      r29MediaIdx !== -1 && r29MediaSeg.indexOf('max-width') === -1,
+      r29MediaIdx === -1 ? '!anchor' : r29MediaSeg)
+    const r29MainIdx = cssR29.indexOf('html.has-touch #main', r29MediaIdx)
+    let r29MainRule = ''
+    if (r29MainIdx !== -1) {
+      const r29RuleEnd = cssR29.indexOf('}', r29MainIdx)
+      r29MainRule = r29RuleEnd === -1 ? '' : cssR29.slice(r29MainIdx, r29RuleEnd)
+    }
+    check('r29: html.has-touch #main 让位规则含左右 212/104 + safe-area 内边距（AC-1 让位登记）',
+      r29MainIdx !== -1 &&
+      r29MainRule.indexOf('calc(212px + env(safe-area-inset-left))') !== -1 &&
+      r29MainRule.indexOf('calc(104px + env(safe-area-inset-right))') !== -1,
+      r29MainIdx === -1 ? 'no main rule' : 'main rule found')
+    check('r29: 让位规则含 flex 列回退（grid→flex-column，走廊内唯一无横向滚动解）',
+      r29MainRule.indexOf('display: flex') !== -1 && r29MainRule.indexOf('flex-direction: column') !== -1,
+      r29MainRule.indexOf('display') === -1 ? 'no rule body' : 'flex-column found')
+
+    // ⑤ 竖屏/S 横屏零回归（源扫描，AC-3/4）：§7.1 S 竖屏、§7.2 S 横屏、§7.3/§7.4/L grid 模板原文仍在；
+    //    含 r28「M 两档切片不落行式栏」断言承继（M1/M2 两档零 .touchpad 触控规则）
+    const sPortraitR29 = cssR29.indexOf('@media (max-width: 599px)')
+    const sLandscapeR29 = cssR29.indexOf('@media (max-width: 599px) and (orientation: landscape)')
+    check('r29: §7.1 S 竖屏（max-width:599px）与 §7.2 S 横屏（max-width:599px and landscape）原文仍在（AC-3/4）',
+      sPortraitR29 !== -1 && sLandscapeR29 !== -1, sPortraitR29 + '/' + sLandscapeR29)
+    const grid730R29 = cssR29.indexOf('minmax(0, 1fr) 340px')
+    const grid740R29 = cssR29.indexOf('minmax(180px, 1fr) 340px minmax(180px, 1fr)')
+    const gridLdR29 = cssR29.indexOf('240px 340px 240px')
+    check('r29: §7.3/§7.4/L 三档 grid 模板原文保持（minmax(0,1fr) 340px / minmax(180px,1fr)×2 / 240|340|240）',
+      grid730R29 !== -1 && grid740R29 !== -1 && gridLdR29 !== -1,
+      grid730R29 + '/' + grid740R29 + '/' + gridLdR29)
+    const m1sR29 = cssR29.indexOf('@media (min-width: 600px) and (max-width: 767px)')
+    const m2sR29 = cssR29.indexOf('@media (min-width: 768px) and (max-width: 1023px)')
+    const l7R29 = cssR29.indexOf('/* 7.5 L 桌面')
+    const touchHitsR29 = function (s) { return (s.match(/\.touchpad|\.rail|\.tkey|\.tpad-/g) || []).join(',') }
+    const m1HitsR29 = m1sR29 === -1 || m2sR29 === -1 ? '!anchor' : touchHitsR29(cssR29.slice(m1sR29, m2sR29))
+    const m2HitsR29 = m2sR29 === -1 || l7R29 === -1 ? '!anchor' : touchHitsR29(cssR29.slice(m2sR29, l7R29))
+    check('r29: M 两档切片零触控规则（.touchpad/.rail/.tkey/.tpad-* 全无，非触控 M 档不落行式栏）',
+      m1sR29 !== -1 && m2sR29 > m1sR29 && m1HitsR29 === '' && m2HitsR29 === '',
+      'M1[' + m1HitsR29 + '] M2[' + m2HitsR29 + ']')
+
+    // ② 双轨 DOM 不变（r28 承继，AC-6/8）：2 rail、三件套互不串簇、六键 data-action 集合、hub 三保险
+    const railsR29 = doc.querySelectorAll('#touch-controls > .rail')
+    const railLR29 = doc.querySelector('#touch-controls .rail--l')
+    const railRR29 = doc.querySelector('#touch-controls .rail--r')
+    check('r29: 双轨承继——恰 2 rail（rail--l / rail--r）', railsR29.length === 2 &&
+      railLR29 !== null && railRR29 !== null, String(railsR29.length))
+    const crossR29 = railLR29 === null ? null : railLR29.querySelector('.tpad-cross')
+    const mainR29 = railRR29 === null ? null : railRR29.querySelector('.tpad-main')
+    check('r29: 三件套互不串簇（rail--l 无 .tpad-main、rail--r 无 .tpad-cross）',
+      crossR29 !== null && mainR29 !== null &&
+      railLR29.querySelectorAll('.tpad-main').length === 0 && railRR29.querySelectorAll('.tpad-cross').length === 0)
+    const sixActsR29 = ['softDrop', 'moveLeft', 'moveRight', 'hardDrop', 'rotate', 'hold']
+    const actCountR29 = function (a) { return doc.querySelectorAll('#touch-controls .tkey[data-action="' + a + '"]').length }
+    check('r29: 六键 data-action 集合不变且各恰 1（softDrop/左/右/hardDrop/rotate/hold，r24/r27 契约承继）',
+      sixActsR29.every(function (a) { return actCountR29(a) === 1 }) &&
+      doc.querySelectorAll('#touch-controls .tkey').length === 6,
+      sixActsR29.map(function (a) { return a + '=' + actCountR29(a) }).join(','))
+    const hubR29 = doc.querySelector('#touch-controls .tpad-cross__hub')
+    check('r29: hub 三保险承继（span 无 data-action + aria-hidden，回放器/键聚合零命中）',
+      hubR29 !== null && hubR29.tagName === 'SPAN' && !hubR29.hasAttribute('data-action') &&
+      hubR29.getAttribute('aria-hidden') === 'true')
+
+    // ③ 触控语义/桌面共用持久化内存桩（r28 harness 复用，多实例隔离不互踩）
+    window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+    const backingR29 = {}
+    const storeR29 = {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(backingR29, k) ? backingR29[k] : null },
+      setItem: function (k, v) { backingR29[k] = String(v) },
+      removeItem: function (k) { delete backingR29[k] },
+    }
+    const persistR29 = window.TetrisPersist.createPersistence({ storage: storeR29 })
+
+    // ④ 桌面非触控零触控区（AC-5）：touch:false → createUI 不挂 html.has-touch（触控区纯 CSS 显隐门控）
+    const uiDeskR29 = window.TetrisUI.createUI({
+      autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0,
+      touch: false, persist: persistR29,
+    })
+    check('r29: 桌面非触控零触控区——createUI(touch:false) 不挂 html.has-touch（AC-5 门控归属）',
+      !doc.documentElement.classList.contains('has-touch'))
+    uiDeskR29.dispose()
+    check('r29: 桌面实例 dispose 无异常且仍未挂 has-touch', !doc.documentElement.classList.contains('has-touch'))
+
+    // ③ 触控语义零回归（r28 序列承继，AC-6）：源序首键 touch→y+1、源序末键 touch→落锁
+    const uiR29 = window.TetrisUI.createUI({
+      autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0,
+      touch: true, persist: persistR29,
+    })
+    const gR29 = uiR29.game
+    gR29.start()
+    const crossKeysR29 = crossR29 === null ? [] : Array.prototype.slice.call(crossR29.querySelectorAll('.tkey'))
+    const tapR29 = function (k) {
+      k.dispatchEvent(new window.Event('touchstart', { bubbles: true, cancelable: true }))
+      k.dispatchEvent(new window.Event('touchend', { bubbles: true, cancelable: true }))
+    }
+    const snapR29a = gR29.getSnapshot()
+    const playsR29a = spy.plays.length
+    tapR29(crossKeysR29[0])
+    const snapR29b = gR29.getSnapshot()
+    check('r29: 源序首键 touch → y+1（softDrop 语义承继）',
+      snapR29b.piece.y === snapR29a.piece.y + 1, 'y ' + snapR29a.piece.y + '→' + snapR29b.piece.y)
+    // mirror r28 2658：plays 计数在 hardDrop 键按下前捕获（softDrop 已发声，故 +1 只计 hardDrop）
+    const playsR29b = spy.plays.length
+    tapR29(crossKeysR29[3])
+    const snapR29c = gR29.getSnapshot()
+    check('r29: 源序末键 touch → 落锁（hardDrop 语义承继 + 音效 + RUNNING 承续）',
+      JSON.stringify(snapR29b.board) !== JSON.stringify(snapR29c.board) &&
+      spy.plays.length === playsR29b + 1 && snapR29c.phase === 'RUNNING', snapR29c.phase)
+
+    // ⑥ 段内 dispose 无异常 + has-touch 归属回收（mirror r28 2665）
+    uiR29.dispose()
+    check('r29: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))
