@@ -2439,6 +2439,111 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('r26: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
   }
 
+  /* ---------- r27 十字键上/下硬软互换 E2E 段（D-1 模板层整按钮互换；AC-1~3；TECHNICAL §9） ----------
+  互换落模板层：单模板三作用域（S dock / 横屏侧轨 / M/L 行式底栏均为 CSS 重排同一 #touch-controls
+  DOM）——双作用域同步互换由构造保证。本段纯追加，从运行时 DOM 侧证明：① 十字簇四键五字段有序
+  断言（data-action/aria-label/图标/文字逐字有序：上=softDrop 软降 ▼、下=hardDrop 硬降 ⤓，取代
+  r24#AC-1 授权，登记改写同 verify-ui 653/769）；② 共享 DOM 恒等断言（双作用域验证口径：全文档
+  恰 1 个 #touch-controls/.tpad-cross + 六键动作各恰 1——S 与 M/L 恒同一批元素）；③ hub 无
+  data-action 复验（r24/r26 三层保险在互换后零回归）。M/L 视觉键序冻结（基座 order）由 verify-ui
+  源码层锁定，jsdom 无布局故不重复。-------- */
+  console.log('\n-- r27 十字键上/下硬软互换（五字段有序 / 共享 DOM 恒等 / hub 复验） --')
+  {
+    // ① 十字簇四键五字段有序断言（静态 DOM：rail--l > tpad-cross 内四 .tkey 的 DOM 源序）
+    const crossR27 = doc.querySelector('#touch-controls .rail--l .tpad-cross')
+    check('r27: 左轨内十字簇存在（rail--l > .tpad-cross）', crossR27 !== null)
+    const tkeysR27 = crossR27 === null ? [] : Array.prototype.slice.call(crossR27.querySelectorAll('.tkey'))
+    check('r27: 十字簇恰 4 键 + ✛ hub', tkeysR27.length === 4 && crossR27 !== null &&
+      crossR27.querySelector('.tpad-cross__hub') !== null, String(tkeysR27.length))
+    // r27 期望序（五字段逐字随元素迁移；取代 r24#AC-1 授权，与 verify-ui 653/769 登记改写同源）
+    const specR27 = [
+      { action: 'softDrop', aria: '软降', label: '软降', icon: '▼' },
+      { action: 'moveLeft', aria: '左移', label: '左', icon: '◀' },
+      { action: 'moveRight', aria: '右移', label: '右', icon: '▶' },
+      { action: 'hardDrop', aria: '硬降', label: '硬降', icon: '⤓' },
+    ]
+    let specOkR27 = tkeysR27.length === 4
+    const gotActsR27 = []
+    tkeysR27.forEach(function (b, i) {
+      gotActsR27.push(b.getAttribute('data-action'))
+      const want = specR27[i]
+      if (want === undefined) return
+      const iconEl = b.querySelector('.tkey__icon')
+      const labelEl = b.querySelector('.tkey__label')
+      if (!b.classList.contains('tkey--dir') || b.getAttribute('data-action') !== want.action ||
+          b.getAttribute('aria-label') !== want.aria ||
+          iconEl === null || iconEl.textContent !== want.icon ||
+          labelEl === null || labelEl.textContent !== want.label) specOkR27 = false
+    })
+    check('r27: 十字簇源序 softDrop→moveLeft→moveRight→hardDrop 且五字段（action/aria/图标/文字）随元素迁移',
+      specOkR27, gotActsR27.join(','))
+    // ② 共享 DOM 恒等断言（双作用域验证口径）：单模板唯一 → S 与 M/L 恒同一批元素；
+    //    六键动作各恰 1、无重复无缺漏（互换不增删语义）
+    const controlsCountR27 = doc.querySelectorAll('#touch-controls').length
+    const crossCountR27 = doc.querySelectorAll('#touch-controls .tpad-cross').length
+    const railCountR27 = doc.querySelectorAll('#touch-controls > .rail').length
+    const actCountR27 = function (a) { return doc.querySelectorAll('#touch-controls .tkey[data-action="' + a + '"]').length }
+    const allActsR27 = ['hardDrop', 'softDrop', 'moveLeft', 'moveRight', 'rotate', 'hold']
+    check('r27: 共享 DOM 恒等（恰 1 个 #touch-controls / 1 个 .tpad-cross / 2 轨——S 与 M/L 单模板同源）',
+      controlsCountR27 === 1 && crossCountR27 === 1 && railCountR27 === 2,
+      controlsCountR27 + '/' + crossCountR27 + '/' + railCountR27)
+    check('r27: 六键动作集合不变且各恰 1（硬降/软降互换位置但不增删语义）',
+      allActsR27.every(function (a) { return actCountR27(a) === 1 }),
+      allActsR27.map(function (a) { return a + '=' + actCountR27(a) }).join(','))
+    // ③ hub 复验（r24/r26 三层保险在互换后仍成立）
+    const hubR27 = doc.querySelector('.tpad-cross__hub')
+    check('r27: hub 为 span 无 data-action + aria-hidden（互换后零回放命中保险承继）',
+      hubR27 !== null && hubR27.tagName === 'SPAN' && !hubR27.hasAttribute('data-action') &&
+      hubR27.getAttribute('aria-hidden') === 'true')
+    // ③b hub 点按零事件复验（沿 r24 2307 起先例）+ 互换键动作锚定对照（回放器按 data-action 命中，AC-2/3）
+    window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+    const backingR27 = {}
+    const storeR27 = {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(backingR27, k) ? backingR27[k] : null },
+      setItem: function (k, v) { backingR27[k] = String(v) },
+      removeItem: function (k) { delete backingR27[k] },
+    }
+    const persistR27 = window.TetrisPersist.createPersistence({ storage: storeR27 })
+    const uiR27 = window.TetrisUI.createUI({
+      autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0,
+      touch: true, persist: persistR27,
+    })
+    const gR27 = uiR27.game
+    gR27.start()
+    const snapR27a = gR27.getSnapshot()
+    const spyPlaysR27a = spy.plays.length
+    const keyLogR27 = []
+    const hubKeySpyR27 = function (e) { keyLogR27.push(e.key) }
+    doc.addEventListener('keydown', hubKeySpyR27)
+    hubR27.dispatchEvent(new window.Event('touchstart', { bubbles: true, cancelable: true }))
+    hubR27.dispatchEvent(new window.Event('touchend', { bubbles: true, cancelable: true }))
+    hubR27.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    doc.removeEventListener('keydown', hubKeySpyR27)
+    const snapR27b = gR27.getSnapshot()
+    check('r27: hub 三事件零合成 keydown（无 data-action 不命中回放器，r24 先例承继）',
+      keyLogR27.length === 0, keyLogR27.length + ' keydown')
+    check('r27: hub 点按零副作用（piece 不动、无新音效——互换后 ✛ 叉饰仍零事件）',
+      JSON.stringify(snapR27a.piece) === JSON.stringify(snapR27b.piece) &&
+      spy.plays.length === spyPlaysR27a, 'plays+' + (spy.plays.length - spyPlaysR27a))
+    // 对照：互换后上=softDrop 下=hardDrop，按 data-action 锚定即时生效（键帽语义随元素迁移）
+    const softKeyR27 = doc.querySelector('.tkey[data-action="softDrop"]')
+    softKeyR27.dispatchEvent(new window.Event('touchstart', { bubbles: true, cancelable: true }))
+    softKeyR27.dispatchEvent(new window.Event('touchend', { bubbles: true, cancelable: true }))
+    const snapR27c = gR27.getSnapshot()
+    check('r27: 互换后源序首位=软降键，touch 单步 y+1（动作语义随 data-action 迁移，AC-4 契约承继）',
+      snapR27c.piece.y === snapR27b.piece.y + 1, 'y ' + snapR27b.piece.y + '→' + snapR27c.piece.y)
+    const spyPlaysR27b = spy.plays.length
+    const hardKeyR27 = doc.querySelector('.tkey[data-action="hardDrop"]')
+    hardKeyR27.dispatchEvent(new window.Event('touchstart', { bubbles: true, cancelable: true }))
+    hardKeyR27.dispatchEvent(new window.Event('touchend', { bubbles: true, cancelable: true }))
+    const snapR27d = gR27.getSnapshot()
+    check('r27: 互换后源序末位=硬降键，touch 触发锁定（board 变化 + hardDrop 音效，RUNNING 承续）',
+      JSON.stringify(snapR27c.board) !== JSON.stringify(snapR27d.board) &&
+      spy.plays.length === spyPlaysR27b + 1 && snapR27d.phase === 'RUNNING', snapR27d.phase)
+    uiR27.dispose()
+    check('r27: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))

@@ -650,8 +650,10 @@ test('r24: 触控区双簇 DOM 契约（AC-1：六 .tkey[data-action] 字面量/
   const crossActions = []
   const re2 = /data-action="([^"]+)"/g
   while ((m = re2.exec(htmlR24.slice(crossStart, mainStart))) !== null) crossActions.push(m[1])
-  assert.deepEqual(crossActions, ['hardDrop', 'moveLeft', 'moveRight', 'softDrop'],
-    '十字簇 4 键（上硬降/左右横移/下软降，DOM 源序）')
+  // 登记改写（取代 r24#AC-1 授权，r27 §9 D-3）：十字键上下位互换（上=硬降 → 上=软降）——
+  // 随模板层整按钮交换落新 DOM 源序 softDrop/左/右/hardDrop
+  assert.deepEqual(crossActions, ['softDrop', 'moveLeft', 'moveRight', 'hardDrop'],
+    '十字簇 4 键（上软降/左右横移/下硬降，DOM 源序）')
   const mainActions = []
   const re3 = /data-action="([^"]+)"/g
   while ((m = re3.exec(htmlR24.slice(mainStart, htmlR24.indexOf('</div>', mainStart)))) !== null) mainActions.push(m[1])
@@ -766,7 +768,8 @@ test('r26: .rail 双轨 DOM 契约（AC-2：恰 2、l→r 源序、无 data-acti
   let m
   const lre = /data-action="([^"]+)"/g
   while ((m = lre.exec(lRegion)) !== null) lKeys.push(m[1])
-  assert.deepEqual(lKeys, ['hardDrop', 'moveLeft', 'moveRight', 'softDrop'], '左轨恰 4 键（硬降/左/右/软降）')
+  // 登记改写（取代 r24#AC-1 授权，r27 §9 D-3）：rail--l 包同一 tpad-cross，键序与 653 同源
+  assert.deepEqual(lKeys, ['softDrop', 'moveLeft', 'moveRight', 'hardDrop'], '左轨恰 4 键（软降/左/右/硬降）')
   const rRegion = htmlR24.slice(railR, htmlR24.indexOf('</div>', railR))
   assert.ok(rRegion.indexOf('class="tpad-main"') !== -1, '右轨包裹旋转簇')
   const rKeys = []
@@ -878,4 +881,51 @@ test('r26: 皮肤作用域防护（AC-12：tile 类避开 .touchpad--skin- needl
     const hits = cssR24.split('.touchpad--skin-' + s).length - 1
     assert.ok(hits >= 2, s + ' 皮肤 needle 数量 ≥2（未受 tile 类污染）')
   }
+})
+
+/* ======================================================================
+ * r27 十字键上下位互换 + M/L 行式栏 order 冻结（T3 收口；TECHNICAL §9）
+ * 纯追加段：基座 4 条 order 规则结构性断言（选择器+顺序值精确匹配 + 基座切片锚定，
+ * 沿 M/L 恒玻璃构造保证先例）；行式栏 flex row 容器语义；[data-action] 选择器
+ * 恰 4 条且全落基座、S/横屏两切片零残留（nth-child 显式 grid-area 落位 → order
+ * 不参与自动放置，规则无需媒体门控即天然只作用行式栏，AC-5）。
+ * 登记改写（取代 r24#AC-1）：653/769 两处键序断言已改新源序，见上。
+ * 已知接受项（D-5）：M/L 视觉序（order 冻结=r26 硬降/左/右/软降）与 DOM 源序分叉，
+ * 读屏顺序与视觉顺序在行式栏轻微不一致——人工抽查承继。
+ * ==================================================================== */
+
+// 基座锚点：基座双簇 flex 行块（.touchpad .tpad-cross, .tpad-main 联合块）——D-2 落点=紧邻其后；
+// 上界=首个触控作用域媒体块（landStartR24：横屏侧轨块起始，S/横屏/M 均在其后）→
+// order 规则须落两者之间（触控基座域内、媒体块外；文件更早期存在布局类 @media 块，不参与界定）
+const baseCrossR27 = cssR24.search(/\.touchpad \.tpad-cross,\s*\.touchpad \.tpad-main\s*\{/)
+assert.ok(baseCrossR27 !== -1, 'r27 基座双簇 flex 行块锚点存在')
+
+test('r27: 基座 4 条 order 冻结规则（AC-5：选择器+顺序值 1..4 精确匹配，落触控基座域）', () => {
+  const ORDER_RULES = [
+    ['hardDrop', 1],
+    ['moveLeft', 2],
+    ['moveRight', 3],
+    ['softDrop', 4],
+  ]
+  for (const [action, n] of ORDER_RULES) {
+    const re = new RegExp(
+      '\\.touchpad \\.tpad-cross > \\.tkey\\[data-action="' + action + '"\\]\\s*\\{\\s*order:\\s*' + n + ';'
+    )
+    const idx = cssR24.search(re)
+    assert.ok(idx !== -1, 'order 规则存在：' + action + ' → order:' + n)
+    assert.ok(idx > baseCrossR27, 'order 规则落在基座双簇块之后（D-2 紧邻落点）：' + action)
+    assert.ok(idx < landStartR24, 'order 规则在触控作用域媒体块之外（S/横屏/M 之前）：' + action)
+  }
+  // 行式栏容器语义：基座 .tpad-cross（与 .tpad-main 联合块）为 flex 行——order 仅在 flex/grid 容器生效
+  assert.match(cssR24, /\.touchpad\s+\.tpad-cross[\s\S]{0,160}?flex-direction:\s*row/,
+    '基座行式栏 flex row 容器（order 生效前提，AC-5）')
+})
+
+test('r27: order 冻结唯一性防护（F5 演变：style.css [data-action= 选择器恰 4 条且全在基座）', () => {
+  // r27 前 style.css 无任何 [data-action] 选择器（F5）；r27 仅新增这 4 条 order 规则
+  const dataActionCount = cssR24.split('[data-action=').length - 1
+  assert.equal(dataActionCount, 4, '[data-action= 选择器恰 4 条（未误增其他锚点）')
+  // S/横屏为 nth-child 显式 grid-area 落位，order 不参与自动放置 → 两切片零 order 选择器残留
+  assert.ok(sPortraitR24.indexOf('tkey[data-action=') === -1, 'S 竖屏切片无 order 选择器残留')
+  assert.ok(landSliceR24.indexOf('tkey[data-action=') === -1, '横屏切片无 order 选择器残留')
 })

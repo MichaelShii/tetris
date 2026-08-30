@@ -113,12 +113,13 @@
   <div id="touch-controls" class="touchpad" aria-label="触屏操控区">
     <!-- r26 左轨：包十字簇；横屏为视觉轨盒（单边右描边），基座 display:contents 中性化 -->
     <div class="rail rail--l">
-      <!-- 左十字簇：grid-template-areas ". up ." "lf hub rt" ". dn ."；源序 up→lf→rt→dn 恰落四区 -->
+      <!-- 左十字簇：grid-template-areas ". up ." "lf hub rt" ". dn ."；r27 上/下整按钮互换（D-1）后
+           源序 softDrop→lf→rt→hardDrop 仍恰落四区（上=软降/下=硬降；M/L 视觉键序由基座 order 冻结回 r26） -->
       <div class="tpad-cross">
-        <button type="button" class="tkey tkey--dir" data-action="hardDrop" aria-label="硬降"><span class="tkey__icon">⤓</span><span class="tkey__label">硬降</span></button>
+        <button type="button" class="tkey tkey--dir" data-action="softDrop" aria-label="软降"><span class="tkey__icon">▼</span><span class="tkey__label">软降</span></button>
         <button type="button" class="tkey tkey--dir" data-action="moveLeft" aria-label="左移"><span class="tkey__icon">◀</span><span class="tkey__label">左</span></button>
         <button type="button" class="tkey tkey--dir" data-action="moveRight" aria-label="右移"><span class="tkey__icon">▶</span><span class="tkey__label">右</span></button>
-        <button type="button" class="tkey tkey--dir" data-action="softDrop" aria-label="软降"><span class="tkey__icon">▼</span><span class="tkey__label">软降</span></button>
+        <button type="button" class="tkey tkey--dir" data-action="hardDrop" aria-label="硬降"><span class="tkey__icon">⤓</span><span class="tkey__label">硬降</span></button>
         <span class="tpad-cross__hub" aria-hidden="true">✛</span><!-- 纯装饰：无 data-action、pointer-events:none、grid-area:hub -->
       </div>
     </div>

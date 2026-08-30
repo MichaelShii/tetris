@@ -1065,6 +1065,14 @@ html.has-touch .touchpad {
   gap: var(--sp-2);
 }
 
+/* r27（AC-5 裁定 D-2）：M/L 行式底栏（及默认横排、≥600px 横屏门控行式栏）视觉键序冻结回 r26
+   （硬降 左 右 软降）。S 竖屏/横屏侧轨为 nth-child 显式 grid-area 落位，order 对其无效，
+   故本规则天然只作用于行式栏，无需媒体门控、零新作用域。 */
+.touchpad .tpad-cross > .tkey[data-action="hardDrop"]  { order: 1; }
+.touchpad .tpad-cross > .tkey[data-action="moveLeft"]  { order: 2; }
+.touchpad .tpad-cross > .tkey[data-action="moveRight"] { order: 3; }
+.touchpad .tpad-cross > .tkey[data-action="softDrop"]  { order: 4; }
+
 /* 组距（DESIGN §2.1 双簇等价）：右簇左补 --sp-2 → 双簇间 16px（原 6 键单行第 3 键分组规则的簇级等价） */
 .touchpad .tpad-main {
   margin-left: var(--sp-2);
