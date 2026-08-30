@@ -782,11 +782,16 @@ test('r26: 基座 .rail display:contents 中性化（AC-2：竖屏/M/L 布局与
   assert.match(cssR24, /\.touchpad\s+\.rail\s*\{\s*display:\s*contents/, '基座 .touchpad .rail display:contents 中性化')
 })
 
-test('r26: 横屏块 <600px 门控 + M 块零侧轨（AC-3：M/L 恒行式底栏裁定落地）', () => {
-  // 门控：landSlice 起始（横屏块注释/头部）含 and (max-width: 599px)，前缀匹配锚点零改动
-  assert.ok(landSliceR24.slice(0, 80).indexOf('and (max-width: 599px)') !== -1,
-    '横屏块加 and (max-width: 599px) 门控（AC-3）')
-  // M 两档（600–767 / 768–1023）切片不含 .rail 与皮肤类——M/L 恒行式底栏构造保证。
+// r28 登记改写（取代 r26#AC-3 授权）：横屏门控放宽为裸 @media (orientation: landscape) ——
+// 横屏任意宽度恒双轨；断言体逻辑保留（M 切片零 rail/皮肤 + 基座三件套），仅门控断言与注释语义更新。
+test('r26: 横屏块裸门控 + M 块零触控规则（AC-3 登记改写：r28 恒双轨，取代 r26 仅 S 档侧轨）', () => {
+  // 门控（r28 取代 r26#AC-3 R-D1）：landSlice 起始即裸 @media (orientation: landscape)，无 max-width 组合
+  assert.match(landSliceR24.slice(0, 80), /^@media \(orientation: landscape\)\s*\{/,
+    '横屏门控裸 @media (orientation: landscape)（AC-3 恒双轨）')
+  assert.ok(landSliceR24.slice(0, 80).indexOf('max-width') === -1,
+    '门控无 max-width 组合（横屏任意宽度恒双轨）')
+  // M 两档（600–767 / 768–1023）切片不含 .rail 与皮肤类——M/L 横屏现落 §5.5 双轨（裸 landscape 门控），
+  // M 切片（min-width 前缀）与 §5.5（orientation 前缀）查询互斥 → 自身零触控规则恒成立。
   // 注：r24 基线两档前缀各异（min-width:600px / min-width:768px），indexOf 单前缀只能命中
   // 600 档（1 处）→ 登记修正为双前缀正则（601/768 两档各 1 处；HEAD r24 同缺，非 r26 引入）
   const mMarks = []
@@ -800,9 +805,10 @@ test('r26: 横屏块 <600px 门控 + M 块零侧轨（AC-3：M/L 恒行式底栏
     assert.ok(mSlice.indexOf('.rail') === -1, 'M 切片无 .rail')
     assert.ok(mSlice.indexOf('.touchpad--skin-') === -1, 'M 切片无皮肤类（恒玻璃，AC-12）')
   }
-  // 基座行式底栏三件套（M/L 横屏落点）：--glass-bg 底 + border-top 描边 + 投影
+  // 基座行式底栏三件套（登记改写：M/L 横屏落点 → 竖屏 dock 落点，横屏现由侧轨覆盖）：
+  // --glass-bg 底 + border-top 描边 + 投影
   assert.match(cssR24, /\.touchpad\s*\{[^}]*background:\s*var\(--glass-bg\)[^}]*border-top:\s*1px\s+solid\s+var\(--line\)[^}]*box-shadow:/,
-    '基座行式底栏三件套（恒玻璃）')
+    '基座行式底栏三件套（恒玻璃，竖屏 dock 落点）')
 })
 
 test('r26: 轨道盒单边描边 + 伪元素轨拆除（AC-2/AC-4：212/104 calc 串、safe-area、z-index 键盖轨）', () => {
@@ -928,4 +934,65 @@ test('r27: order 冻结唯一性防护（F5 演变：style.css [data-action= 选
   // S/横屏为 nth-child 显式 grid-area 落位，order 不参与自动放置 → 两切片零 order 选择器残留
   assert.ok(sPortraitR24.indexOf('tkey[data-action=') === -1, 'S 竖屏切片无 order 选择器残留')
   assert.ok(landSliceR24.indexOf('tkey[data-action=') === -1, '横屏切片无 order 选择器残留')
+})
+
+/* ======================================================================
+ * r28 横屏双轨门控放宽（T2 收口；TECHNICAL §4）
+ * 纯追加段：门控文本精确（裸 @media (orientation: landscape) + 无 max-width）/
+ * §7.2 独立（S 横屏查询保持 max-width 前缀原样保留，不被 §5.5 合并吞并）/
+ * 双作用域同 nth-child grid-area 映射与 3×3 grid 模板同串共存——十字键位
+ * （上=软降/左=右移/右=左移/下=硬降）由 DOM 源序 + 两作用域共用映射构造保证，
+ * 断言按「两切片同串共存」防单边漂移，不去重不合并。
+ * 登记改写（取代 r26#AC-3）：785 段门控断言已改裸 landscape，见上。
+ * ==================================================================== */
+
+test('r28: 门控文本精确（§5.5 裸 @media (orientation: landscape)，无 max-width 组合）', () => {
+  assert.match(landSliceR24.slice(0, 80), /^@media \(orientation: landscape\)\s*\{/,
+    '门控起始即裸 landscape（landStartR24 锚点未漂移）')
+  assert.ok(landSliceR24.slice(0, 80).indexOf('max-width') === -1,
+    '门控无 max-width（横屏任意宽度恒双轨）')
+  assert.ok(cssR24.indexOf('(orientation: landscape) and (max-width: 599px)') === -1,
+    '全文件无「横屏 + max-width」组合门控（旧 r26 门控已移除）')
+})
+
+test('r28: §7.2 S 横屏查询独立（max-width 前缀原样保留，不被 §5.5 合并）', () => {
+  const q72 = '@media (max-width: 599px) and (orientation: landscape)'
+  assert.equal(cssR24.indexOf(q72), sLandR24, '§7.2 查询原样保留（sLandR24 锚点零漂移）')
+  assert.ok(sLandR24 > sStartR24 && sLandR24 > landEndR24,
+    '切片序稳定：§7.2 在 S 竖屏块与 §5.5 切片（landEndR24）之后')
+  // 块内容守卫：§7.2 仍为 S 横屏主区横排 + HUD 横带（未被 §5.5 门控放宽波及）
+  const seg72 = cssR24.slice(sLandR24, sLandR24 + 800)
+  assert.match(seg72, /#main\s*\{[\s\S]{0,80}flex-direction:\s*row/, '§7.2 #main 横排规则仍在')
+  assert.match(seg72, /grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/, '§7.2 HUD 横带仍在')
+})
+
+test('r28: 双作用域同 nth-child 映射与 3×3 grid 模板（同串共存，键位一致构造保证）', () => {
+  // 各切片内抓取 nth-child grid-area 映射四行（归一化空白后比较——「两切片同串共存」防单边漂移）
+  const grabCrossMap = (slice, label) => {
+    const start = slice.indexOf('.tpad-cross .tkey:nth-child(1)')
+    assert.ok(start !== -1, label + ' nth-child(1) 起点存在')
+    const end = slice.indexOf('grid-area: dn; }', start) + 'grid-area: dn; }'.length
+    assert.ok(end > start, label + ' dn 落位终点存在')
+    return slice.slice(start, end).replace(/\s+/g, '')
+  }
+  // 各切片内抓取十字 3×3 grid 模板（areas + columns + rows）——同串共存
+  const grabCrossGrid = (slice, label) => {
+    const start = slice.indexOf("grid-template-areas: '. up .'")
+    assert.ok(start !== -1, label + ' 十字 3×3 模板起点存在')
+    const rowsAt = slice.indexOf('grid-template-rows: repeat(3, var(--tpad-key-dir))', start)
+    assert.ok(rowsAt !== -1 && rowsAt > start, label + ' rows 模板存在')
+    const semi = slice.indexOf(';', rowsAt)
+    assert.ok(semi !== -1, label + ' rows 声明闭合')
+    return slice.slice(start, semi + 1).replace(/\s+/g, '')
+  }
+  const mapPortrait = grabCrossMap(sPortraitR24, 'S 竖屏')
+  const mapLand = grabCrossMap(landSliceR24, '横屏')
+  assert.equal(mapLand, mapPortrait, '两切片 nth-child grid-area 映射同串共存（up/lf/rt/dn ↔ 上软/左右/下硬）')
+  const gridPortrait = grabCrossGrid(sPortraitR24, 'S 竖屏')
+  const gridLand = grabCrossGrid(landSliceR24, '横屏')
+  assert.equal(gridLand, gridPortrait, '两切片 3×3 grid 模板同串共存（areas/columns/rows 全等）')
+  // 防合并护栏：映射必须各在其切片内存在（未被去重收口至单一作用域）
+  assert.ok(sPortraitR24.indexOf('.tpad-cross .tkey:nth-child(1)') !== -1 &&
+    landSliceR24.indexOf('.tpad-cross .tkey:nth-child(1)') !== -1,
+    '双作用域各存一份 nth-child 映射（不去重不合并）')
 })

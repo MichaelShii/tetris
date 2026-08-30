@@ -1314,11 +1314,11 @@ input:focus-visible + .dock-skin-option__tile {
   }
 }
 
-/* r26 横屏侧轨（orientation: landscape 且 S 档 <600px，AC-10 / DESIGN §2.3）：左轨十字簇 + 右轨 Hold/旋转，
-   键径 56/80/48（裁定 D5：取代设计稿内 52/76/46）；轨宽 3×56+2×10+2×12=212px 贴 safe-area；
-   中列留白承接板框（裁定 D6：板框包围盒居中内嵌于 [212, vw−212]，余量 ≥13px）；
-   AC-3 门控（裁定 R-D1）：and (max-width: 599px)——M/L（≥600px）横屏恒落基座行式底栏（恒玻璃），不引入侧轨 */
-@media (orientation: landscape) and (max-width: 599px) {
+/* r26 横屏侧轨 → r28 门控放宽（取代 r26 AC-3 裁定 R-D1，横屏双轨）：orientation: landscape 任意宽度恒双轨。
+   左轨十字簇 + 右轨 Hold/旋转；键径 56/80/48（裁定 D5：取代设计稿内 52/76/46）；
+   轨宽 3×56+2×10+2×12=212px 贴 safe-area；中列留白承接板框（裁定 D6：板框包围盒居中内嵌于 [212, vw−212]，余量 ≥13px）；
+   级联独裁：横屏同宽后源块（§7.1 内层 landscape / §7.2 S 横屏 / M 两档板块）均零触控规则 → 本块为横屏唯一 .touchpad 权威 */
+@media (orientation: landscape) {
   .touchpad {
     --tpad-key-dir: 3.5rem;   /* 56px */
     --tpad-key-hero: 5rem;    /* 80px */

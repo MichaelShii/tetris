@@ -2544,6 +2544,127 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('r27: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
   }
 
+  /* ---------- r28 横屏双轨 E2E 段（r26 门控放宽：orientation: landscape 任意宽度恒双轨；TECHNICAL §r28） ----------
+   jsdom 不执行媒体查询 → 双轨布局作用域裁定以「结构 + 源码」双面断言（cssText 源扫描即行为证明）：
+   ① 双轨 DOM 结构（左轨十字簇 / 右轨主簇，互不串簇）；② 六键 rail 归属映射（源序逐 rail 断言——
+   上软降/下硬降由 DOM 源序 + §5.5=竖屏共用 nth-child grid-area 映射承载）；③ hub 结构三保险复验；
+   ④ hub 三事件零回放（live）；⑤ 源序键触控语义逐键即时验证（触控=键盘回放器路径，r27 harness 复用）；
+   ⑥ 源码级 ≥600px 不落行式栏：M/L 档板块（600-767 / 768-1023 / ≥1024 7.5 段）零触控规则 →
+   横屏唯一 .touchpad 权威 = §5.5 裸 landscape 双轨（门控文本精确断言登记 verify-ui §r28，不重复断言面）。-------- */
+  console.log('\n-- r28 横屏双轨（双轨 DOM / 六键映射 / hub 零事件 / 源序触控语义 / ≥600px 不落行式栏） --')
+  {
+    // ① 双轨 DOM 结构（静态）：恰 1 容器、恰 2 直接 rail、左轨十字簇 4 键+hub、右轨主簇 2 键、互不串簇
+    const ctrlR28 = doc.querySelector('#touch-controls')
+    const railsR28 = doc.querySelectorAll('#touch-controls > .rail')
+    const railLR28 = doc.querySelector('#touch-controls .rail--l')
+    const railRR28 = doc.querySelector('#touch-controls .rail--r')
+    check('r28: 双轨容器存在（恰 1 个 #touch-controls）', ctrlR28 !== null &&
+      doc.querySelectorAll('#touch-controls').length === 1)
+    check('r28: 恰 2 直接 rail（rail--l / rail--r 双轨）', railsR28.length === 2 &&
+      railLR28 !== null && railRR28 !== null, String(railsR28.length))
+    const crossR28 = railLR28 === null ? null : railLR28.querySelector('.tpad-cross')
+    const mainR28 = railRR28 === null ? null : railRR28.querySelector('.tpad-main')
+    check('r28: 左轨包 .tpad-cross 恰 1、右轨包 .tpad-main 恰 1',
+      crossR28 !== null && railLR28.querySelectorAll('.tpad-cross').length === 1 &&
+      mainR28 !== null && railRR28.querySelectorAll('.tpad-main').length === 1)
+    const crossKeysR28 = crossR28 === null ? [] : Array.prototype.slice.call(crossR28.querySelectorAll('.tkey'))
+    const mainKeysR28 = mainR28 === null ? [] : Array.prototype.slice.call(mainR28.querySelectorAll('.tkey'))
+    check('r28: 十字簇恰 4 键 + ✛ hub、主簇恰 2 键',
+      crossKeysR28.length === 4 && crossR28.querySelector('.tpad-cross__hub') !== null &&
+      mainKeysR28.length === 2, crossKeysR28.length + '+' + mainKeysR28.length)
+    check('r28: 左右轨互不串簇（rail--l 无 .tpad-main、rail--r 无 .tpad-cross）',
+      railLR28.querySelectorAll('.tpad-main').length === 0 &&
+      railRR28.querySelectorAll('.tpad-cross').length === 0)
+    // ② 六键 rail 归属映射（源序逐 rail 断言：左轨四键 = 键盘回放器锚点，右轨两键 = Hold/旋转）
+    const actsLR28 = crossKeysR28.map(function (b) { return b.getAttribute('data-action') })
+    const actsRR28 = mainKeysR28.map(function (b) { return b.getAttribute('data-action') })
+    check('r28: 左轨键位源序 softDrop→moveLeft→moveRight→hardDrop（上软降/下硬降）',
+      actsLR28.join(',') === 'softDrop,moveLeft,moveRight,hardDrop', actsLR28.join(','))
+    check('r28: 右轨键位源序 hold→rotate（主簇 Hold/旋转）', actsRR28.join(',') === 'hold,rotate', actsRR28.join(','))
+    const actCountR28 = function (a) { return doc.querySelectorAll('#touch-controls .tkey[data-action="' + a + '"]').length }
+    const sixActsR28 = ['hardDrop', 'softDrop', 'moveLeft', 'moveRight', 'rotate', 'hold']
+    check('r28: 六键动作集合恰各 1（4+2 双轨全量，r16/r24/r27 交叉断言防漂移）',
+      sixActsR28.every(function (a) { return actCountR28(a) === 1 }) &&
+      doc.querySelectorAll('#touch-controls .tkey').length === 6,
+      sixActsR28.map(function (a) { return a + '=' + actCountR28(a) }).join(','))
+    // ③ hub 结构三保险复验（无 data-action / SPAN / aria-hidden；r24/r26/r27 承继）
+    const hubR28 = doc.querySelector('#touch-controls .tpad-cross__hub')
+    check('r28: hub 在左轨十字簇内、span 无 data-action + aria-hidden（回放器/键聚合零命中）',
+      hubR28 !== null && crossR28 !== null && crossR28.contains(hubR28) &&
+      hubR28.tagName === 'SPAN' && !hubR28.hasAttribute('data-action') &&
+      hubR28.getAttribute('aria-hidden') === 'true')
+    // ⑥ 源码级 ≥600px 不落行式栏（cssText 切片：M 两档 + L 段零触控规则 → 横屏双轨为唯一 .touchpad 权威；
+    //    门控文本精确断言登记 verify-ui §r28，两段不重复断言面）
+    const cssR28 = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
+    const m1sR28 = cssR28.indexOf('@media (min-width: 600px) and (max-width: 767px)')
+    const m2sR28 = cssR28.indexOf('@media (min-width: 768px) and (max-width: 1023px)')
+    const l7R28 = cssR28.indexOf('/* 7.5 L 桌面')
+    const touchHitsR28 = function (s) { return (s.match(/\.touchpad|\.rail|\.tkey|\.tpad-/g) || []).join(',') }
+    const m1HitsR28 = m1sR28 === -1 || m2sR28 === -1 ? '!anchor' : touchHitsR28(cssR28.slice(m1sR28, m2sR28))
+    const m2HitsR28 = m2sR28 === -1 || l7R28 === -1 ? '!anchor' : touchHitsR28(cssR28.slice(m2sR28, l7R28))
+    const lHitsR28 = l7R28 === -1 ? '!anchor' : touchHitsR28(cssR28.slice(l7R28))
+    check('r28: M/L 档切片锚点齐备且有序（600-767 / 768-1023 / ≥1024 7.5 段）',
+      m1sR28 !== -1 && m2sR28 > m1sR28 && l7R28 > m2sR28, m1sR28 + '/' + m2sR28 + '/' + l7R28)
+    check('r28: M 两档 + L 段零触控规则（.touchpad/.rail/.tkey/.tpad-* 全无 → ≥600px 不落行式栏）',
+      m1HitsR28 === '' && m2HitsR28 === '' && lHitsR28 === '',
+      'M1[' + m1HitsR28 + '] M2[' + m2HitsR28 + '] L[' + lHitsR28 + ']')
+    // ④ hub 三事件零回放（live）+ ⑤ 源序键触控语义逐键即时验证（触控=键盘回放器路径，r27 harness 复用）
+    window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+    const backingR28 = {}
+    const storeR28 = {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(backingR28, k) ? backingR28[k] : null },
+      setItem: function (k, v) { backingR28[k] = String(v) },
+      removeItem: function (k) { delete backingR28[k] },
+    }
+    const persistR28 = window.TetrisPersist.createPersistence({ storage: storeR28 })
+    const uiR28 = window.TetrisUI.createUI({
+      autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0,
+      touch: true, persist: persistR28,
+    })
+    const gR28 = uiR28.game
+    gR28.start()
+    const snapR28a = gR28.getSnapshot()
+    const playsR28a = spy.plays.length
+    const keyLogR28 = []
+    const keySpyR28 = function (e) { keyLogR28.push(e.key) }
+    doc.addEventListener('keydown', keySpyR28)
+    hubR28.dispatchEvent(new window.Event('touchstart', { bubbles: true, cancelable: true }))
+    hubR28.dispatchEvent(new window.Event('touchend', { bubbles: true, cancelable: true }))
+    hubR28.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    doc.removeEventListener('keydown', keySpyR28)
+    const snapR28b = gR28.getSnapshot()
+    check('r28: hub 三事件零合成 keydown（无 data-action 不命中回放器）', keyLogR28.length === 0,
+      keyLogR28.length + ' keydown')
+    check('r28: hub 点按零副作用（piece 不动、无新音效）',
+      JSON.stringify(snapR28a.piece) === JSON.stringify(snapR28b.piece) &&
+      spy.plays.length === playsR28a, 'plays+' + (spy.plays.length - playsR28a))
+    // ⑤ 按十字簇 DOM 源序逐键 touch（touchstart→合成 keydown 回放）→ 动作语义即时验证
+    const tapR28 = function (k) {
+      k.dispatchEvent(new window.Event('touchstart', { bubbles: true, cancelable: true }))
+      k.dispatchEvent(new window.Event('touchend', { bubbles: true, cancelable: true }))
+    }
+    tapR28(crossKeysR28[0])
+    const snapR28c = gR28.getSnapshot()
+    check('r28: 源序①软降键 touch → y+1（上=软降语义随 data-action 生效）',
+      snapR28c.piece.y === snapR28b.piece.y + 1, 'y ' + snapR28b.piece.y + '→' + snapR28c.piece.y)
+    tapR28(crossKeysR28[1])
+    const snapR28d = gR28.getSnapshot()
+    check('r28: 源序②左移键 touch → x-1', snapR28d.piece.x === snapR28c.piece.x - 1,
+      'x ' + snapR28c.piece.x + '→' + snapR28d.piece.x)
+    tapR28(crossKeysR28[2])
+    const snapR28e = gR28.getSnapshot()
+    check('r28: 源序③右移键 touch → x+1', snapR28e.piece.x === snapR28d.piece.x + 1,
+      'x ' + snapR28d.piece.x + '→' + snapR28e.piece.x)
+    const playsR28e = spy.plays.length
+    tapR28(crossKeysR28[3])
+    const snapR28f = gR28.getSnapshot()
+    check('r28: 源序④硬降键 touch → 锁定（board 变化 + hardDrop 音效 + RUNNING 承续）',
+      JSON.stringify(snapR28e.board) !== JSON.stringify(snapR28f.board) &&
+      spy.plays.length === playsR28e + 1 && snapR28f.phase === 'RUNNING', snapR28f.phase)
+    uiR28.dispose()
+    check('r28: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))
