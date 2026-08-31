@@ -133,6 +133,17 @@
     </div>
   </div>
 
+  <!-- r30 横屏锁屏提示（用户裁定：暂缓横屏专门适配——触屏手机/平板横屏时显示「请竖屏游玩」全屏遮罩，
+       纯 CSS 门控（has-touch + landscape + <1024）显隐，零 JS 零引擎改动；遮罩只提示，不暂停游戏，
+       棋盘在背后照跑（见 DR-1 已知取舍）。默认隐藏，仅在命中门控时由 style.css 显示 -->
+  <div id="rotate-overlay" role="status" aria-live="polite" hidden>
+    <div id="rotate-overlay__card">
+      <span id="rotate-overlay__icon" aria-hidden="true">📱</span>
+      <p id="rotate-overlay__title">请竖屏游玩</p>
+      <p id="rotate-overlay__sub">旋转设备至竖屏以获得最佳体验</p>
+    </div>
+  </div>
+
   <!-- v3.0 设置弹层（AC-01~06：齿轮图标触发的毛玻璃风格模态框）。
        注意：必须位于脚本之前——createUI 装配期立即校验全部必需元素（#btn-mute 等），
        若置于脚本之后，真实浏览器解析时同步执行 createUI 会因弹层未入 DOM 而装配失败。 -->

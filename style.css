@@ -2000,45 +2000,81 @@ input:focus-visible + .dock-skin-option__tile {
 /* 7.5 L 桌面 ≥1024px：零新增规则。既有基座三列 240|340|240 + 既有 ≤1100px 单列堆叠 +
     r16 触屏规则全部原样（AC-7 快照即证据；1024–1100 维持既有降级堆叠） */
 
-/* r29 AC-1 横屏 ≥600px 内容让位（取代 r28#AC-1 叠压 + r28#E1 悬浮观测项升级）：
-   横屏（has-touch、min-width:600px）下 #main 内容左右各让出双轨宽，内容单列居中于
-   [左轨, vw−右轨] 走廊、双轨贴边不叠压；html.has-touch 门控保桌面横屏零变化（AC-5）。
-   特异性 html.has-touch #main(1,1,1) > §7.3/7.4 #main(1,0,0) → 源序无关反超其 grid；
-   覆盖 grid 回退 flex-column（复用 §3 ≤1100 基座），面板卡化承继 §7.2 外观（AC-1/AC-2）。
-   gate 不定 max-width：仅 (orientation:landscape) and (min-width:600px)，竖屏/S 横屏/桌面零回归。 */
-@media (orientation: landscape) and (min-width: 600px) {
-  html.has-touch #main {
+/* r30 横屏策略收紧（用户裁定：暂缓横屏专门适配，覆盖 844×390 手机横屏乱象 + PC 宽屏触控键叠压）；
+   取代 r29「横屏 ≥600px 内容让位」方案——触屏手机/平板（<1024）横屏时不再渲染乱布局，
+   改为一层「请竖屏游玩」纯 CSS 全屏遮罩（提示不暂停，见 DR-1）；PC 宽屏（≥1024）不论是否
+   触屏一律不显示触控键（键鼠游玩，消除叠压）。html.has-touch 门控保非触屏桌面横屏零变化。 */
+
+/* —— 锁屏提示遮罩（仅 has-touch + landscape + <1024，即触屏手机/平板横屏） —— */
+#rotate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-toast) + 1);          /* 盖住触控键(5)/面板(2)/toast(20) */
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-6);
+  background: rgba(5, 5, 8, 0.72);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+/* 门控命中才显示（hidden 属性由基座 display:none 承接，显式幂等） */
+@media (orientation: landscape) and (max-width: 1023px) {
+  html.has-touch #rotate-overlay {
     display: flex;
-    flex-direction: column;
-    align-items: center;                    /* 内容单列居中于走廊 */
-    padding-left:  calc(212px + env(safe-area-inset-left));   /* 左轨≈212 贴边让位 */
-    padding-right: calc(104px + env(safe-area-inset-right));  /* 右轨≈104 贴边让位 */
   }
-  /* #main 改为 flex-column 后，左右面板（DOM 子块即卡片）摊平承继 §7.2 卡化，居中限宽 */
-  html.has-touch #main > #panel-left,
-  html.has-touch #main > #panel-right { display: contents; }
-  html.has-touch #main .stat-grid,
-  html.has-touch #main .next-well,
-  html.has-touch #main .hold-well,
-  html.has-touch #main .key-hints,
-  html.has-touch #main #controls,
-  html.has-touch #main #btn-settings {
-    width: 100%;
-    max-width: 420px;
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
-    backdrop-filter: blur(20px) saturate(140%);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-md);
-    padding: var(--sp-3);
-    margin: var(--sp-2) 0;
+  /* 锁屏遮罩盖住乱布局时同步隐藏触控键（横屏不再作为操作形态） */
+  html.has-touch .touchpad {
+    display: none;
   }
-  html.has-touch #main #board-col { width: 100%; padding: 0; }
-  /* 棋盘 CSS 等比缩放（承继 §7.2 模式）：横屏高 360-600px，保留页头/卡片余量，1:2 自适应 */
-  html.has-touch #main #board {
-    width: auto !important;
-    height: auto !important;
-    max-width: 100%;
-    max-height: calc(100vh - 180px);
+}
+
+/* —— 宽屏桌面横屏（≥1024 且 landscape，含触屏笔记本/触屏显示器 PC 桌面）不显示触控键，键鼠游玩 ——
+   限定 landscape：竖屏大屏平板（portrait ≥1024，如 iPad Pro 竖屏）仍保留触控键操作 */
+@media (orientation: landscape) and (min-width: 1024px) {
+  html.has-touch .touchpad {
+    display: none;
   }
+}
+
+/* —— 非触屏设备（无 html.has-touch）一律隐藏触控键（兜底，AC-1 纯 CSS 显隐）——
+   r28 的 §5.5 横屏双轨门控为裸 @media (orientation: landscape)，未带 has-touch 前缀，
+   导致桌面（手机/平板之外的键鼠设备）横屏时也显示双轨。本规则以 (0,2,1) 特异性 +
+   源序在后，压过 §5.5 的 (0,1,0) display:flex —— 非触屏横竖屏均不显示触控键；
+   触屏设备（has-touch）不命中 :not(.has-touch)，触控键照常按竖屏底栏/横屏双轨显示。 */
+html:not(.has-touch) .touchpad {
+  display: none;
+}
+
+/* 遮罩卡（复用玻璃卡规范，与 #overlay-card 一致） */
+#rotate-overlay__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  max-width: 320px;
+  text-align: center;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6) var(--sp-7);
+  box-shadow: var(--glow-primary);
+}
+#rotate-overlay__icon {
+  font-size: var(--fs-2xl);
+  line-height: 1;
+}
+#rotate-overlay__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+#rotate-overlay__sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
 }

@@ -998,75 +998,71 @@ test('r28: 双作用域同 nth-child 映射与 3×3 grid 模板（同串共存�
 })
 
 /* ======================================================================
- * r29 横屏 M/L ≥600px 内容让位（T2 收口；TECHNICAL §4/§5.1）
+ * r30 横屏策略收紧（触屏手机/平板横屏锁竖屏遮罩 + PC 宽屏隐藏触控键）
  * 纯追加段：jsdom 不执行媒体查询 → 全部源码断言（cssText 源扫描即行为证明）：
- *   ① 让位规则存在（html.has-touch #main 含 212/104+env(inset) 左右让位）
- *   ② 门控组合精确（裸 @media (orientation: landscape) and (min-width: 600px)，
- *      无 max-width 尾缀；与 §5.5 裸 landscape 并存互不合并）
- *   ③ flex-column 回退（grid→flex 单列居中证据）
- *   ④ 桌面零变化负面断言（非 has-touch 前缀 #main 规则无新 212 让位声明，AC-5）
- *   ⑤ 既有 grid 模板原文保持（§7.3/§7.4/§7.5 文面不动，AC-5 桌面零回归）
- * 特异性 html.has-touch #main(1,1,1) > §7.3/7.4 #main(1,0,0) → 源序无关反超其 grid；
- * html.has-touch 门控保桌面横屏零变化。
- * 依赖 T1：style.css 文件尾追加 @media 让位块（TECHNICAL §4.1）。
+ *   ① 锁屏遮罩基座默认隐藏（display:none，门控命中才显示）
+ *   ② 触屏手机/平板横屏门控（has-touch + landscape + <1024 → 遮罩 + 隐藏触控键）
+ *   ③ 宽屏桌面（≥1024，has-touch）不显示触控键
+ *   ④ 遮罩卡令牌/结构存在
+ *   ⑤ 桌面零变化负面断言（非 has-touch 前缀遮罩无 display:flex，AC-5）
+ *   ⑥ 既有 grid 模板原文保持（§7.3/§7.4/§7.5 文面不动，AC-5 桌面零回归）
+ * html.has-touch 门控保非触屏桌面横屏零变化；触控键非 has-touch 基座本为 display:none（r16）。
+ * 依赖 T1：style.css 文件尾追加锁屏遮罩 + 门控块。
  * ==================================================================== */
 
-// 让位门控锚点：@media (orientation: landscape) and (min-width: 600px)（裸组合，无 max-width）
-const r29GateStart = cssR24.indexOf('@media (orientation: landscape) and (min-width: 600px)')
-assert.ok(r29GateStart !== -1, 'r29 门控 @media (orientation: landscape) and (min-width: 600px) 存在')
-// has-touch #main 让位规则块内容（供 flex-column 断言）
-const r29MainStart = cssR24.indexOf('html.has-touch #main {')
-assert.ok(r29MainStart !== -1, 'html.has-touch #main 规则存在')
-const r29MainEnd = cssR24.indexOf('}', r29MainStart)
-assert.ok(r29MainEnd > r29MainStart, 'html.has-touch #main 块闭合存在')
-const r29MainBlock = cssR24.slice(r29MainStart, r29MainEnd)
+// 锁屏遮罩门控锚点：@media (orientation: landscape) and (max-width: 1023px)（触屏手机/平板横屏）
+const r30GateStart = cssR24.indexOf('@media (orientation: landscape) and (max-width: 1023px)')
+assert.ok(r30GateStart !== -1, 'r30 锁屏门控 @media (orientation: landscape) and (max-width: 1023px) 存在')
+// 宽屏（≥1024 且 landscape）隐藏触控键门控锚点
+const r30WideStart = cssR24.indexOf('@media (orientation: landscape) and (min-width: 1024px)')
+assert.ok(r30WideStart !== -1, 'r30 宽屏门控 @media (orientation: landscape) and (min-width: 1024px) 存在')
 
-test('r29: 让位规则存在（AC-1：#main 含 212/104+env(inset) 左右让位）', () => {
-  // 让位规则须被 r29 媒体块包裹（裸规则会误作用 — 门控即行为）
-  assert.ok(r29MainStart > r29GateStart, '#main 让位规则落在 r29 媒体块内（被门控包裹）')
-  // 左右让位：内容盒左右各让出双轨宽（左 212 / 右 104），均含 env(safe-area-inset-*)
-  assert.match(r29MainBlock, /padding-left:\s*calc\(212px\s*\+\s*env\(safe-area-inset-left\)\)/,
-    '左让位 calc(212px + env(safe-area-inset-left))')
-  assert.match(r29MainBlock, /padding-right:\s*calc\(104px\s*\+\s*env\(safe-area-inset-right\)\)/,
-    '右让位 calc(104px + env(safe-area-inset-right))')
-  // 双轨贴边不夹进走廊：让位只作用 #main 内容盒（.touchpad/.rail 保持 fixed，不随缩进）
-  assert.ok(cssR24.indexOf('html.has-touch #main {') < cssR24.length, '让位规则存在于文件中')
+test('r30: 锁屏遮罩基座默认隐藏（display:none，门控命中才显示）', () => {
+  // 容器基座（非门控）须 display:none；显示为 flex 只能由 has-touch 门控块承载
+  assert.match(cssR24, /#rotate-overlay\s*\{[^}]*display:\s*none/,
+    '#rotate-overlay 基座 display:none（默认隐藏）')
 })
 
-test('r29: 门控组合精确（裸 landscape and min-width:600px，无 max-width 尾缀不合并）', () => {
-  // 让位门控起始即裸组合（不得含 max-width）——与 §5.5 裸 @media (orientation: landscape) 并存
-  const gateHead = cssR24.slice(r29GateStart, r29GateStart + 60)
-  assert.ok(/^@media \(orientation: landscape\) and \(min-width: 600px\)\s*\{/.test(gateHead),
-    '门控起始即裸 landscape and min-width:600px')
-  assert.ok(gateHead.indexOf('max-width') === -1, 'r29 门控无 max-width 尾缀（与 §5.5 无关）')
-  // §5.5 裸 landscape 门控仍独立存在（r28 承继，未被 r29 吞并合并）
-  assert.match(cssR24, /@media \(orientation: landscape\)\s*\{/, '§5.5 裸 landscape 门控仍独立')
-  // 全文件仍无「横屏+max-width」组合门控（r28 承继：r29 不重开旧门控）
-  assert.ok(cssR24.indexOf('(orientation: landscape) and (max-width: 599px)') === -1,
-    '全文件无「横屏+max-width」组合门控（不回归）')
+test('r30: 触屏手机/平板横屏门控（has-touch + landscape + <1024 → 锁屏遮罩 + 隐藏触控键）', () => {
+  // 门控块内须有 html.has-touch #rotate-overlay 显式 display:flex 与 html.has-touch .touchpad display:none
+  const gateSeg = cssR24.slice(r30GateStart, r30GateStart + 400)
+  assert.match(gateSeg, /html\.has-touch #rotate-overlay\s*\{[^}]*display:\s*flex/,
+    '门控块内 html.has-touch #rotate-overlay display:flex（锁屏遮罩显示）')
+  assert.match(gateSeg, /html\.has-touch \.touchpad\s*\{[^}]*display:\s*none/,
+    '门控块内 html.has-touch .touchpad display:none（横屏不显示触控键）')
 })
 
-test('r29: flex-column 回退（grid 被覆盖为单列居中，AC-1）', () => {
-  assert.match(r29MainBlock, /display:\s*flex/, 'r29 #main display:flex（grid→flex 回退证据）')
-  assert.match(r29MainBlock, /flex-direction:\s*column/, 'r29 #main flex-direction:column（单列回退）')
-  assert.match(r29MainBlock, /align-items:\s*center/, 'r29 #main align-items:center（内容单列居中）')
+test('r30: 宽屏桌面横屏（≥1024 且 landscape，has-touch）不显示触控键', () => {
+  const wideSeg = cssR24.slice(r30WideStart, r30WideStart + 200)
+  assert.match(wideSeg, /html\.has-touch \.touchpad\s*\{[^}]*display:\s*none/,
+    '≥1024 宽屏横屏 html.has-touch .touchpad display:none（PC 宽屏键鼠游玩，无叠压）')
 })
 
-test('r29: 桌面零变化（负面断言——非 has-touch 前缀 #main 规则无新 212 让位声明，AC-5）', () => {
-  // 让位声明有且仅由 html.has-touch 前缀承载；凡非 has-touch 前缀的 #main 规则不得含 212 左让位
-  const reMain = /([^{]*)#main\s*\{([^}]*)\}/g
+test('r30: 遮罩卡令牌/结构存在（玻璃卡规范 + 子元素）', () => {
+  assert.match(cssR24, /#rotate-overlay__card\s*\{/, '#rotate-overlay__card 存在')
+  assert.match(cssR24, /#rotate-overlay__icon\s*\{/, '#rotate-overlay__icon 存在')
+  assert.match(cssR24, /#rotate-overlay__title\s*\{/, '#rotate-overlay__title 存在')
+  assert.match(cssR24, /#rotate-overlay__sub\s*\{/, '#rotate-overlay__sub 存在')
+})
+
+test('r30: 桌面零变化（负面断言——非 has-touch 前缀遮罩无 display:flex 显示态，AC-5）', () => {
+  // 遮罩容器显示态（display:flex）只能由 html.has-touch 前缀门控承载；
+  // 非 has-touch 前缀的 #rotate-overlay 容器规则不得含 display:flex（桌面横屏零变化）
+  const reOverlay = /([^{}]*)#rotate-overlay\s*\{([^}]*)\}/g
   let mm
-  let nonTouchPadded = 0
-  while ((mm = reMain.exec(cssR24)) !== null) {
-    const selector = mm[1].trim()
-    const decl = mm[2]
-    const isTouch = selector.indexOf('html.has-touch') !== -1
-    if (!isTouch && /padding-left:\s*calc\(212px/.test(decl)) nonTouchPadded++
+  let nonGateShown = 0
+  while ((mm = reOverlay.exec(cssR24)) !== null) {
+    const sel = mm[1].trim()
+    // 跳过子元素规则（__card/__icon/__title/__sub）
+    if (/__/.test(sel)) continue
+    if (sel.indexOf('html.has-touch') === -1 && /display:\s*flex/.test(mm[2])) nonGateShown++
   }
-  assert.equal(nonTouchPadded, 0, '非 has-touch #main 规则无 212 左让位（桌面零变化，AC-5）')
+  // #rotate-overlay__card 本身含 display:flex（卡片纵向排列），但它被基座 display:none 隐藏，
+  // 且不属容器显示态 —— 故仅统计容器（无 __ 后缀的 #rotate-overlay）规则
+  assert.equal(nonGateShown, 0, '非 has-touch 遮罩容器规则无 display:flex（桌面零变化，AC-5）')
 })
 
-test('r29: 既有 grid 模板原文保持（§7.3/§7.4/§7.5 文面不动，AC-5 桌面零回归）', () => {
+test('r30: 既有 grid 模板原文保持（§7.3/§7.4/§7.5 文面不动，AC-5 桌面零回归）', () => {
   assert.ok(cssR24.indexOf('minmax(0, 1fr) 340px') !== -1, '§7.3 M600-767 grid 模板原文保持')
   assert.ok(cssR24.indexOf('minmax(180px, 1fr) 340px minmax(180px, 1fr)') !== -1,
     '§7.4 M768-1023 grid 模板原文保持')

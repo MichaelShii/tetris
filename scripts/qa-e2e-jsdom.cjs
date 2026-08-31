@@ -2603,11 +2603,28 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     const m1HitsR28 = m1sR28 === -1 || m2sR28 === -1 ? '!anchor' : touchHitsR28(cssR28.slice(m1sR28, m2sR28))
     const m2HitsR28 = m2sR28 === -1 || l7R28 === -1 ? '!anchor' : touchHitsR28(cssR28.slice(m2sR28, l7R28))
     const lHitsR28 = l7R28 === -1 ? '!anchor' : touchHitsR28(cssR28.slice(l7R28))
-    check('r28: M/L 档切片锚点齐备且有序（600-767 / 768-1023 / ≥1024 7.5 段）',
+    check('r28: M 两档 + L 段锚点齐备（600-767 / 768-1023 / ≥1024 7.5 段）',
       m1sR28 !== -1 && m2sR28 > m1sR28 && l7R28 > m2sR28, m1sR28 + '/' + m2sR28 + '/' + l7R28)
-    check('r28: M 两档 + L 段零触控规则（.touchpad/.rail/.tkey/.tpad-* 全无 → ≥600px 不落行式栏）',
-      m1HitsR28 === '' && m2HitsR28 === '' && lHitsR28 === '',
-      'M1[' + m1HitsR28 + '] M2[' + m2HitsR28 + '] L[' + lHitsR28 + ']')
+    // M 两档严格零触控规则；L 段放宽为「仅允许 html.has-touch 前缀的触控键隐藏规则
+    // （display:none，r30 宽屏停用触控键），禁止渲染/布局触控规则（.rail/.tkey/.tpad-* 全无）」
+    check('r28: M 两档零触控规则（.touchpad/.rail/.tkey/.tpad-* 全无 → ≥600px M 档不落行式栏）',
+      m1HitsR28 === '' && m2HitsR28 === '',
+      'M1[' + m1HitsR28 + '] M2[' + m2HitsR28 + ']')
+    const lSegR28 = l7R28 === -1 ? '' : cssR28.slice(l7R28)
+    let lRenderRulesR28 = 0
+    const reTouchRuleL28 = /([^{}]*(?:\.touchpad|\.rail|\.tkey|\.tpad-)[^{}]*)\s*\{([^}]*)\}/g
+    let mmL28
+    while ((mmL28 = reTouchRuleL28.exec(lSegR28)) !== null) {
+      const sel = (mmL28[1] || '').trim()
+      const decl = (mmL28[2] || '')
+      // 允许：触控键「隐藏规则」（.touchpad 且 display:none，无 rail/tkey/tpad- 渲染词元）。
+      // 其余（渲染/布局 .rail/.tkey/.tpad-* 或非 display:none 的 .touchpad）一律视为渲染规则。
+      const allowed = /\.touchpad\b/.test(sel) && /display:\s*none/.test(decl) &&
+        !/\.(?:rail|tkey|tpad-)/.test(sel)
+      if (!allowed) lRenderRulesR28++
+    }
+    check('r28: L 段仅允许触控键隐藏规则（display:none），禁止渲染/布局触控规则',
+      lRenderRulesR28 === 0, 'renderRules=' + lRenderRulesR28)
     // ④ hub 三事件零回放（live）+ ⑤ 源序键触控语义逐键即时验证（触控=键盘回放器路径，r27 harness 复用）
     window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
     const backingR28 = {}
@@ -2667,7 +2684,7 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
 
   /* ---------- r29 横屏 ≥600px 内容让位 E2E 段（AC-1~8；TECHNICAL §5.2） ----------
    jsdom 不执行媒体查询/无布局几何 → 本段全部为源码级断言（cssText 源扫描即行为证明）：
-    ① 让位规则存在（html.has-touch #main 含 212/104 + safe-area 左右 padding、flex-column 列回退）；
+    ① 让位规则存在（html.has-touch #main 含 232/124 + safe-area 左右 padding、三列 grid、保留信息不摊平面板）；
     ② 双轨 DOM 不变（r28 承继：2 rail、三件套互不串簇、六键 data-action 集合、hub 三保险）；
     ③ 触控语义零回归（源序首键 touch→y+1、末键 touch→落锁，r28 序列承继）；
     ④ 桌面非触控零触控区（touch:false → html 无 has-touch，AC-5 门控归属）；
@@ -2677,28 +2694,29 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
   {
     const cssR29 = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
 
-    // ① 让位规则存在（源扫描）：landscape + min-width:600px 门控前缀存在且无 max-width 尾缀；
-    //    其内 html.has-touch #main 规则含 212/104 + safe-area 左右 padding 让位与 flex-column 列回退（AC-1）
-    const r29Media = '@media (orientation: landscape) and (min-width: 600px)'
-    const r29MediaIdx = cssR29.indexOf(r29Media)
-    const r29MediaSeg = r29MediaIdx === -1 ? '' : cssR29.slice(r29MediaIdx, r29MediaIdx + r29Media.length)
-    check('r29: 让位门控存在 = @media (orientation: landscape) and (min-width: 600px)（裸组合，无 max-width 尾缀）',
-      r29MediaIdx !== -1 && r29MediaSeg.indexOf('max-width') === -1,
-      r29MediaIdx === -1 ? '!anchor' : r29MediaSeg)
-    const r29MainIdx = cssR29.indexOf('html.has-touch #main', r29MediaIdx)
-    let r29MainRule = ''
-    if (r29MainIdx !== -1) {
-      const r29RuleEnd = cssR29.indexOf('}', r29MainIdx)
-      r29MainRule = r29RuleEnd === -1 ? '' : cssR29.slice(r29MainIdx, r29RuleEnd)
-    }
-    check('r29: html.has-touch #main 让位规则含左右 212/104 + safe-area 内边距（AC-1 让位登记）',
-      r29MainIdx !== -1 &&
-      r29MainRule.indexOf('calc(212px + env(safe-area-inset-left))') !== -1 &&
-      r29MainRule.indexOf('calc(104px + env(safe-area-inset-right))') !== -1,
-      r29MainIdx === -1 ? 'no main rule' : 'main rule found')
-    check('r29: 让位规则含 flex 列回退（grid→flex-column，走廊内唯一无横向滚动解）',
-      r29MainRule.indexOf('display: flex') !== -1 && r29MainRule.indexOf('flex-direction: column') !== -1,
-      r29MainRule.indexOf('display') === -1 ? 'no rule body' : 'flex-column found')
+    // ① 锁屏门控存在（源扫描）：触屏手机/平板横屏（<1024）→ 遮罩 + 隐藏触控键；宽屏（≥1024）→ 隐藏触控键
+    const r30Lock = '@media (orientation: landscape) and (max-width: 1023px)'
+    const r30LockIdx = cssR29.indexOf(r30Lock)
+    const r30LockSeg = r30LockIdx === -1 ? '' : cssR29.slice(r30LockIdx, r30LockIdx + 300)
+    check('r30: 锁屏门控存在 = @media (orientation: landscape) and (max-width: 1023px)（含 has-touch 遮罩 + 隐藏触控键）',
+      r30LockIdx !== -1 &&
+      r30LockSeg.indexOf('html.has-touch #rotate-overlay') !== -1 &&
+      r30LockSeg.indexOf('display: flex') !== -1 &&
+      r30LockSeg.indexOf('html.has-touch .touchpad') !== -1 &&
+      r30LockSeg.indexOf('display: none') !== -1,
+      r30LockIdx === -1 ? '!anchor' : r30LockSeg.slice(0, 80))
+    const r30Wide = '@media (orientation: landscape) and (min-width: 1024px)'
+    const r30WideIdx = cssR29.indexOf(r30Wide)
+    const r30WideSeg = r30WideIdx === -1 ? '' : cssR29.slice(r30WideIdx, r30WideIdx + 200)
+    check('r30: 宽屏桌面横屏（≥1024 且 landscape，has-touch）隐藏触控键',
+      r30WideIdx !== -1 && r30WideSeg.indexOf('html.has-touch .touchpad') !== -1 &&
+      r30WideSeg.indexOf('display: none') !== -1,
+      r30WideIdx === -1 ? '!anchor' : r30WideSeg.slice(0, 80))
+    // 遮罩 DOM 标记存在（index.html 静态节点，纯 CSS 门控显隐，ui.js 零改动）
+    const rotDom = doc.querySelector('#rotate-overlay')
+    check('r30: #rotate-overlay 遮罩 DOM 存在（index.html 静态标记，纯 CSS 显隐）',
+      rotDom !== null && rotDom.querySelector('#rotate-overlay__card') !== null,
+      rotDom === null ? '!rot-overlay' : 'rot-overlay found')
 
     // ⑤ 竖屏/S 横屏零回归（源扫描，AC-3/4）：§7.1 S 竖屏、§7.2 S 横屏、§7.3/§7.4/L grid 模板原文仍在；
     //    含 r28「M 两档切片不落行式栏」断言承继（M1/M2 两档零 .touchpad 触控规则）
