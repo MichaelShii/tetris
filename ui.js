@@ -1056,9 +1056,10 @@
      *     零新速率常量（PRD §8 红线）、引擎零改动。"逐键等效"由构造保证而非口头承诺。
      * ==================================================================== */
 
-    // 触屏六键回放表（action ↔ 合成键码；.action 与 index.html .tkey[data-action] 六值
-    // 一一对应，verify-ui.cjs 交叉断言防漂移）。'c'（Hold）在 game.js keyAction 无映射
-    // （null），由本文件 onHoldKey window 监听消费——触屏键与 C/Shift 同一路径。
+    // 触屏六键回放表（.action 与 index.html .tkey[data-action] 六值一一对应，verify-ui 交叉断言
+// 防漂移）；r31 语义修订：触控键=动作级分发（game.input），不再合成键盘事件，与键盘绑定解耦
+// （改绑 action 的主键不影响触屏按键）；.key 字段保留为「该动作的默认绑定键」——
+// verify-ui 以此断言「默认键表下触屏与键盘逐键等效」护栏。
     const TOUCH_KEYS = [
       { action: 'moveLeft', key: 'ArrowLeft', holdable: true },
       { action: 'moveRight', key: 'ArrowRight', holdable: true },
@@ -1083,6 +1084,87 @@
       if (set.indexOf(skin) === -1) return false
       el.classList.add('touchpad--skin-' + skin)
       return true
+    }
+
+    /* ======================================================================
+     * 2.6 r31 自定义按键——纯函数区（键名显示表 / 绑定工具 / 默认表合并；
+     *     Node 可单测；与 persist.normalizeKey/isBindableKey 语义一致，verify-ui 交叉断言防漂移）
+     * ==================================================================== */
+
+    // 9 动作固定序（对齐 persist.KEY_ACTIONS = game.GAME_BIND_ACTIONS + mute，交叉断言）
+    const KEYBIND_ACTIONS = ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotate', 'hold', 'togglePause', 'restart', 'mute']
+
+    // 动作展示文案（DESIGN §2.1 线框；一行一个可交互元素）
+    const KEYBIND_LABELS = {
+      moveLeft: '左移',
+      moveRight: '右移',
+      softDrop: '软降',
+      hardDrop: '硬降',
+      rotate: '旋转',
+      hold: 'Hold 暂存',
+      togglePause: '暂停',
+      restart: '重新开始',
+      mute: '静音',
+    }
+
+    // 键名显示表（normalize → 可见字符；DESIGN §4.2：可见字符不依赖 shape 字符防读屏丢失）
+    const KEY_DISPLAY = { arrowleft: '←', arrowright: '→', arrowup: '↑', arrowdown: '↓', ' ': '空格' }
+
+    /** keycap 键名展示（箭头/空格归一；其余单字符大写；未知键原样） */
+    function keyDisplayLabel(key) {
+      if (typeof key !== 'string') return ''
+      const k = key === ' ' ? ' ' : key.toLowerCase()
+      if (Object.prototype.hasOwnProperty.call(KEY_DISPLAY, k)) return KEY_DISPLAY[k]
+      return k.length === 1 ? k.toUpperCase() : k
+    }
+
+    /** 键名规范化（与 persist.normalizeKey 同构；persist 缺失时本函数兜底） */
+    function normalizeKbKey(key) {
+      if (typeof key !== 'string' || key.length === 0) return null
+      const s = key === ' ' ? ' ' : key.trim()
+      if (s.length === 0) return null
+      return s.toLowerCase()
+    }
+
+    // 黑名单键（与 persist.FORBIDDEN_KEYS 同构；组合键由捕获层按 ctrlKey/altKey/metaKey 拒绝）
+    const KB_FORBIDDEN = {
+      tab: 1, enter: 1, escape: 1, capslock: 1, shift: 1, control: 1, ctrl: 1, alt: 1,
+      altgraph: 1, meta: 1, contextmenu: 1, numlock: 1, scrolllock: 1, pause: 1, insert: 1,
+      delete: 1, home: 1, end: 1, pageup: 1, pagedown: 1, backspace: 1, printscreen: 1,
+    }
+    const KB_ARROWS = { arrowleft: 1, arrowright: 1, arrowup: 1, arrowdown: 1 }
+
+    /** 可绑定键判定（与 persist.isBindableKey 同构） */
+    function isKbLegalKey(key) {
+      const s = normalizeKbKey(key)
+      if (s === null) return false
+      if (KB_FORBIDDEN[s]) return false
+      if (/^f\d{1,2}$/.test(s)) return false
+      if (s.length === 1) return true
+      return KB_ARROWS[s] === true
+    }
+
+    /** 默认键表（game.js 单一事实来源；Node/未加载 game.js 时回退模块内常量双声明（verify-ui 交叉断言）） */
+    const DEFAULT_KEYS_LOCAL = {
+      moveLeft: 'arrowleft', moveRight: 'arrowright', softDrop: 'arrowdown', hardDrop: ' ',
+      rotate: 'arrowup', hold: 'c', togglePause: 'p', restart: 'r', mute: 'm',
+    }
+    function defaultKeyBindingsMap() {
+      const d = (typeof TetrisGame !== 'undefined' && TetrisGame.DEFAULT_KEYBINDINGS) || null
+      if (d) return Object.assign({}, d, DEFAULT_KEYS_LOCAL) // game.js 提供时以其为准
+      return Object.assign({}, DEFAULT_KEYS_LOCAL)
+    }
+
+    /** 合并绑定表（默认 ∪ 自定义；仅接受可绑定键，非法忽略；persist 侧已白名单清洗，此处双保险） */
+    function mergeKeyBindings(custom) {
+      const out = defaultKeyBindingsMap()
+      if (custom && typeof custom === 'object') {
+        for (let i = 0; i < KEYBIND_ACTIONS.length; i++) {
+          const a = KEYBIND_ACTIONS[i]
+          if (isKbLegalKey(custom[a])) out[a] = normalizeKbKey(custom[a])
+        }
+      }
+      return out
     }
 
     // 触屏设备检测（r21 语义收窄，原 r16 §5.8 全能力检测）：**主指针为粗指针**
@@ -1145,17 +1227,35 @@
       }
 
       // AC-2 守卫：仅 RUNNING 下派发（PAUSED/OVER 点击无输入、无副作用、无音效）；
-      // 空格在此不会被 game.js PAUSED 表映射 togglePause——触屏键=游戏输入，
+      // 空格在此不会触发 game.js 任何阶段键——触屏键=游戏输入（动作级分发），
       // 暂停恢复仍由现有按钮/P 键负责（避免语义偏差）。
       function isRunning() {
         return typeof game === 'object' && game !== null && typeof game.getPhase === 'function' && game.getPhase() === 'RUNNING'
       }
 
-      // 短按单步：keydown 注册 held（holdable 键首击 + startKeyRepeat）后立即 keyup 释放 → 恰好 1 格
-      function tap(key) {
+      // 短按单步：down+up → 动作首击（held 注册）后即释放 → 恰好 1 步（holdable 键语义不变：
+      // moveLeft/moveRight=1 格、softDrop=1 格；rotate/hardDrop/hold=单发）
+      function tap(action) {
         if (!isRunning()) return
-        dispatch('keydown', key)
-        dispatch('keyup', key)
+        gameInput(action, true)
+        gameInput(action, false)
+      }
+
+      // r31（DESIGN D-6）：动作级分发——优先 game.input（触控键=动作，不依赖键盘绑定键，
+      // 改绑不影响触控；held 标签 'touch:<action>' 与绑定键字符串不冲突）；旧引擎回退
+      // 合成键盘事件（TOUCH_KEYS.key 回放表，行为与 r16 逐字节等价）。
+      function gameInput(action, down) {
+        if (typeof game === 'object' && game !== null && typeof game.input === 'function') {
+          game.input(action, down)
+          return
+        }
+        dispatch(down === false ? 'keyup' : 'keydown', entryKeyFor(action))
+      }
+      function entryKeyFor(action) {
+        for (let i = 0; i < TOUCH_KEYS.length; i++) {
+          if (TOUCH_KEYS[i].action === action) return TOUCH_KEYS[i].key
+        }
+        return null
       }
 
       // 容器级防默认行为（AC-8）：.touchpad 无交互子节点区域一律 preventDefault（防滚动/缩放/选中/长按菜单）
@@ -1175,22 +1275,22 @@
           if (activeKeys.has(entry.action)) return // 同键已激活（快连点/多指同键）→ 忽略，防抖动式重复（TECHNICAL §5.2）
           if (!isRunning()) return // AC-2：PAUSED/OVER 仅 preventDefault，不派发
           activeKeys.add(entry.action)
-          dispatch('keydown', entry.key) // 合成 keydown → held 注册 + 首击；长按由既有时钟驱动
+          gameInput(entry.action, true) // 动作级分发 → 引擎 held 注册 + 首击；长按由既有时钟驱动
         }
         const onTouchEnd = function (e) {
           if (e && typeof e.preventDefault === 'function') e.preventDefault()
           if (!activeKeys.has(entry.action)) return
           activeKeys.delete(entry.action)
-          dispatch('keyup', entry.key) // 释放 → held 删除 + stopKeyRepeat（window blur 后为无害 no-op）
+          gameInput(entry.action, false) // 释放 → 引擎 held 删除 + stopKeyRepeat（window blur 后为无害 no-op）
         }
         const onKeyDown = function (e) {
           if (e.key !== 'Enter' && e.key !== ' ') return
           e.preventDefault() // 取消默认按钮激活（不产生 click 双发）
           e.stopPropagation() // 阻断冒泡到 window，防 game.js 键盘层二次吸收同一按键（AC-10 细化）
-          tap(entry.key)
+          tap(entry.action)
         }
         const onClick = function () {
-          tap(entry.key) // 仅鼠标/笔（混合设备）；触屏路径已被 touchstart/touchend preventDefault 抑制
+          tap(entry.action) // 仅鼠标/笔（混合设备）；触屏路径已被 touchstart/touchend preventDefault 抑制
         }
         keyBtn.addEventListener('touchstart', onTouchStart, { passive: false })
         keyBtn.addEventListener('touchend', onTouchEnd, { passive: false })
@@ -1301,6 +1401,8 @@
       // { tspin, combo, comboBonus, cleared, level }；动画帧幂等覆写 → 结算帧消费置 null →
       // OVER/restart 置 null（0 残留）
       let pendingReward = null
+      // r31 自定义按键绑定表（默认 ∪ 持久化；装配期先默认，persist 恢复块覆写后 applyKeyBindings）
+      let keyBindings = defaultKeyBindingsMap()
 
       /* ---- 音效引擎与音量控件（v2.0，AC-09/AC-10） ----
          SfxEngine 生命周期 = createUI（不随 restart() 重建）→ 音量/静音跨
@@ -1322,10 +1424,11 @@
       })
 
       // M 键静音：设置而非游戏态 → ui.js 独立监听，任意 phase 生效（AC-10.2）；
-      // game.js 键盘不拦截 'm'，无冲突；忽略系统重复（按住不连切）
+      // r31：键位走绑定表（默认 m，可在按键设置改绑；表为按键映射单一事实来源）
       function onMuteKey(e) {
         if (e.repeat) return
-        if (e.key === 'm' || e.key === 'M') {
+        const k = normalizeKbKey(e.key)
+        if (k !== null && keyBindings.mute === k) {
           sfx.setMuted(!sfx.isMuted())
           audioPanel.sync()
           persistSettings()
@@ -1504,21 +1607,9 @@
         }
       }
 
-      /* ---- Hold 暂存按键（r14，C/Shift → game.hold()） ----
-         与 M 键同层：设置级操作（holdEnabled guard），不走 game.js keyAction 表。 ---- */
-      function onHoldKey(e) {
-        if (e.repeat) return
-        if (e.key === 'c' || e.key === 'C' || e.key === 'Shift') {
-          if (typeof game !== 'undefined' && game && typeof game.hold === 'function') {
-            game.hold()
-            // ok=true 时引擎已发射 sfx('hold')，UI 无需额外操作
-            // ok=false 时无音效（AC-17）
-          }
-        }
-      }
-      if (typeof window !== 'undefined') {
-        window.addEventListener('keydown', onHoldKey)
-      }
+      /* ---- Hold 暂存键（r31 移除 window 直读 C/Shift：hold 现为可绑定动作，由 game.js
+          keyAction L2 绑定表分发（默认 c），holdEnabled guard 保留在引擎 hold() 内）；
+          触屏 Hold 键走动作级 game.input('hold')。 ---- */
 
       /* ---- v3.0 设置弹层（AC-01~06：齿轮图标触发的毛玻璃风格模态框） ----
          设置状态为会话内保持（不持久化），每次打开重置。
@@ -1564,6 +1655,7 @@
       function closeSettingsModal() {
         if (!settingsModalOpen) return
         settingsModalOpen = false
+        endRecording() // r31：关闭弹层即退出录制态（清理 capture 监听/样式/提示计时）
 
         // 取消未执行的打开动画帧，并同步移除动画类（快速开合时 is-open 不得残留）
         if (openRafId !== null) {
@@ -1694,6 +1786,7 @@
             holdEnabled: holdEnabled,
             previewQueueEnabled: previewQueueEnabled,
             dockSkin: dockSkin, // r24 操作区背景四皮肤（枚举白名单，persist readState 清洗）
+            keybindings: keyBindings, // r31 自定义按键 9 动作绑定表（persist sanitizeKeybindings 白名单清洗）
           })
         } catch (e) { /* 持久化层契约不 throw；再兜底一层保证永不中断游戏 */ }
       }
@@ -1722,6 +1815,10 @@
             // r24 操作区背景：恢复开关态（双保险——persist readState 已按枚举白名单清洗，
             // 此处再自校验兜底；任一兜住即回默认 fade，AC-8）
             if (typeof st.dockSkin === 'string' && DOCK_SKINS.indexOf(st.dockSkin) !== -1) dockSkin = st.dockSkin
+            // r31 自定义按键：恢复绑定表（persist 已按 9 动作白名单清洗；此处再自校验兜底）
+            if (st.keybindings && typeof st.keybindings === 'object') {
+              keyBindings = mergeKeyBindings(st.keybindings)
+            }
           }
         }
         if (touchPadEl) applyDockSkin(touchPadEl, dockSkin)
@@ -1857,6 +1954,145 @@
       // 故这里在 createGame 之后补一次引擎同步，防「UI 显示已恢复值、引擎仍默认开」漂移。
       game.setWallKickEnabled(wallKickEnabled)
       game.setHoldEnabled(holdEnabled) // r14：Hold 暂存开关同步到引擎
+      // r31：自定义按键装配——引擎同步（含持久化恢复值；8 游戏动作，mute 自动剔除）+ 按键组 DOM
+      game.setKeyBindings(keyBindings)
+
+      /* ---- r31 按键设置组（捕获状态机 IDLE↔RECORDING；DESIGN §3.2） ----
+         DOM：.settings-group--keys 内 9 行 #kb-<action>（.keycap 即录制入口）+ #kb-msg-<action>
+         （role=status 提示）+ #kb-reset 恢复默认；捕获期全局 capture keydown 接管并
+         stopPropagation（弹层打开期游戏已暂停，此层再屏蔽恢复键/误触），
+         合法无冲突写入 → 即时生效 + persistSettings（与既有设置一致：捕获即生效）。 ---- */
+      const keybindRows = {}
+      let recordingAction = null
+      let keybindMsgTimer = null
+
+      function keycapBtn(action) { return keybindRows[action].btn }
+      function keycapMsg(action) { return keybindRows[action].msg }
+
+      function refreshKeycaps() {
+        for (let i = 0; i < KEYBIND_ACTIONS.length; i++) {
+          const a = KEYBIND_ACTIONS[i]
+          const btn = keycapBtn(a)
+          btn.textContent = keyDisplayLabel(keyBindings[a])
+          btn.setAttribute('aria-label', KEYBIND_LABELS[a] + '，当前键 ' + keyDisplayLabel(keyBindings[a]))
+          btn.classList.remove('is-recording', 'is-conflict', 'has-error', 'is-saved')
+        }
+      }
+
+      function clearKeybindStates() {
+        if (keybindMsgTimer !== null) { clearTimeout(keybindMsgTimer); keybindMsgTimer = null }
+        for (let i = 0; i < KEYBIND_ACTIONS.length; i++) {
+          const msg = keycapMsg(KEYBIND_ACTIONS[i])
+          if (msg) { msg.hidden = true; msg.textContent = '' }
+          const b = keycapBtn(KEYBIND_ACTIONS[i])
+          b.classList.remove('is-conflict', 'has-error', 'is-saved')
+        }
+      }
+
+      // r31 提示：role=status aria-live=polite 即时播报 + 指定状态行标红，1.6s 后连同状态自隐
+      // （DESIGN §3.3：冲突两行 is-conflict / 非法单行 has-error 持久 1.6s 后清除）
+      function showKeybindMsg(action, text, conflictWith) {
+        clearKeybindStates()
+        const msg = keycapMsg(action)
+        if (msg) { msg.textContent = text; msg.hidden = false }
+        if (conflictWith) {
+          keycapBtn(action).classList.add('is-conflict')
+          keycapBtn(conflictWith).classList.add('is-conflict')
+        } else {
+          keycapBtn(action).classList.add('has-error')
+        }
+        keybindMsgTimer = setTimeout(function () {
+          keybindMsgTimer = null
+          clearKeybindStates()
+        }, 1600)
+      }
+
+      function applyKeyBindings() {
+        if (typeof game !== 'undefined' && game && typeof game.setKeyBindings === 'function') game.setKeyBindings(keyBindings)
+        persistSettings() // 即时写持久化（persist 缺失时 no-op）
+      }
+
+      // 录制期全局 capture 接管：屏蔽游戏键输入（stopPropagation）+ 防滚动/聚焦二次激活
+      function onKeybindCapture(e) {
+        e.stopPropagation()
+        e.preventDefault()
+        if (e.key === 'Escape') { endRecording(); return } // Esc = 取消录制（不关弹层）
+        if (e.ctrlKey || e.altKey || e.metaKey) { rejectKeybind('组合键不可绑定'); return } // 组合键黑名单
+        const k = normalizeKbKey(e.key)
+        if (k === null || !isKbLegalKey(k)) { rejectKeybind('该键不可绑定'); return } // 黑名单/非法
+        // 冲突：被其他动作占用 → 两行同时标红 + 行内提示，留 RECORDING
+        let conflictAction = null
+        for (let i = 0; i < KEYBIND_ACTIONS.length; i++) {
+          const a = KEYBIND_ACTIONS[i]
+          if (a !== recordingAction && keyBindings[a] === k) { conflictAction = a; break }
+        }
+        if (conflictAction !== null) {
+          showKeybindMsg(recordingAction, '与「' + KEYBIND_LABELS[conflictAction] + '」冲突，请换键', conflictAction)
+          return
+        }
+        // 合法无冲突：写入 + 即时生效 + 持久化 + 120ms success 描边淡出
+        keyBindings[recordingAction] = k
+        applyKeyBindings()
+        refreshKeycaps()
+        const btn = keycapBtn(recordingAction)
+        btn.classList.add('is-saved')
+        endRecording()
+        setTimeout(function () { btn.classList.remove('is-saved') }, 120)
+      }
+
+      function rejectKeybind(text) {
+        showKeybindMsg(recordingAction, text)
+      }
+
+      function startRecording(action) {
+        endRecording() // 幂等取消既有录制（含 capture 监听/样式）
+        clearKeybindStates()
+        recordingAction = action
+        const btn = keycapBtn(action)
+        btn.classList.add('is-recording')
+        btn.textContent = '按下新键…'
+        btn.setAttribute('aria-pressed', 'true')
+        btn.setAttribute('aria-label', KEYBIND_LABELS[action] + '，录制中：按下新键，或按 Esc 取消')
+        if (typeof window !== 'undefined') window.addEventListener('keydown', onKeybindCapture, { capture: true })
+      }
+
+      function endRecording() {
+        if (recordingAction === null) return
+        const action = recordingAction
+        recordingAction = null
+        if (typeof window !== 'undefined') window.removeEventListener('keydown', onKeybindCapture, { capture: true })
+        const btn = keycapBtn(action)
+        btn.setAttribute('aria-pressed', 'false')
+        btn.textContent = keyDisplayLabel(keyBindings[action])
+        btn.setAttribute('aria-label', KEYBIND_LABELS[action] + '，当前键 ' + keyDisplayLabel(keyBindings[action]))
+        btn.classList.remove('is-recording')
+      }
+
+      function onKeycapClick(action) {
+        if (recordingAction === action) { endRecording(); return } // 再点当前行 = 取消录制
+        startRecording(action)
+      }
+
+      function onKeybindReset() {
+        endRecording()
+        keyBindings = defaultKeyBindingsMap()
+        refreshKeycaps()
+        applyKeyBindings()
+        blurElement(this)
+      }
+
+      // 按键组静态 DOM 装配（装配期 must 校验：index.html 同批交付）
+      KEYBIND_ACTIONS.forEach(function (action) {
+        const btn = must('#kb-' + action)
+        const msg = root.querySelector('#kb-msg-' + action)
+        const onClick = function () { onKeycapClick(action) }
+        btn.addEventListener('click', onClick)
+        keybindRows[action] = { btn: btn, msg: msg, onClick: onClick }
+      })
+      const keybindResetBtn = must('#kb-reset')
+      const onKeybindResetClick = function () { onKeybindReset() }
+      keybindResetBtn.addEventListener('click', onKeybindResetClick)
+      refreshKeycaps() // 装配期按绑定表刷新键名（含持久化恢复值）
 
       /* ---- 触屏控制器与画布防默认（r16） ----
          触屏控制器在 pad 存在时创建（合成键盘事件，复走键盘层时钟/语义，引擎零改动）；
@@ -1956,8 +2192,13 @@
             dockSkinRadios[i].removeEventListener('change', onDockSkinChange) // r24
           }
         }
-        if (typeof window !== 'undefined') window.removeEventListener('keydown', onHoldKey) // r14
-        closeSettingsModal() // 关闭弹层并清理内部事件（ESC keydown / 焦点陷阱）
+        closeSettingsModal() // 关闭弹层并清理内部事件（ESC keydown / 焦点陷阱 / r31 录制态）
+        // r31：按键设置组监听对称解绑 + 提示计时清理
+        if (keybindMsgTimer !== null) clearTimeout(keybindMsgTimer)
+        KEYBIND_ACTIONS.forEach(function (action) {
+          keybindRows[action].btn.removeEventListener('click', keybindRows[action].onClick)
+        })
+        keybindResetBtn.removeEventListener('click', onKeybindResetClick)
         mousedownGuards.forEach(function (entry) {
           entry.btn.removeEventListener('mousedown', entry.guard)
         })
@@ -2045,6 +2286,13 @@
       // r24：操作区背景四皮肤枚举 + 全量替换纯函数（Node 可单测，与 persist 白名单双保险）
       DOCK_SKINS: DOCK_SKINS,
       applyDockSkin: applyDockSkin,
+      // r31：自定义按键契约（动作序/文案/键名显示/绑定工具，Node 可单测；与 persist/game 交叉断言）
+      KEYBIND_ACTIONS: KEYBIND_ACTIONS.slice(),
+      KEYBIND_LABELS: Object.assign({}, KEYBIND_LABELS),
+      keyDisplayLabel: keyDisplayLabel,
+      normalizeKbKey: normalizeKbKey,
+      isKbLegalKey: isKbLegalKey,
+      mergeKeyBindings: mergeKeyBindings,
     }
   }
 )

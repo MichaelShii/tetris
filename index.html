@@ -85,13 +85,13 @@
     <section id="panel-right" class="panel" aria-label="操作面板">
       <div class="key-hints">
         <div class="key-hints__row"><span>左移 / 右移</span><span><kbd>←</kbd><kbd>→</kbd></span></div>
-        <div class="key-hints__row"><span>旋转（顺时针）</span><span><kbd>↑</kbd><kbd>X</kbd></span></div>
+        <div class="key-hints__row"><span>旋转（顺时针）</span><span><kbd>↑</kbd></span></div>
         <div class="key-hints__row"><span>软降</span><span><kbd>↓</kbd></span></div>
         <div class="key-hints__row"><span>硬降</span><span><kbd>空格</kbd></span></div>
-        <div class="key-hints__row"><span>暂停 / 继续</span><span><kbd>P</kbd><kbd>Esc</kbd></span></div>
+        <div class="key-hints__row"><span>暂停 / 继续</span><span><kbd>P</kbd></span></div>
         <div class="key-hints__row"><span>重新开始</span><span><kbd>R</kbd></span></div>
         <div class="key-hints__row"><span>开始 / 重开</span><span><kbd>回车</kbd></span></div>
-        <div class="key-hints__row"><span>Hold 暂存</span><span><kbd>C</kbd><kbd>Shift</kbd></span></div>
+        <div class="key-hints__row"><span>Hold 暂存</span><span><kbd>C</kbd></span></div>
         <div class="key-hints__row"><span>静音 / 取消静音</span><span><kbd>M</kbd></span></div>
       </div>
       <div id="controls">
@@ -250,6 +250,63 @@
                 </label>
               </div>
             </div>
+          </div>
+        </div>
+        <!-- r31 按键设置组（自定义按键，AC：单键制 9 动作一对一主键）：
+             静态 DOM + id 注册（createUI 装配期 must 校验，与 ⑥ 组同约束）；
+             行 = .keybind-row（.stat__label 动作名 + button.keycap 录制入口）+ 行下
+             .keybind-row__msg（role=status aria-live=polite，仅冲突/非法时出现）；
+             组尾 #kb-reset「恢复默认按键」；键名初始为默认值，装配期按绑定表刷新；
+             触屏门控纯 CSS（html.has-touch .settings-group--keys display:none，触控键不跟随键盘绑定） -->
+        <div class="settings-group settings-group--keys" role="group" aria-label="按键设置">
+          <h3 class="settings-group__title">按键设置</h3>
+          <div class="settings-group__content">
+            <div class="keybind-row">
+              <span class="stat__label">左移</span>
+              <button type="button" id="kb-moveLeft" class="keycap" aria-pressed="false" aria-label="左移，当前键 ← 左方向">←</button>
+            </div>
+            <p class="keybind-row__msg" id="kb-msg-moveLeft" role="status" aria-live="polite" hidden></p>
+            <div class="keybind-row">
+              <span class="stat__label">右移</span>
+              <button type="button" id="kb-moveRight" class="keycap" aria-pressed="false" aria-label="右移，当前键 → 右方向">→</button>
+            </div>
+            <p class="keybind-row__msg" id="kb-msg-moveRight" role="status" aria-live="polite" hidden></p>
+            <div class="keybind-row">
+              <span class="stat__label">软降</span>
+              <button type="button" id="kb-softDrop" class="keycap" aria-pressed="false" aria-label="软降，当前键 ↓ 下方向">↓</button>
+            </div>
+            <p class="keybind-row__msg" id="kb-msg-softDrop" role="status" aria-live="polite" hidden></p>
+            <div class="keybind-row">
+              <span class="stat__label">硬降</span>
+              <button type="button" id="kb-hardDrop" class="keycap" aria-pressed="false" aria-label="硬降，当前键 空格">空格</button>
+            </div>
+            <p class="keybind-row__msg" id="kb-msg-hardDrop" role="status" aria-live="polite" hidden></p>
+            <div class="keybind-row">
+              <span class="stat__label">旋转</span>
+              <button type="button" id="kb-rotate" class="keycap" aria-pressed="false" aria-label="旋转，当前键 ↑ 上方向">↑</button>
+            </div>
+            <p class="keybind-row__msg" id="kb-msg-rotate" role="status" aria-live="polite" hidden></p>
+            <div class="keybind-row">
+              <span class="stat__label">Hold 暂存</span>
+              <button type="button" id="kb-hold" class="keycap" aria-pressed="false" aria-label="Hold 暂存，当前键 C">C</button>
+            </div>
+            <p class="keybind-row__msg" id="kb-msg-hold" role="status" aria-live="polite" hidden></p>
+            <div class="keybind-row">
+              <span class="stat__label">暂停</span>
+              <button type="button" id="kb-togglePause" class="keycap" aria-pressed="false" aria-label="暂停，当前键 P">P</button>
+            </div>
+            <p class="keybind-row__msg" id="kb-msg-togglePause" role="status" aria-live="polite" hidden></p>
+            <div class="keybind-row">
+              <span class="stat__label">重新开始</span>
+              <button type="button" id="kb-restart" class="keycap" aria-pressed="false" aria-label="重新开始，当前键 R">R</button>
+            </div>
+            <p class="keybind-row__msg" id="kb-msg-restart" role="status" aria-live="polite" hidden></p>
+            <div class="keybind-row">
+              <span class="stat__label">静音</span>
+              <button type="button" id="kb-mute" class="keycap" aria-pressed="false" aria-label="静音，当前键 M">M</button>
+            </div>
+            <p class="keybind-row__msg" id="kb-msg-mute" role="status" aria-live="polite" hidden></p>
+            <button type="button" id="kb-reset" class="btn btn--secondary">恢复默认按键</button>
           </div>
         </div>
       </div>

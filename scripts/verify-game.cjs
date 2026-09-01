@@ -957,56 +957,83 @@ test('onSfx: start/restart/tick 不发射音效（PRD 未定义开始/重开音�
 
 /* ---------- 9. 键盘映射 keyAction + 恢复节拍（v2.1，AC-11；TECHNICAL §2.1/§7.1） ---------- */
 
-test('keyAction: 映射矩阵逐格断言（AC-11 + D-01 甲，TECHNICAL §2.1）', () => {
-  // READY：空格/Enter=start，r=restart；P 无副作用（AC-11.6）
+test('keyAction: 映射矩阵逐格断言（AC-11 + r31 两级分发，TECHNICAL §2.1/§3.1）', () => {
+  // L1 系统阶段键（READY/OVER：空格/Enter → start/restart，零回归，不随绑定）
   assert.equal(T.keyAction('READY', ' '), 'start')
   assert.equal(T.keyAction('READY', 'Enter'), 'start')
-  assert.equal(T.keyAction('READY', 'r'), 'restart')
-  assert.equal(T.keyAction('READY', 'R'), 'restart')
-  assert.equal(T.keyAction('READY', 'p'), null, 'READY 按 P 无副作用（AC-11.6）')
-  assert.equal(T.keyAction('READY', 'P'), null)
-  assert.equal(T.keyAction('READY', 'Escape'), null)
-  assert.equal(T.keyAction('READY', 'ArrowLeft'), null)
-  // RUNNING：空格=hardDrop 不变（AC-11.2 后半句）；方向键/DAS 键位保留
-  assert.equal(T.keyAction('RUNNING', ' '), 'hardDrop', 'PLAYING 空格仍为硬降')
+  assert.equal(T.keyAction('OVER', ' '), 'restart', 'GAME_OVER 空格=重开（D-01 甲）')
+  assert.equal(T.keyAction('OVER', 'Enter'), 'restart')
+  assert.equal(T.keyAction('PAUSED', ' '), 'togglePause', 'PAUSED 空格=继续（AC-11.2，阶段型固定键）')
+  // L1 不随绑定：改绑空格（hardDrop）不影响 READY/OVER 空格=start/restart、PAUSED 空格=继续
+  assert.equal(T.keyAction('READY', ' ', { hardDrop: 'x' }), 'start', '系统阶段键不随绑定')
+  assert.equal(T.keyAction('OVER', ' ', { hardDrop: 'x' }), 'restart', '系统阶段键不随绑定')
+  assert.equal(T.keyAction('PAUSED', ' ', { hardDrop: 'x' }), 'togglePause', 'PAUSED 空格不随绑定')
+  // L2 默认绑定表：key→动作（动作阶段有效性由引擎守卫，keyAction 仅查绑定，与 DESIGN §3.1
+  // 「动作内自行按 phase 守卫」一致）；READY/OVER 按 P 等阶段无效键由引擎 no-op（AC-11.6 行为保留）
+  assert.equal(T.keyAction('RUNNING', ' '), 'hardDrop', 'RUNNING 空格仍为硬降')
   assert.equal(T.keyAction('RUNNING', 'p'), 'togglePause')
   assert.equal(T.keyAction('RUNNING', 'P'), 'togglePause')
-  assert.equal(T.keyAction('RUNNING', 'Escape'), 'togglePause')
   assert.equal(T.keyAction('RUNNING', 'r'), 'restart')
   assert.equal(T.keyAction('RUNNING', 'R'), 'restart')
   assert.equal(T.keyAction('RUNNING', 'ArrowLeft'), 'moveLeft')
   assert.equal(T.keyAction('RUNNING', 'ArrowRight'), 'moveRight')
   assert.equal(T.keyAction('RUNNING', 'ArrowDown'), 'softDrop')
   assert.equal(T.keyAction('RUNNING', 'ArrowUp'), 'rotate')
-  assert.equal(T.keyAction('RUNNING', 'x'), 'rotate')
-  assert.equal(T.keyAction('RUNNING', 'X'), 'rotate')
-  assert.equal(T.keyAction('RUNNING', 'Enter'), null)
-  // PAUSED：v2.1 空格=继续（AC-11.2 前半句）；方向键无效（AC-04.2）
-  assert.equal(T.keyAction('PAUSED', ' '), 'togglePause', 'PAUSED 空格=继续（AC-11.2 前半句）')
+  assert.equal(T.keyAction('RUNNING', 'c'), 'hold', '默认 hold=C')
+  assert.equal(T.keyAction('RUNNING', 'C'), 'hold')
+  // r31 DER-1 收敛：X 次键 / Shift 长按 / Escape 暂停 失效（这些键不再出现在绑定表 → null）
+  assert.equal(T.keyAction('RUNNING', 'x'), null, 'X 次键收敛失效（DESIGN D-7）')
+  assert.equal(T.keyAction('RUNNING', 'X'), null)
+  assert.equal(T.keyAction('RUNNING', 'Escape'), null, 'Escape 不再暂停（转系统键，DESIGN D-7）')
+  assert.equal(T.keyAction('RUNNING', 'Shift'), null, 'Shift 长按失效（DESIGN D-7）')
+  assert.equal(T.keyAction('RUNNING', 'Enter'), null, 'RUNNING Enter 无映射（重开走 L1 仅 READY/OVER）')
+  // 其余阶段：绑定表统一查（动作阶段有效性由引擎守卫，见 qa-e2e 行为段）
   assert.equal(T.keyAction('PAUSED', 'p'), 'togglePause')
-  assert.equal(T.keyAction('PAUSED', 'P'), 'togglePause')
-  assert.equal(T.keyAction('PAUSED', 'Escape'), 'togglePause')
   assert.equal(T.keyAction('PAUSED', 'r'), 'restart')
-  assert.equal(T.keyAction('PAUSED', 'R'), 'restart')
-  assert.equal(T.keyAction('PAUSED', 'ArrowLeft'), null, '暂停期方向键无效（AC-04.2）')
-  assert.equal(T.keyAction('PAUSED', 'ArrowUp'), null)
-  assert.equal(T.keyAction('PAUSED', 'ArrowDown'), null)
-  assert.equal(T.keyAction('PAUSED', 'Enter'), null)
-  // OVER：空格=restart（D-01 甲）；P 无副作用（AC-11.6）
-  assert.equal(T.keyAction('OVER', ' '), 'restart', 'GAME_OVER 空格=重开（D-01 甲）')
+  assert.equal(T.keyAction('PAUSED', 'ArrowLeft'), 'moveLeft', 'PAUSED 方向键仍解析绑定（引擎守卫为 no-op，AC-04.2 行为保留）')
+  assert.equal(T.keyAction('PAUSED', 'Escape'), null, 'PAUSED Escape 不再暂停（DER-1）')
   assert.equal(T.keyAction('OVER', 'r'), 'restart')
-  assert.equal(T.keyAction('OVER', 'R'), 'restart')
-  assert.equal(T.keyAction('OVER', 'Enter'), 'restart')
-  assert.equal(T.keyAction('OVER', 'p'), null, 'OVER 按 P 无副作用（AC-11.6）')
-  assert.equal(T.keyAction('OVER', 'P'), null)
-  assert.equal(T.keyAction('OVER', 'Escape'), null)
-  assert.equal(T.keyAction('OVER', 'ArrowDown'), null)
+  assert.equal(T.keyAction('OVER', 'p'), 'togglePause', 'OVER P 解析绑定（引擎 guard 为 no-op，AC-11.6 行为保留）')
+  assert.equal(T.keyAction('OVER', 'Escape'), null, 'OVER Escape 无映射')
+  assert.equal(T.keyAction('READY', 'p'), 'togglePause', 'READY P 解析绑定（引擎 guard no-op，AC-11.6 行为保留）')
+  assert.equal(T.keyAction('READY', 'Escape'), null)
+  assert.equal(T.keyAction('READY', 'ArrowLeft'), 'moveLeft', 'READY 方向键解析绑定（引擎 guard no-op）')
   // 防御（E-11-09）：未知 phase / 非字符串 key → null
   assert.equal(T.keyAction('BOGUS', ' '), null)
   assert.equal(T.keyAction(null, ' '), null)
   assert.equal(T.keyAction('READY', null), null)
   assert.equal(T.keyAction('READY', undefined), null)
   assert.equal(T.keyAction('READY', 123), null)
+})
+
+test('keyAction: r31 绑定覆盖（第三参自定义表）+ 一对一 + 大小写归一', () => {
+  const custom = {
+    moveLeft: 'a', moveRight: 'd', softDrop: 's', hardDrop: 'w',
+    rotate: 'j', hold: 'h', togglePause: 'o', restart: 'g', mute: 'n',
+  }
+  // 改键后：新键生效、旧默认键失效（一对一，DER-1）
+  assert.equal(T.keyAction('RUNNING', 'a', custom), 'moveLeft')
+  assert.equal(T.keyAction('RUNNING', 'A', custom), 'moveLeft', '大写 A 归一')
+  assert.equal(T.keyAction('RUNNING', 'd', custom), 'moveRight')
+  assert.equal(T.keyAction('RUNNING', 's', custom), 'softDrop')
+  assert.equal(T.keyAction('RUNNING', 'w', custom), 'hardDrop')
+  assert.equal(T.keyAction('RUNNING', 'j', custom), 'rotate')
+  assert.equal(T.keyAction('RUNNING', 'h', custom), 'hold')
+  assert.equal(T.keyAction('RUNNING', 'o', custom), 'togglePause')
+  assert.equal(T.keyAction('RUNNING', 'g', custom), 'restart')
+  assert.equal(T.keyAction('RUNNING', 'ArrowLeft', custom), null, '原箭头键被改走 → 失效')
+  assert.equal(T.keyAction('RUNNING', 'p', custom), null, '原 P 被改走 → 失效')
+  assert.equal(T.keyAction('RUNNING', 'c', custom), null, '原 C 被改走 → 失效')
+  assert.equal(T.keyAction('RUNNING', ' ', { hardDrop: 'x' }), null, '空格被改走后默认表空格失效')
+  // 空/非法表 → 回默认表
+  assert.equal(T.keyAction('RUNNING', 'ArrowLeft', null), 'moveLeft', '表缺失回默认')
+  assert.equal(T.keyAction('RUNNING', 'ArrowLeft', {}), 'moveLeft', '空表回默认')
+  // 部分表缺省 → 其余动作回默认
+  const partial = T.keyAction('RUNNING', 'r', { moveLeft: 'a' })
+  assert.equal(partial, 'restart', '部分表未覆盖动作回默认')
+  // PAUSED：空格=继续（AC-11.2，L1 阶段键不随绑定）；p=继续（togglePause 绑定）
+  assert.equal(T.keyAction('PAUSED', ' ', { hardDrop: 'x' }), 'togglePause', 'PAUSED 空格=继续不随绑定')
+  assert.equal(T.keyAction('PAUSED', 'o', custom), 'togglePause', 'PAUSED 改绑 togglePause=o 生效')
 })
 
 test('恢复节拍差值续算：暂停不清计时，恢复后按暂停前剩余间隔续算（AC-11.4，E-11-08）', () => {

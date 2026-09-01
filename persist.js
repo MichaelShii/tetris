@@ -42,6 +42,31 @@
     // verify-ui 交叉断言防漂移；随 settings 包络持久化，PAYLOAD_VERSION 不变——纯增量向后兼容）
     const DOCK_SKINS = ['glass', 'float', 'fade', 'pod']
 
+    // r31 自定义按键：9 动作固定序（对齐 game.js GAME_BIND_ACTIONS + mute，verify-ui 交叉断言防漂移）
+    const KEY_ACTIONS = ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotate', 'hold', 'togglePause', 'restart', 'mute']
+    // 默认键表（单键制一对一；与 game.js DEFAULT_KEYBINDINGS 双声明，verify-ui 交叉断言防漂移；
+    // 键名一律小写规范化：箭头 → 'arrowleft' 等、空格保持 ' '）
+    const DEFAULT_KEYBINDINGS = {
+      moveLeft: 'arrowleft',
+      moveRight: 'arrowright',
+      softDrop: 'arrowdown',
+      hardDrop: ' ',
+      rotate: 'arrowup',
+      hold: 'c',
+      togglePause: 'p',
+      restart: 'r',
+      mute: 'm',
+    }
+    // 可绑定键集：单字符可打印（字母/数字/标点/空格）+ 四方向键；其余（Tab/Enter/Escape、
+    // 修饰键 Shift/Ctrl/Alt/Meta、CapsLock、F1–F12、NumLock、Insert、PrintScreen 等）黑名单
+    const BINDABLE_ARROWS = { arrowleft: true, arrowright: true, arrowup: true, arrowdown: true }
+    const FORBIDDEN_KEYS = {
+      tab: true, enter: true, escape: true, capslock: true, shift: true, control: true,
+      ctrl: true, alt: true, altgraph: true, meta: true, contextmenu: true, numlock: true,
+      scrolllock: true, pause: true, insert: true, delete: true, home: true, end: true,
+      pageup: true, pagedown: true, backspace: true, printscreen: true,
+    }
+
     // 最高分默认 0（无历史时 HUD 显示 0，后续调用 saveHighScore 只增不减）
     const DEFAULT_HIGH_SCORE = 0
     // 五设置布尔白名单默认值（对齐 ui.js 现状：音量→audio 用 0~1，此处存布尔开关语义见说明）
@@ -55,6 +80,7 @@
       holdEnabled: true, // v3.2 暂存方块开关默认开（AC-14）
       previewQueueEnabled: true, // v3.2 多格预览队列开关默认开（AC-8）
       dockSkin: 'fade', // r24 操作区背景四皮肤默认 C 渐隐（AC-7/8）
+      keybindings: Object.assign({}, DEFAULT_KEYBINDINGS), // r31 自定义按键默认表（settings 纯增量，PAYLOAD_VERSION 不变）
     }
 
     /* ======================================================================
@@ -109,6 +135,59 @@
       }
 
       return def
+    }
+
+    /* ======================================================================
+     * 2b. r31 自定义按键：键名规范化 / 可绑定判定 / 9 动作白名单清洗（纯函数，永不 throw）
+     * ==================================================================== */
+
+    /**
+     * 键名规范化（KeyboardEvent.key → 绑定表小写键名；空格保持 ' '；非字符串/空白 → null）。
+     */
+    function normalizeKey(key) {
+      if (typeof key !== 'string' || key.length === 0) return null
+      const s = key === ' ' ? ' ' : key.trim()
+      if (s.length === 0) return null
+      return s.toLowerCase()
+    }
+
+    /**
+     * 可绑定键判定：单字符可打印（字母/数字/标点/空格）+ 四方向键准入；
+     * 黑名单（Tab/Enter/Escape/修饰键/F1–F12/Insert/PrintScreen 等）与组合键（调用方按
+     * e.ctrlKey/altKey/metaKey 拒绝）排除。
+     */
+    function isBindableKey(key) {
+      const s = normalizeKey(key)
+      if (s === null) return false
+      if (FORBIDDEN_KEYS[s]) return false
+      if (/^f\d{1,2}$/.test(s)) return false
+      if (s.length === 1) return true
+      return BINDABLE_ARROWS[s] === true
+    }
+
+    /**
+     * 9 动作 keybindings 白名单清洗：非法/缺失回退默认键；后位动作与前者撞键 → 回退默认
+     * （一对一保证，冲突由 UI 捕获层前置拦截，此处为持久化兜底）。幂等、永不 throw。
+     * @param {*} value 任意输入（settings.keybindings 或用户直接给出的部分表）
+     * @returns {object} 9 动作全量表（缺失字段已补默认）
+     */
+    function sanitizeKeybindings(value) {
+      const out = {}
+      const src = value && typeof value === 'object' ? value : {}
+      const used = {}
+      for (let i = 0; i < KEY_ACTIONS.length; i++) {
+        const a = KEY_ACTIONS[i]
+        const v = src[a]
+        const norm = isBindableKey(v) ? normalizeKey(v) : null
+        if (norm !== null && !Object.prototype.hasOwnProperty.call(used, norm)) {
+          out[a] = norm
+          used[norm] = true
+        } else {
+          out[a] = DEFAULT_KEYBINDINGS[a]
+          used[DEFAULT_KEYBINDINGS[a]] = true
+        }
+      }
+      return out
     }
 
     /* ======================================================================
@@ -291,6 +370,8 @@
             holdEnabled: sanitize(settings.holdEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.holdEnabled }),
             previewQueueEnabled: sanitize(settings.previewQueueEnabled, { type: 'boolean', def: DEFAULT_SETTINGS.previewQueueEnabled }),
             dockSkin: sanitize(settings.dockSkin, { type: 'string', values: DOCK_SKINS, def: DEFAULT_SETTINGS.dockSkin }),
+            // r31 自定义按键：9 动作白名单清洗（非法/冲突回退默认；纯增量字段）
+            keybindings: sanitizeKeybindings(settings.keybindings),
           },
         }
       }
@@ -312,6 +393,7 @@
               holdEnabled: state.settings.holdEnabled,
               previewQueueEnabled: state.settings.previewQueueEnabled,
               dockSkin: state.settings.dockSkin,
+              keybindings: sanitizeKeybindings(state.settings.keybindings),
             },
           })
         } catch (_e) {
@@ -413,6 +495,12 @@
       DEFAULT_HIGH_SCORE: DEFAULT_HIGH_SCORE,
       DEFAULT_SETTINGS: DEFAULT_SETTINGS,
       DOCK_SKINS: DOCK_SKINS,
+      // r31 自定义按键契约（键表 / 动作序 / 规范化 / 白名单清洗——与 game.js 双声明由 verify-ui 交叉断言）
+      KEY_ACTIONS: KEY_ACTIONS.slice(),
+      DEFAULT_KEYBINDINGS: Object.assign({}, DEFAULT_KEYBINDINGS),
+      normalizeKey: normalizeKey,
+      isBindableKey: isBindableKey,
+      sanitizeKeybindings: sanitizeKeybindings,
       sanitize: sanitize,
       createStorage: createStorage,
       createPersistence: createPersistence,

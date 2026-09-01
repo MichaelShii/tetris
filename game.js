@@ -86,6 +86,26 @@
     const DAS_DELAY_MS = 170
     const DAS_REPEAT_MS = 100
     const SOFT_DROP_REPEAT_MS = 50
+
+    // r31 自定义按键（单键制：9 动作各绑 1 主键，一对一；DESIGN D-1/D-7）：
+    // 默认绑定表 = keyAction 两级分发 L2 的基座；与 persist.DEFAULT_KEYBINDINGS 双声明，
+    // verify-ui 交叉断言防漂移（DOCK_SKINS 先例）。键名一律小写规范化（键盘事件
+    // 'ArrowLeft' → 'arrowleft'；空格保持 ' '）。
+    const DEFAULT_KEYBINDINGS = {
+      moveLeft: 'arrowleft',
+      moveRight: 'arrowright',
+      softDrop: 'arrowdown',
+      hardDrop: ' ',
+      rotate: 'arrowup',
+      hold: 'c',
+      togglePause: 'p',
+      restart: 'r',
+      mute: 'm',
+    }
+    // 可改游戏动作（8）：mute 为设置/音频动作，由 ui.js 读取绑定表消费，不进 keyAction（0-diff 音效职责）
+    const GAME_BIND_ACTIONS = ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotate', 'hold', 'togglePause', 'restart']
+    // 触屏/回放动作级输入的 held 标签前缀（'touch:moveLeft' 等，与键盘绑定键字符串绝不冲突）
+    const TOUCH_TAG_PREFIX = 'touch:'
     // 下落间隔：max(100, 1000 × 0.85^(L−1)) ms（AC-06.3，下限 100）
     const GRAVITY_BASE_MS = 1000
     const GRAVITY_DECAY = 0.85
@@ -366,40 +386,81 @@
     }
 
     /* ======================================================================
-     * 4b. 键盘映射单一来源表 keyAction（v2.1 新增，AC-11；TECHNICAL §2.1/§3.1）
-     *     纯函数：阶段 × 按键 → 动作，无 DOM/状态依赖，Node 可单测。
-     *     「空格双语义」在此按 phase 分流（READY=start / RUNNING=hardDrop /
-     *     PAUSED=继续 / OVER=重开【D-01 甲】），分支互斥保证一次按键单一动作。
+     * 4b. 键盘映射单一来源表 keyAction（v2.1 新增，AC-11；r31 两级分发，DESIGN §3.1）
+     *     纯函数：阶段 × 按键 × 绑定表 → 动作，无 DOM/状态依赖，Node 可单测。
+     *     L1 系统阶段键（READY/OVER 的 Enter/空格 → start/restart，零回归，不随绑定
+     *     且黑名单不可被占用）；L2 绑定表（默认 ∪ 自定义，8 游戏动作一对一）。
      * ==================================================================== */
 
+    // r31：L1 系统阶段键（黑名单键由 persist/ui 层保证不可绑定 → 与 L2 永无冲突）。
+    // READY/OVER：空格/Enter → start/restart（零回归）；PAUSED：空格 → togglePause（AC-11.2
+    // 「空格=继续」历史语义保留为阶段型固定键，不随绑定——防止改绑空格后暂停无法空格继续）
+    const SYSTEM_STAGE_KEYS = {
+      READY: { ' ': 'start', enter: 'start' },
+      OVER: { ' ': 'restart', enter: 'restart' },
+      PAUSED: { ' ': 'togglePause' },
+    }
+
+    /** r31：键名规范化（KeyboardEvent.key → 绑定表小写键名；空格保持 ' '；非字符串/空白 → null） */
+    function normalizeKeyName(key) {
+      if (typeof key !== 'string' || key.length === 0) return null
+      const s = key === ' ' ? ' ' : key.trim()
+      if (s.length === 0) return null
+      return s.toLowerCase()
+    }
+
     /**
-     * 键盘映射单一来源表（PRD §5.1 输入映射；v2.1 新增空格 PAUSED/OVER 语义）
+     * r31：绑定表清洗（防御性 + 幂等）。仅接受字符串键名；非法/缺失回退默认；
+     * 后位动作与前者撞键 → 回退默认（一对一保证，冲突由 UI 捕获层前置拦截）。
+     * @param {object} raw 任意输入（8 动作键可来自 persist 清洗结果或宿主注入）
+     * @returns {object} 8 动作全量绑定表（含默认回退）
+     */
+    function sanitizeBindings(raw) {
+      const src = raw && typeof raw === 'object' ? raw : {}
+      const out = {}
+      const used = {}
+      for (let i = 0; i < GAME_BIND_ACTIONS.length; i++) {
+        const a = GAME_BIND_ACTIONS[i]
+        const custom = src[a]
+        const v = custom !== undefined && custom !== null ? normalizeKeyName(custom) : null
+        if (v !== null && typeof v === 'string' && v.length > 0 && !Object.prototype.hasOwnProperty.call(used, v)) {
+          out[a] = v
+          used[v] = true
+        } else {
+          out[a] = DEFAULT_KEYBINDINGS[a]
+          used[DEFAULT_KEYBINDINGS[a]] = true
+        }
+      }
+      return out
+    }
+
+    /**
+     * 键盘映射单一来源表（PRD §5.1 输入映射；v2.1 新增空格 PAUSED/OVER 语义；r31 两级分发）
      * @param {string} phase  'READY'|'RUNNING'|'PAUSED'|'OVER'
      * @param {string} key    KeyboardEvent.key（onKeyDown 传入；非字符串/未知键 → null）
-     * @returns {string|null} action ∈ start|restart|togglePause|moveLeft|moveRight|softDrop|rotate|hardDrop，或 null（无动作）
+     * @param {object} [bindings] 绑定表（默认 DEFAULT_KEYBINDINGS；部分表缺省回默认）
+     * @returns {string|null} action ∈ start|restart|togglePause|moveLeft|moveRight|softDrop|rotate|hardDrop|hold，或 null（无动作）
      */
-    function keyAction(phase, key) {
+    function keyAction(phase, key, bindings) {
       if (typeof key !== 'string') return null
-      const lower = key.toLowerCase()
-      const table = {
-        READY: { ' ': 'start', enter: 'start', r: 'restart' },
-        RUNNING: {
-          ' ': 'hardDrop',
-          arrowleft: 'moveLeft',
-          arrowright: 'moveRight',
-          arrowdown: 'softDrop',
-          arrowup: 'rotate',
-          x: 'rotate',
-          p: 'togglePause',
-          escape: 'togglePause',
-          r: 'restart',
-        },
-        PAUSED: { ' ': 'togglePause', p: 'togglePause', escape: 'togglePause', r: 'restart' },
-        OVER: { ' ': 'restart', r: 'restart', enter: 'restart' },
+      const lower = key === ' ' ? ' ' : key.trim().toLowerCase()
+      // 未知 phase → null（防御，E-11-09）
+      if (PHASES.indexOf(phase) === -1) return null
+      // L1：系统阶段键（READY/OVER：Enter/空格 → start/restart，PAUSED：空格 → togglePause；零回归，不随绑定）
+      const sys = SYSTEM_STAGE_KEYS[phase]
+      if (sys && Object.prototype.hasOwnProperty.call(sys, lower)) return sys[lower]
+      // L2：绑定表（默认 ∪ 自定义；8 游戏动作一对一；mute 由 ui.js 消费不进此表）
+      const map = bindings || DEFAULT_KEYBINDINGS
+      if (map && typeof map === 'object') {
+        for (let i = 0; i < GAME_BIND_ACTIONS.length; i++) {
+          const a = GAME_BIND_ACTIONS[i]
+          let v = null
+          if (Object.prototype.hasOwnProperty.call(map, a) && map[a] !== undefined && map[a] !== null) v = map[a]
+          else if (Object.prototype.hasOwnProperty.call(DEFAULT_KEYBINDINGS, a)) v = DEFAULT_KEYBINDINGS[a]
+          if (v === lower) return a
+        }
       }
-      const row = table[phase]
-      if (!row) return null // 未知 phase → null（防御，E-11-09）
-      return Object.prototype.hasOwnProperty.call(row, lower) ? row[lower] : null
+      return null // 未知 phase / 无动作 → null（防御，E-11-09）
     }
 
     /* ======================================================================
@@ -506,6 +567,8 @@
      */
     function createGame(options) {
       const opts = options || {}
+      // r31：启动注入绑定表（可选；宿主可在 createGame 后经 setKeyBindings 再改）
+      let keyBindings = sanitizeBindings(opts.keyBindings)
       const rng = typeof opts.rng === 'function' ? opts.rng : Math.random
       const autoLoop = opts.autoLoop !== false
       const keyboardOn = opts.keyboard !== false
@@ -1055,52 +1118,80 @@
         }
       }
 
+      /* ---- r31：动作级分发核心（键盘 L2 与触屏/回放动作输入共用） ---- */
+
+      // 单发动作即时执行；moveLeft/moveRight/softDrop 返回 'holdable'（held/DAS 由调用方注册）
+      function fireAction(action) {
+        if (action === 'start') { start(); return null }
+        if (action === 'restart') { restart(); return null }
+        if (action === 'togglePause') { togglePause(); return null }
+        if (action === 'rotate') { rotate(); return null }
+        if (action === 'hardDrop') { hardDrop(); return null }
+        if (action === 'hold') { hold(); return null }
+        if (action === 'moveLeft' || action === 'moveRight' || action === 'softDrop') return 'holdable'
+        return null
+      }
+
+      // held 注册 + 首击立即执行（沿袭既有语义：move 首移 / softDrop 首格 / DAS 由时钟接管；
+      // 同键重复忽略；key 为 held 键标——键盘=绑定键名，触屏='touch:<action>'）
+      function routeHeldAction(action, key) {
+        if (held.has(key)) return
+        let spec = null
+        if (action === 'moveLeft') spec = { action: function () { move(-1) }, delay: DAS_DELAY_MS, repeat: DAS_REPEAT_MS, acc: 0, fired: false }
+        else if (action === 'moveRight') spec = { action: function () { move(1) }, delay: DAS_DELAY_MS, repeat: DAS_REPEAT_MS, acc: 0, fired: false }
+        else if (action === 'softDrop') spec = { action: function () { softDrop() }, delay: SOFT_DROP_REPEAT_MS, repeat: SOFT_DROP_REPEAT_MS, acc: 0, fired: true }
+        if (spec === null) return
+        held.set(key, spec)
+        spec.action()
+        startKeyRepeat()
+      }
+
+      // 触屏/回放动作级输入（DESIGN D-6：动作分发不依赖键盘绑定键；TOUCH_KEYS 六动作恒生效）
+      function actionInput(action, down) {
+        if (disposed) return false
+        const tag = TOUCH_TAG_PREFIX + String(action)
+        if (down === false) {
+          if (held.has(tag)) {
+            held.delete(tag)
+            if (held.size === 0) stopKeyRepeat()
+          }
+          return true
+        }
+        if (down !== true) return false
+        if (fireAction(action) === 'holdable') routeHeldAction(action, tag)
+        return true
+      }
+
+      // r31：preventDefault 随绑定动态化（DESIGN §3.1：方向键/空格/单字符可打印键一律拦截，
+      // 防滚动 + 防遮罩/按钮聚焦时空格二次激活，沿袭 E-11-03）
+      function preventForKey(k) {
+        if (typeof k !== 'string' || k.length === 0) return false
+        const lower = k === ' ' ? ' ' : k.toLowerCase()
+        if (lower === ' ' || lower === 'arrowleft' || lower === 'arrowright' || lower === 'arrowup' || lower === 'arrowdown') return true
+        if (lower.length === 1) return true // 单字符可打印键（字母/数字/标点）
+        return false
+      }
+
       function onKeyDown(e) {
         const k = e.key
-        // 方向键/空格一律拦截，防页面滚动 + 防遮罩按钮聚焦时空格二次激活（DESIGN §4.1，E-11-03）
-        if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowDown' || k === 'ArrowUp' || k === ' ') {
-          e.preventDefault()
-        }
+        if (preventForKey(k)) e.preventDefault()
         if (e.repeat) return // 重复键由 DAS/软降定时器管理，单发键忽略系统重复
 
-        // v2.1：行为等价重构——按键→动作由单一来源表 keyAction 分发（TECHNICAL §3.1）
-        const action = keyAction(state.phase, k)
+        // r31：两级分发——L1 系统阶段键（READY/OVER）+ L2 绑定表（默认∪自定义）
+        const action = keyAction(state.phase, k, keyBindings)
         if (!action) return // null = 无动作（READY/OVER 按 P 等，AC-11.6）
-        if (action === 'start') { start(); return }
-        if (action === 'restart') { restart(); return }
-        if (action === 'togglePause') { togglePause(); return }
-        if (action === 'rotate') { rotate(); return }
-        if (action === 'hardDrop') { hardDrop(); return }
-        // moveLeft/moveRight/softDrop：保留既有 DAS/软降按住语义（首击 + held 注册）
-        if (action === 'moveLeft') {
-          if (!held.has('ArrowLeft')) {
-            held.set('ArrowLeft', { action: function () { move(-1) }, delay: DAS_DELAY_MS, repeat: DAS_REPEAT_MS, acc: 0, fired: false })
-            move(-1)
-            startKeyRepeat()
-          }
-          return
-        }
-        if (action === 'moveRight') {
-          if (!held.has('ArrowRight')) {
-            held.set('ArrowRight', { action: function () { move(1) }, delay: DAS_DELAY_MS, repeat: DAS_REPEAT_MS, acc: 0, fired: false })
-            move(1)
-            startKeyRepeat()
-          }
-          return
-        }
-        if (action === 'softDrop') {
-          if (!held.has('ArrowDown')) {
-            held.set('ArrowDown', { action: function () { softDrop() }, delay: SOFT_DROP_REPEAT_MS, repeat: SOFT_DROP_REPEAT_MS, acc: 0, fired: true })
-            softDrop()
-            startKeyRepeat()
-          }
-          return
+        if (fireAction(action) === 'holdable') {
+          const norm = normalizeKeyName(k)
+          if (norm !== null) routeHeldAction(action, norm)
         }
       }
 
       function onKeyUp(e) {
-        const k = e.key
-        if (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowDown') {
+        const k = normalizeKeyName(e.key)
+        if (k === null) return
+        // r31：同键删除（onKeyDown 按绑定键名注册、onKeyUp 同名删除——消除
+        // 「keyup 删不到 held 条目 → DAS 卡死」陷阱，DESIGN §3.1 裁定证据 1）
+        if (held.has(k)) {
           held.delete(k)
           if (held.size === 0) stopKeyRepeat()
         }
@@ -1167,6 +1258,20 @@
         attachKeyboard: attachKeyboard,
         detachKeyboard: detachKeyboard,
         isKeyboardAttached: function () { return keyboardAttached },
+        // r31：自定义按键——绑定表读写（清洗幂等；键变更即释放 held，防旧键卡死 DAS/软降时钟）
+        setKeyBindings: function (map) {
+          if (disposed) return false
+          keyBindings = sanitizeBindings(map)
+          held.clear()
+          stopKeyRepeat()
+          return true
+        },
+        getKeyBindings: function () {
+          const out = {}
+          for (let i = 0; i < GAME_BIND_ACTIONS.length; i++) out[GAME_BIND_ACTIONS[i]] = keyBindings[GAME_BIND_ACTIONS[i]]
+          return out
+        },
+        input: actionInput, // r31：动作级输入（触屏/回放；与键盘绑定解耦）
         dispose: function () {
           if (disposed) return
           disposed = true
@@ -1256,7 +1361,10 @@
       b2bQualifies: b2bQualifies,
       b2bBonus: b2bBonus,
       transition: transition,
-      keyAction: keyAction, // v2.1：键盘映射单一来源表（AC-11，Node 可单测）
+      keyAction: keyAction, // v2.1：键盘映射单一来源表（AC-11，Node 可单测）；r31 两级分发（第三参绑定表）
+      // r31：自定义按键契约（默认键表 / 可改动作 / 动作级输入）
+      DEFAULT_KEYBINDINGS: Object.assign({}, DEFAULT_KEYBINDINGS),
+      GAME_BIND_ACTIONS: GAME_BIND_ACTIONS.slice(),
       // 会话工厂
       createGame: createGame,
     }

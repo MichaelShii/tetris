@@ -71,7 +71,8 @@ test('persist: 最高分/设置键读写往返（跨实例持久）', () => {
 
   p1.saveHighScore(120)
   // r24 登记改写（唯一一处）：往返用例补 dockSkin 字段——新字段进入真实写/读往返覆盖
-  p1.saveSettings({ volume: 0.5, muted: true, ghostEnabled: false, bgmEnabled: true, wallKickEnabled: false, holdEnabled: false, previewQueueEnabled: false, dockSkin: 'pod' })
+  p1.saveSettings({ volume: 0.5, muted: true, ghostEnabled: false, bgmEnabled: true, wallKickEnabled: false, holdEnabled: false, previewQueueEnabled: false, dockSkin: 'pod',
+    keybindings: { moveLeft: 'a', moveRight: 'd', softDrop: 's', hardDrop: 'w', rotate: 'j', hold: 'h', togglePause: 'p', restart: 'r', mute: 'm' } })
 
   // 新实例（等价刷新重开）读回同一底层 → 恢复
   const p2 = P.createPersistence({ storage: backing })
@@ -86,7 +87,8 @@ test('persist: 最高分/设置键读写往返（跨实例持久）', () => {
     holdEnabled: false,
     previewQueueEnabled: false,
     dockSkin: 'pod',
-  }, '八设置跨实例恢复（含 dockSkin 操作区背景）')
+    keybindings: { moveLeft: 'a', moveRight: 'd', softDrop: 's', hardDrop: 'w', rotate: 'j', hold: 'h', togglePause: 'p', restart: 'r', mute: 'm' },
+  }, '九设置跨实例恢复（含 dockSkin + r31 keybindings）')
 })
 
 /* ============================================================================
@@ -364,4 +366,76 @@ test('persist: 非法 dockSkin 值经 saveSettings/readState 清洗回默认 fad
   const loaded = p.load()
   assert.equal(loaded.settings.dockSkin, 'fade', 'saveSettings 非法枚举 → 清洗回默认 fade')
   assert.equal(loaded.settings.volume, 0.5, '其余字段不受影响')
+})
+
+/* ============================================================================
+ * 9. r31 自定义按键持久化（纯追加段：settings.keybindings 白名单清洗，additive 不升版）
+ * ============================================================================ */
+test('persist: r31 KEY_ACTIONS/DEFAULT_KEYBINDINGS 默认键表导出契约', () => {
+  assert.deepEqual(P.KEY_ACTIONS,
+    ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotate', 'hold', 'togglePause', 'restart', 'mute'],
+    '9 动作固定序（move+soft+hard+rotate+hold+shift 系）')
+  assert.deepEqual(P.DEFAULT_KEYBINDINGS, {
+    moveLeft: 'arrowleft', moveRight: 'arrowright', softDrop: 'arrowdown',
+    hardDrop: ' ', rotate: 'arrowup', hold: 'c', togglePause: 'p', restart: 'r', mute: 'm',
+  }, '默认键表与 game.js DEFAULT_KEYBINDINGS 双声明')
+  assert.equal(P.DEFAULT_SETTINGS.keybindings.moveLeft, 'arrowleft', 'DEFAULT_SETTINGS.keybindings 含默认表')
+})
+
+test('persist: r31 normalizeKey / isBindableKey 判定矩阵', () => {
+  assert.equal(P.normalizeKey('ArrowLeft'), 'arrowleft', '大小写箭头归一')
+  assert.equal(P.normalizeKey('M'), 'm', '大写字母归一')
+  assert.equal(P.normalizeKey(' '), ' ', '空格保持')
+  assert.equal(P.normalizeKey('  '), null, '空白 → null')
+  assert.equal(P.normalizeKey(123), null, '非字符串 → null')
+  assert.equal(P.normalizeKey(''), null, '空串 → null')
+  assert.ok(P.isBindableKey('a') && P.isBindableKey('A') && P.isBindableKey('1') && P.isBindableKey('.') && P.isBindableKey(' '), '单字符可打印/空格准入')
+  assert.ok(P.isBindableKey('ArrowLeft') && P.isBindableKey('arrowup'), '四方向键准入')
+  assert.equal(P.isBindableKey('Escape'), false, 'Escape 黑名单')
+  assert.equal(P.isBindableKey('Enter'), false, 'Enter 黑名单')
+  assert.equal(P.isBindableKey('Shift'), false, 'Shift 黑名单')
+  assert.equal(P.isBindableKey('Control'), false, 'Control 黑名单')
+  assert.equal(P.isBindableKey('F1') || P.isBindableKey('f12'), false, 'F1–F12 黑名单')
+  assert.equal(P.isBindableKey('CapsLock'), false, 'CapsLock 黑名单')
+  assert.equal(P.isBindableKey('Insert'), false, 'Insert 黑名单')
+  assert.equal(P.isBindableKey(''), false, '空串不可绑定')
+})
+
+test('persist: r31 sanitizeKeybindings 9 动作白名单清洗（非法/冲突回退默认，幂等）', () => {
+  const def = P.DEFAULT_KEYBINDINGS
+  const ok = P.sanitizeKeybindings(null)
+  assert.deepEqual(ok, def, 'null → 全默认')
+  // 单动作改键 + 其余回默认
+  const partial = P.sanitizeKeybindings({ moveLeft: 'a' })
+  assert.equal(partial.moveLeft, 'a', '部分表合法键生效')
+  assert.equal(partial.mute, def.mute, '未给字段回默认')
+  // 非法值回退默认
+  const bad = P.sanitizeKeybindings({ hardDrop: 'Escape', rotate: 'Shift', mute: 'F5' })
+  assert.equal(bad.hardDrop, def.hardDrop, '黑名单键回默认')
+  assert.equal(bad.rotate, def.rotate, '修饰键回默认')
+  assert.equal(bad.mute, def.mute, 'F 键回默认')
+  // 冲突一对一：后位撞前位 → 回默认
+  const conflict = P.sanitizeKeybindings({ moveLeft: 'c', hold: 'c' })
+  assert.equal(conflict.hold, def.hold, 'hold 撞 moveLeft' + " 'c' → hold 回默认（一对一）")
+  // 大写输入归一
+  const upper = P.sanitizeKeybindings({ restart: 'R' })
+  assert.equal(upper.restart, 'r', '大写 R 归一为小写 r')
+})
+
+test('persist: r31 keybindings 经真实写/读往返恢复 + 旧载荷缺字段回默认（additive 不升版）', () => {
+  const backing = makeBacking()
+  const p = P.createPersistence({ storage: backing })
+  p.saveSettings({ keybindings: { moveLeft: 'q', moveRight: 'e', softDrop: 's' } })
+  const restored = P.createPersistence({ storage: backing }).load()
+  assert.equal(restored.settings.keybindings.moveLeft, 'q', '改键跨实例恢复')
+  assert.equal(restored.settings.keybindings.moveRight, 'e', '改键跨实例恢复')
+  assert.equal(restored.settings.keybindings.softDrop, 's', '改键跨实例恢复')
+  assert.equal(restored.settings.keybindings.hardDrop, P.DEFAULT_KEYBINDINGS.hardDrop, '未给字段回默认')
+  assert.equal(P.PAYLOAD_VERSION, 1, 'additive 新增 keybindings 不升 PAYLOAD_VERSION')
+  // 旧载荷（无 keybindings 字段）→ 添加默认表（backward compatible）
+  const legacy = { version: P.PAYLOAD_VERSION, highScore: 5, settings: { volume: 0.7, muted: false } }
+  const backing2 = makeBacking()
+  seedRaw(backing2, P.TETRIS_PERSIST_KEY, JSON.stringify(legacy))
+  const old = P.createPersistence({ storage: backing2 }).load()
+  assert.deepEqual(old.settings.keybindings, P.DEFAULT_KEYBINDINGS, '旧载荷无 keybindings → 补默认表')
 })

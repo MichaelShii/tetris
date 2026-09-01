@@ -1104,6 +1104,90 @@ html.has-touch .settings-group--appearance {
   display: block;
 }
 
+/* ═══════════════ 5.55 按键设置组（r31 自定义按键：单键制 keycap 录制 + has-touch 门控） ═══════════════ */
+
+/* 触屏门控（DESIGN §4.4，与外观组同机制反向）：触控键为动作级固定表面、不跟随键盘绑定
+   → 纯触屏设备隐藏按键组（纯 CSS 显隐，element 恒在 DOM，ui.js 绑定恒可执行） */
+html.has-touch .settings-group--keys {
+  display: none;
+}
+
+.keybind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.keybind-row:last-of-type {
+  border-bottom: none;
+}
+
+/* 冲突/非法行内提示（role=status aria-live=polite；仅出现时显示，1.6s 由 ui.js 时序自隐） */
+.keybind-row__msg {
+  margin: 0 0 var(--sp-2) 0;
+  font-size: var(--fs-xs);
+  color: var(--danger);
+}
+
+/* keycap（DESIGN §4.2）：基座对齐 .btn--secondary 的科技玻璃按钮；键名走等宽字体、可见字符
+   （←→↑↓/空格/大小写字母），不依赖 shape 字符防读屏丢失；min-width 88px 稳定录制态文案切换 */
+.keycap {
+  min-width: 88px;
+  height: 36px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  letter-spacing: 0.06em;
+  text-transform: none;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease-out,
+    color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.keycap:hover,
+.keycap:focus-visible {
+  border-color: var(--accent);
+}
+
+.keycap:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent); /* 焦点环 2px accent（全站既有规范） */
+}
+
+/* 录制态（DESIGN §4.3）：primary 描边 + glow，全站优先读屏文案由 ui.js 切换 */
+.keycap.is-recording {
+  border-color: var(--primary);
+  color: var(--primary-hi);
+  box-shadow: var(--glow-primary);
+}
+
+/* 冲突态：占用键与发起行两行同时标红（DESIGN §2.2，1.6s 由 ui.js 时序清除） */
+.keycap.is-conflict {
+  border-color: var(--danger);
+  color: var(--danger);
+  box-shadow: var(--glow-danger);
+}
+
+/* 非法键态 */
+.keycap.has-error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* 写入成功：120ms success 描边淡出（transition 反向，DESIGN §3.3） */
+.keycap.is-saved {
+  border-color: var(--success);
+  color: var(--success);
+}
+
 /* r26 外观组 2×2 缩略选择器（AC-7~9/15，裁定 R-D5）：四 label > input[radio name=dock-skin]
    原生 radio（键盘可达 + 选中态驱动）+ tile 真实皮肤 mini 预览 + 名称另起一行；
    选中描边 + ✓ 徽标 + 焦点环。tile 类 dock-skin-option__tile--* 刻意避开 .touchpad--skin-

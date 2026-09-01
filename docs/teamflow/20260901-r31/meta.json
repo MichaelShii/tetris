@@ -1,0 +1,7 @@
+{
+  "reqId": "req-31",
+  "runId": "tf-mtiesh69-24jg6w",
+  "title": "自定义按键，目前键位写死，无法改，显式的用patch模式去改",
+  "mode": "patch",
+  "createdAt": 1788251532618
+}

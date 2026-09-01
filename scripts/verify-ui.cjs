@@ -221,25 +221,25 @@ test('r13: pulseBrightness 渐亮段帧增量单调递减（ease-out-quart 可�
  * 本段验证其与 game.js keyAction 语义一致，且 Node 加载零 DOM 副作用。
  * ==================================================================== */
 
-test('r16: TOUCH_KEYS 导出与六键结构契约（触屏键映射回放表）', () => {
+test('r16: TOUCH_KEYS 导出与六键结构契约（触屏键动作级回放表，r31 修订语义）', () => {
   assert.equal(typeof T.isTouchDevice, 'function', 'isTouchDevice 导出存在')
   assert.equal(typeof T.createTouchControls, 'function', 'createTouchControls 导出存在')
   assert.ok(Array.isArray(T.TOUCH_KEYS), 'TOUCH_KEYS 为数组')
   assert.equal(T.TOUCH_KEYS.length, 6, 'TOUCH_KEYS 六键（PRD §2 US-2）')
   // 每条目结构：action/key/holdable 三字段，类型齐备
-  // （TECHNICAL §2.1 表含 label 展示字段，实现按需精简为三字段——中文键名由 index.html DOM
-  //   承载，回放表本身仅需合成所需；契约以实现为准，label 不作导出面断言）
+  // （r31 语义修订：触控键=动作级分发（game.input），.key 保留为该动作的【默认绑定键】
+  //   供 verify-ui 断言「默认键表下触屏与键盘逐键等效」护栏）
   for (const entry of T.TOUCH_KEYS) {
     assert.equal(typeof entry, 'object')
     assert.equal(typeof entry.action, 'string', 'action 为字符串（语义动作）')
-    assert.equal(typeof entry.key, 'string', 'key 为合成键盘事件 key 码')
+    assert.equal(typeof entry.key, 'string', 'key 为该动作默认绑定键码')
     assert.equal(typeof entry.holdable, 'boolean', 'holdable 为布尔（是否 DAS/软降按住类）')
   }
-  // 六个合成 key 码全集与顺序（TECHNICAL §2.1 表）
+  // 六个默认绑定键码全集与顺序（TECHNICAL §2.1 表）
   assert.deepEqual(
     T.TOUCH_KEYS.map((entry) => entry.key),
     ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'c'],
-    'TOUCH_KEYS 六 key 码固定：ArrowLeft/Right/Up/Down + 空格 + c'
+    'TOUCH_KEYS 六默认绑定键码固定：ArrowLeft/Right/Up/Down + 空格 + c'
   )
   // 六个 action 互异且恰为六键语义动作
   const actions = T.TOUCH_KEYS.map((entry) => entry.action)
@@ -255,32 +255,58 @@ test('r16: TOUCH_KEYS 导出与六键结构契约（触屏键映射回放表）'
   assert.equal(typeof globalThis.document, 'undefined', 'require 后 document 未定义')
 })
 
-test('r16: TOUCH_KEYS ↔ game.js keyAction 交叉校验（防触屏映射漂移护栏）', () => {
-  // 引擎「按住类」动作：game.js onKeyDown 落 held Map 注册 DAS/软降 repeat 的仅
-  // moveLeft/moveRight/softDrop（ArrowLeft/ArrowRight/ArrowDown）——触屏 holdable=true 必须与之重合
+test('r16+r31: TOUCH_KEYS ↔ game.js 默认绑定表交叉校验（触屏/键盘默认逐键等效护栏）', () => {
+  // 引擎「按住类」动作：moveLeft/moveRight/softDrop（DAS/软降 repeat）——触屏 holdable=true 必须与之重合
   const HELD_ACTIONS = new Set(['moveLeft', 'moveRight', 'softDrop'])
+  const def = G.DEFAULT_KEYBINDINGS
   for (const entry of T.TOUCH_KEYS) {
+    // r31：默认绑定表下触屏.key 恰为该动作的默认绑定键 → game.keyAction 逐键一致
+    assert.equal(def[entry.action], entry.key.toLowerCase(),
+      `TOUCH_KEYS.${entry.action} 默认绑定键.key ↔ game.DEFAULT_KEYBINDINGS.${entry.action} 一致`)
     const action = G.keyAction('RUNNING', entry.key)
-    if (entry.action === 'hold') {
-      // 'c' 在 game.js 全 phase 均无映射（null）→ Hold 特例，由 ui.js 既有 onHoldKey 消费
-      assert.equal(action, null, `hold 键 key='${entry.key}' 在 RUNNING 无 engine 映射（Hold 特例）`)
-      for (const phase of G.PHASES) {
-        assert.equal(G.keyAction(phase, entry.key), null, `hold 键 key='${entry.key}' 在 ${phase} 亦无映射`)
-      }
-      continue
-    }
     assert.equal(action, entry.action, `TOUCH_KEYS.${entry.action} key='${entry.key}' → keyAction('RUNNING') 一致`)
     if (entry.holdable) {
-      // holdable=true（移动/软降）：必为引擎 held 注册的按住类动作（同一 DAS/软降 repeat 时钟，PRD §8 红线）
       assert.ok(HELD_ACTIONS.has(entry.action), `${entry.action} 应属按住类动作（DAS/软降 repeat）`)
     } else {
-      // holdable=false（旋转/硬降）：引擎只做单发，不得落 held Map
       assert.ok(!HELD_ACTIONS.has(entry.action), `${entry.action} 不得属按住类动作（单发语义）`)
     }
   }
-  // 反向护栏：引擎三枚 held 注册键（ArrowLeft/ArrowRight/ArrowDown）恰为 TOUCH_KEYS 的 holdable=true 子集
+  // hold 现为可绑定游戏动作（r31：keyAction L2 有映射），不再是 ui.js onHoldKey 特例特判
+  assert.equal(G.keyAction('RUNNING', 'c'), 'hold', 'r31 hold 并入 engine keyAction 绑定表（默认 c）')
+  // 反向护栏：引擎按住类动作全集 = TOUCH_KEYS 的 holdable=true 六动作子集
   const heldKeys = T.TOUCH_KEYS.filter((entry) => entry.holdable).map((entry) => entry.key)
-  assert.deepEqual(heldKeys, ['ArrowLeft', 'ArrowRight', 'ArrowDown'], 'holdable=true 恰为引擎 held 三键')
+  assert.deepEqual(heldKeys, ['ArrowLeft', 'ArrowRight', 'ArrowDown'], 'holdable=true 恰为引擎 held 三键（默认）')
+})
+
+test('r31: game.DEFAULT_KEYBINDINGS ↔ persist.DEFAULT_KEYBINDINGS 双声明一致（防键表漂移）', () => {
+  const P = require('../persist.js')
+  const actions9 = T.KEYBIND_ACTIONS
+  assert.deepEqual(actions9, P.KEY_ACTIONS, 'ui.KEYBIND_ACTIONS = persist.KEY_ACTIONS 9 动作序一致')
+  assert.deepEqual(actions9, G.GAME_BIND_ACTIONS.concat(['mute']), 'ui 9 动作 = game 8 游戏动作 + mute')
+  // 默认键表双声明深等（moveLeft…mute 9 动作）
+  for (const a of P.KEY_ACTIONS) {
+    assert.equal(G.DEFAULT_KEYBINDINGS[a], P.DEFAULT_KEYBINDINGS[a], `默认键 ${a} game↔persist 一致`)
+    assert.equal(T.keyDisplayLabel(P.DEFAULT_KEYBINDINGS[a]).length > 0, true, `${a} 默认键有可见显示`)
+  }
+  assert.equal(G.DEFAULT_KEYBINDINGS.mute, 'm', 'mute 默认 m（ui.js 消费）')
+})
+
+test('r31: KEYBIND_LABELS / keyDisplayLabel / mergeKeyBindings 纯函数契约', () => {
+  assert.equal(T.KEYBIND_ACTIONS.length, 9, '9 可改动作')
+  assert.equal(T.KEYBIND_LABELS.moveLeft, '左移')
+  assert.equal(T.keyDisplayLabel('arrowleft'), '←')
+  assert.equal(T.keyDisplayLabel(' '), '空格')
+  assert.equal(T.keyDisplayLabel('m'), 'M', '单字符大写显示')
+  assert.equal(T.keyDisplayLabel('a'), 'A')
+  assert.equal(T.keyDisplayLabel(''), '')
+  // mergeKeyBindings：合法改键生效 + 非法忽略 + 缺失补默认
+  const merged = T.mergeKeyBindings({ moveLeft: 'a', hardDrop: 'Escape' })
+  assert.equal(merged.moveLeft, 'a', '合法改键生效')
+  assert.equal(merged.hardDrop, G.DEFAULT_KEYBINDINGS.hardDrop, '非法键（Escape）忽略回默认')
+  assert.equal(merged.mute, G.DEFAULT_KEYBINDINGS.mute, '缺失字段补默认')
+  // normalizeKbKey / isKbLegalKey 与 persist 同构
+  assert.equal(T.normalizeKbKey('A'), 'a')
+  assert.ok(T.isKbLegalKey('a') && !T.isKbLegalKey('Escape') && !T.isKbLegalKey('F1'))
 })
 
 test('r16: createTouchControls 工厂契约（缺 #touch-controls 元素抛错）', () => {
@@ -1067,4 +1093,44 @@ test('r30: 既有 grid 模板原文保持（§7.3/§7.4/§7.5 文面不动，AC-
   assert.ok(cssR24.indexOf('minmax(180px, 1fr) 340px minmax(180px, 1fr)') !== -1,
     '§7.4 M768-1023 grid 模板原文保持')
   assert.ok(cssR24.indexOf('240px 340px 240px') !== -1, '§7.5 L 基座 grid 模板原文保持')
+})
+
+/* ======================================================================
+ * r31 自定义按键（keyAction 三级契约 + index.html/style.css 源扫描 + 门控）
+ * ==================================================================== */
+
+test('r31: index.html 按键设置组静态 DOM（9 行 keycap + 恢复默认 + aria 契约）', () => {
+  for (const a of ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotate', 'hold', 'togglePause', 'restart', 'mute']) {
+    assert.ok(htmlR24.indexOf('id="kb-' + a + '"') !== -1, 'index.html 缺 #kb-' + a)
+    assert.ok(htmlR24.indexOf('id="kb-msg-' + a + '"') !== -1, 'index.html 缺 #kb-msg-' + a)
+  }
+  assert.ok(htmlR24.indexOf('settings-group--keys') !== -1, '按键设置组类存在')
+  assert.ok(htmlR24.indexOf('id="kb-reset"') !== -1, '恢复默认按键按钮存在')
+  assert.ok(htmlR24.indexOf('role="group"') !== -1 && htmlR24.indexOf('aria-label="按键设置"') !== -1,
+    '组容器 role=group + aria-label=按键设置')
+  // 组尾于外观组之后（IA：音频→辅助→外观→按键）
+  const appearance = htmlR24.indexOf('settings-group--appearance')
+  const keys = htmlR24.indexOf('settings-group--keys')
+  assert.ok(appearance !== -1 && keys > appearance, '按键设置组位于外观组之后')
+  // keycap 为真实 BUTTON（键盘可达）
+  assert.match(htmlR24, /<button[^>]*id="kb-moveLeft"[^>]*class="keycap"/, 'keycap 为真实 BUTTON.keycap')
+  // 键位图例收敛（DER-1）：X / Shift / Esc 快捷键从右操作面板移除
+  const hints = htmlR24.substring(htmlR24.indexOf('key-hints'), htmlR24.indexOf('controls" id') > 0 ? htmlR24.indexOf('controls"') : htmlR24.length)
+  assert.equal(/\<kbd\>X\<\/kbd\>/.test(hints), false, '键位图例已移除 X 次键')
+  assert.equal(/\<kbd\>Shift/.test(hints), false, '键位图例已移除 Shift')
+  assert.equal(/\<kbd\>Esc\<\/kbd\>/.test(hints), false, '键位图例已移除 Esc 暂停键')
+})
+
+test('r31: style.css 按键设置组（keycap/状态类 + has-touch 门控 + 动效时长）', () => {
+  assert.match(cssR24, /html\.has-touch \.settings-group--keys\s*\{[^}]*display:\s*none/,
+    'has-touch 隐藏按键设置组（触屏设备无键盘绑定操作对象）')
+  assert.match(cssR24, /\.keycap\s*\{[^}]*font-family:\s*var\(--font-mono\)/, 'keycap 等宽字体')
+  assert.match(cssR24, /\.keybind-row\s*\{[^}]*justify-content:\s*space-between/, 'keybind-row 两端对齐')
+  assert.match(cssR24, /\.keycap\.is-recording\s*\{[^}]*--glow-primary/, '录制态 primary glow')
+  assert.match(cssR24, /\.keycap\.is-conflict\s*\{/, '冲突态存在')
+  assert.match(cssR24, /\.keycap\.has-error\s*\{/, '非法态存在')
+  assert.match(cssR24, /\.keycap\.is-saved\s*\{[^}]*--success/, '成功态 success 描边')
+  assert.match(cssR24, /\.keybind-row__msg\s*\{/, '行内提示元素样式存在')
+  // 动效 ≤160ms（DESIGN §3.3）+ reduced-motion 全局裁剪覆盖（既有 §6 已含 transition-duration）
+  assert.match(cssR24, /\.keycap\s*\{[^}]*transition:[\s\S]*120ms/, 'keycap 动效 120ms ≤160ms')
 })

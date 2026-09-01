@@ -266,14 +266,16 @@ async function main() {
     s = snap()
     check('AC-02.1 ← 左移 1 格', s.piece.x === x0)
 
-    // 旋转：↑ / X / x
+    // 旋转：↑（默认主键）；r31 DER-1：X/x 次键收敛失效（不再旋转）
     const r0 = s.piece.rot
     key('ArrowUp')
     check('AC-02.3 ↑ 顺时针旋转', snap().piece.rot === (r0 + 1) % 4)
     key('X')
-    check('AC-02.3 X 旋转', snap().piece.rot === (r0 + 2) % 4)
+    check('r31 DER-1 X 次键失效（不再旋转）', snap().piece.rot === (r0 + 1) % 4)
     key('x')
-    check('AC-02.3 x 旋转', snap().piece.rot === (r0 + 3) % 4)
+    check('r31 DER-1 x 次键失效（不再旋转）', snap().piece.rot === (r0 + 1) % 4)
+    key('ArrowUp')
+    check('r31 DER-1 ↑ 仍可旋转（共 2 次）', snap().piece.rot === (r0 + 2) % 4)
 
     // 软降
     const y0 = snap().piece.y
@@ -447,11 +449,13 @@ async function main() {
     await sleep(180)
     check('恢复后遮罩隐藏', $('#overlay').hidden === true)
 
-    // AC-04.3 Esc 语义回归（v2.1 语义不变）：p → PAUSED → Esc → RUNNING
+    // r31 DER-1：Esc 不再暂停/恢复（转系统键）；恢复用 togglePause 绑定（p）或 PAUSED 空格
     key('p')
-    check('p 再入 PAUSED（Esc 回归前置）', snap().phase === 'PAUSED')
+    check('p 再入 PAUSED（恢复前置）', snap().phase === 'PAUSED')
     key('Escape')
-    check('AC-04.3 Esc 恢复 RUNNING（回归）', snap().phase === 'RUNNING')
+    check('r31 DER-1 Esc 不再恢复 RUNNING（保持 PAUSED）', snap().phase === 'PAUSED')
+    key(' ') // PAUSED 空格=继续（AC-11.2 阶段型固定键）
+    check('AC-04.3 空格恢复 RUNNING', snap().phase === 'RUNNING')
 
     // 失焦自动暂停（AC-04.4）
     check('失焦前 RUNNING', snap().phase === 'RUNNING')
@@ -866,6 +870,142 @@ async function main() {
     // RUNNING」的焦点竞态恢复路径，同时把基线还给后续 AC-09/10 M 键段（不再停留 PAUSED 上下文）
     key(' ')
     check('req-12 关闭弹层后按空格 → RUNNING（焦点竞态恢复路径）', snap().phase === 'RUNNING')
+  }
+
+  /* ---------- r31 自定义按键（单键制绑定：捕获/冲突/取消/恢复默认/持久化重启） ---------- */
+  console.log('\n-- r31 自定义按键（keybind 组 / 录制状态机 / 改绑即时生效 / 持久化） --')
+  {
+    const keycap = function (a) { return $('#kb-' + a) }
+    const kcMsg = function (a) { return $('#kb-msg-' + a) }
+
+    // 组结构契约
+    check('r31 按键设置组存在', $('#settings-modal .settings-group--keys') !== null)
+    check('r31 9 个 keycap 按钮存在', ['moveLeft', 'moveRight', 'softDrop', 'hardDrop', 'rotate', 'hold', 'togglePause', 'restart', 'mute']
+      .every(function (a) { return keycap(a) !== null && keycap(a).classList.contains('keycap') }))
+    check('r31 恢复默认按钮存在', $('#kb-reset') !== null)
+    check('r31 默认键名显示 ↑', keycap('rotate').textContent === '↑')
+    check('r31 keycap aria-label 含动作文案', keycap('moveLeft').getAttribute('aria-label').indexOf('左移') !== -1)
+
+    // 打开弹层（自动暂停游戏）→ 点击 keycap 进入录制态
+    $('#btn-settings').click()
+    await sleep(60)
+    check('r31 弹层打开', $('#settings-modal').hidden === false)
+    keycap('moveLeft').click()
+    check('r31 点击 keycap 进入录制态', keycap('moveLeft').classList.contains('is-recording') &&
+      keycap('moveLeft').textContent === '按下新键…' && keycap('moveLeft').getAttribute('aria-pressed') === 'true')
+
+    // 非法键（Enter 黑名单）→ 拒绝 + 行内提示，留录制态
+    key('Enter')
+    check('r31 非法键（Enter）拒绝 → 留录制态 + 提示', keycap('moveLeft').classList.contains('is-recording') &&
+      !kcMsg('moveLeft').hidden && kcMsg('moveLeft').textContent.indexOf('不可绑定') !== -1)
+
+    // 组合键（ctrl）→ 拒绝
+    const ctrlEv = new window.KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true })
+    doc.dispatchEvent(ctrlEv)
+    check('r31 组合键拒绝 → 留录制态', keycap('moveLeft').classList.contains('is-recording'))
+
+    // 合法无冲突改绑：moveLeft → a，即时生效 + 键名刷新 + 退出录制态
+    key('a')
+    check('r31 改绑 moveLeft=a 生效（game.getKeyBindings）', game.getKeyBindings().moveLeft === 'a')
+    check('r31 键名刷新为 A', keycap('moveLeft').textContent === 'A')
+    check('r31 写入后退出录制态', !keycap('moveLeft').classList.contains('is-recording'))
+
+    // Esc 取消录制（键不变，不关弹层）
+    keycap('mute').click()
+    check('r31 mute 进入录制态', keycap('mute').classList.contains('is-recording'))
+    key('Escape')
+    check('r31 Esc 取消录制 → 键不变 + 弹层保持打开', !keycap('mute').classList.contains('is-recording') &&
+      keycap('mute').textContent === 'M' && $('#settings-modal').hidden === false)
+
+    // 关闭弹层并恢复 RUNNING，再做「改绑即时生效」运行时断言（弹层打开期游戏暂停，不能验移动）
+    $('.settings-modal__close').click()
+    await sleep(200)
+    key(' ') // PAUSED 空格=继续
+    check('r31 keybind 运行时前置 RUNNING', snap().phase === 'RUNNING')
+
+    const bx = game.getSnapshot().piece.x
+    key('a')
+    check('r31 改绑后按 a 左移 1 格', game.getSnapshot().piece.x === bx - 1, 'x ' + bx + '→' + game.getSnapshot().piece.x)
+    key('ArrowLeft')
+    check('r31 原 ← 键失效（不再左移）', game.getSnapshot().piece.x === bx - 1)
+
+    // 冲突检测：重开弹层把 moveRight 绑到已被 moveLeft 占用的 a → 两行标红 + 提示，留录制态
+    $('#btn-settings').click()
+    await sleep(60)
+    keycap('moveRight').click()
+    key('a')
+    check('r31 冲突：moveRight 绑 a（被 moveLeft 占用）→ 拒绝 + 两行标红 + 提示',
+      keycap('moveRight').classList.contains('is-conflict') &&
+      keycap('moveLeft').classList.contains('is-conflict') &&
+      !kcMsg('moveRight').hidden && kcMsg('moveRight').textContent.indexOf('冲突') !== -1)
+    check('r31 冲突未写入（moveRight 仍默认 →/arrowright）', game.getKeyBindings().moveRight === 'arrowright',
+      'moveRight=' + JSON.stringify(game.getKeyBindings().moveRight))
+
+    // 恢复默认按键：9 动作回默认
+    $('#kb-reset').click()
+    check('r31 恢复默认后 moveLeft 回 ←（arrowleft）', game.getKeyBindings().moveLeft === 'arrowleft' &&
+      keycap('moveLeft').textContent === '←')
+    check('r31 恢复默认后 hold 回 c', game.getKeyBindings().hold === 'c')
+
+    // 关闭弹层，基线回去
+    $('.settings-modal__close').click()
+    await sleep(200)
+    if (snap().phase === 'PAUSED') key(' ')
+    check('r31 keybind 段结束基线 RUNNING', snap().phase === 'RUNNING')
+  }
+
+  /* ---------- r31 触屏与键盘解耦（改绑不影响触控键；动作级分发） ---------- */
+  console.log('\n-- r31 触屏动作级分发（改绑主键不影响触控键） --')
+  {
+    const TKEYS = window.TetrisUI.TOUCH_KEYS
+    const tp = {
+      btn: function (action) { return doc.querySelector('.tkey[data-action="' + action + '"]') },
+      ev: function (type) { return new window.Event(type, { bubbles: true, cancelable: true }) },
+      down: function (action) { tp.btn(action).dispatchEvent(tp.ev('touchstart')) },
+      up: function (action) { tp.btn(action).dispatchEvent(tp.ev('touchend')) },
+      tap: function (action) { tp.down(action); tp.up(action) },
+    }
+    const mkUI2 = function (extra) {
+      return window.TetrisUI.createUI(Object.assign({
+        autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0,
+      }, extra || {}))
+    }
+    // 触屏实例：改绑 moveLeft 主键为 a 后，触屏左移键仍走动作级分发（不依赖键盘绑定键）
+    const kbUI = mkUI2({ touch: true })
+    const kbg = kbUI.game
+    kbg.setKeyBindings({ moveLeft: 'a' }) // 键盘 moveLeft 绑定改为 a
+    kbg.start()
+    const s0 = kbg.getSnapshot()
+    // 键盘 a 左移（改绑生效）
+    key('a')
+    check('r31 触屏实例键盘改绑生效（a 左移）', kbg.getSnapshot().piece.x === s0.piece.x - 1,
+      'x ' + s0.piece.x + '→' + kbg.getSnapshot().piece.x)
+    // 触屏左移键仍工作（动作级，不随键盘绑定键）
+    const s1 = kbg.getSnapshot()
+    tp.tap('moveLeft')
+    check('r31 触屏 moveLeft 键动作级分发（改绑后仍左移）', kbg.getSnapshot().piece.x === s1.piece.x - 1,
+      'x ' + s1.piece.x + '→' + kbg.getSnapshot().piece.x)
+    kbUI.dispose()
+
+    // 触屏 hold 键（动作级 'hold'）在改绑 hold 后仍工作
+    const kbUI2 = mkUI2({ touch: true })
+    const kbg2 = kbUI2.game
+    kbg2.setKeyBindings({ hold: 'h' }) // 键盘 hold 改 h
+    kbg2.start()
+    tp.tap('hold') // 触屏 hold 键（动作级）
+    check('r31 触屏 hold 键动作级分发（改绑 hold 后仍存入）', kbg2.getSnapshot().holdPiece !== null,
+      'holdPiece=' + (kbg2.getSnapshot().holdPiece && kbg2.getSnapshot().holdPiece.type))
+    kbUI2.dispose()
+
+    // 触屏短按单步恰好 1 格（tarap 语义保留）：rotation 单发一次
+    const kbUI3 = mkUI2({ touch: true })
+    const kbg3 = kbUI3.game
+    kbg3.start()
+    const r0 = kbg3.getSnapshot().piece.rot
+    tp.tap('rotate')
+    check('r31 触屏 rotate 单发 1 次（动作级 tap）', kbg3.getSnapshot().piece.rot === (r0 + 1) % 4,
+      'rot ' + r0 + '→' + kbg3.getSnapshot().piece.rot)
+    kbUI3.dispose()
   }
 
   /* ---------- AC-09/AC-10 音效与音量控制（v2.0：真实 audio.js + 假 AudioContext） ---------- */
