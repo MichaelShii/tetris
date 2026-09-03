@@ -623,6 +623,12 @@
       // 但独立变量，D7 不做通用链抽象）：资格锁置 true（含断链后重新置链）、非资格消行/0 行/No-line/Mini
       // 置 false；hold/旋转/软硬降/重力不迁移；restart 归 false（OVER 为终态，出口即 restart，D6）
       let b2bChain = false
+      // r32（AC-2/AC-4，additive）：会话统计闭包（与 comboChain/b2bChain 同风格：闭包会话内存，不入 state 对象）：
+      // piecesPlaced = 成功落定计数（单一计数源，唯一收口在 lockFlow +1；Hold/移动/旋转/悬浮 0 不计）；
+      // sessionTimeMs = 会话有效时长 ms（唯一累计在 tick 的 RUNNING 分支——暂停时钟停转天然不计，OVER 定格）；
+      // start/restart 归零重计；0 行为变化（纯计数/累加赋值，不读取既有状态、不改返回值/emit/sfx）
+      let piecesPlaced = 0
+      let sessionTimeMs = 0
       // 消行动画时长（r13，AC-1/AC-9）：默认 240ms（容差 160~320）；0 = 即时消除（与 reduced-motion 等价，AC-7）；
       // 强制布尔/负值兜底为默认值（对齐 wallKickEnabled 的 opts 解析风格）；构造期只读，无运行期 setter
       const animMs = typeof opts.animMs === 'number' && opts.animMs >= 0 ? opts.animMs : 240
@@ -640,6 +646,10 @@
           score: state.score,
           level: state.level,
           lines: state.lines,
+          // r32（AC-13，additive）：会话统计——成功落定计数（恒非负整数、单一计数源）与会话有效时长 ms
+          // （暂停不计、OVER 定格；恒 number）；生命周期与 score/level/lines 一致（非 clearing 期附加字段）
+          piecesPlaced: piecesPlaced,
+          sessionTimeMs: sessionTimeMs,
           // r13（AC-10，additive）：动画期附加快照字段；非动画期恒 null（不影响既有消费方对比）
           clearedIndices: state.clearing ? state.clearing.indices.slice() : null,
           animProgress: state.clearing ? Math.min(1, state.clearing.elapsed / animMs) : null,
@@ -685,6 +695,9 @@
       function lockFlow() {
         const merged = merge(state.board, state.piece)
         const res = clearLines(merged) // 预计算，动画路径完结帧复用（AC-2 逐格等价来源）
+        // r32（AC-2）：唯一落定收口——软降触底/硬降/自然 lockTimer/T-spin/No-line 全部经此，每方块恰 +1；
+        // 随后无论进 clearing 子阶段还是 finishLock 均不二次计数（单一计数源，与对局事件一一对应）
+        piecesPlaced += 1
         // r18（AC-1/9）：锁定瞬间快照判定（合并后棋盘 = 含踢墙位移后的最终落位）；
         // 窗口与 type 双门后消费复位（一块一判，与 state.piece = null 同栈）
         const kind = tspinPending && state.piece.type === 'T' ? tspinKind(merged, state.piece) : 'none'
@@ -792,6 +805,9 @@
         if (disposed) return { ok: false, reason: 'illegal-phase' }
         if (state.phase !== 'READY') return { ok: false, reason: 'illegal-phase' }
         state.phase = transition(state.phase, 'start')
+        // r32（AC-4/5）：READY→start 新局归零（防御性——READY 期本就为 0，保证新对局从绝对零起）
+        piecesPlaced = 0
+        sessionTimeMs = 0
         spawnFirst()
         emit()
         if (keyboardRef) keyboardRef.reset()
@@ -816,6 +832,9 @@
         tspinPending = false // r18：restart 新周期清窗
         comboChain = 0 // r20：restart 新周期清链（链态=会话内存，start/READY 初始即 0）
         b2bChain = false // r23：restart 新周期清链（同会话内存口径；OVER 为终态不可观察，出口即 restart，D6）
+        // r32（AC-4/5）：restart 任意态归零重计（与其它会话重置同批；OVER 出口必经本函数）
+        piecesPlaced = 0
+        sessionTimeMs = 0
         state.phase = transition(state.phase, 'restart') // 任意态 → RUNNING
         spawnFirst()
         emit()
@@ -986,6 +1005,9 @@
       function tick(dtMs) {
         if (disposed || state.phase !== 'RUNNING') return
         const dt = dtMs < 0 ? 0 : dtMs > DT_CLAMP_MS ? DT_CLAMP_MS : dtMs
+        // r32（AC-4）：唯一 RUNNING 时钟累计——本函数首行守卫已保证仅 RUNNING 进入（PAUSED/OVER 天然停表）；
+        // clearing 动画期放此处（clearing 分支之前）也计（对局进行中非暂停）；纯累加不改 changed/emit 语义（0 行为变化）
+        sessionTimeMs += dt
         // r13（AC-5）：动画期 piece===null，原「!state.piece」早退必须让位——clearing 守卫先行：
         // dt 只进动画进度（gravityAcc/lockTimer 冻结），完结帧整体执行原子步
         if (state.clearing) {

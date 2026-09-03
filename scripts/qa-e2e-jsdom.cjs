@@ -2953,6 +2953,179 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     check('r29: 段内实例 dispose 无异常（has-touch 归属回收）', !doc.documentElement.classList.contains('has-touch'))
   }
 
+  /* ---------- r32 会话统计面板（§4.3 纯追加：数值等价 + 防刷屏 + 归零/定格 + 源码级） ----------
+   数据源断言锚点：piecesPlaced（成功落定计数）/ sessionTimeMs（有效时长）单一计数源在引擎，
+   UI 只读渲染；announce 由 phase 跳变驱动（AC-14 防刷屏），写入计数组件自持可断言。
+   jsdom 无布局几何 → 面板样式断言留在 verify-ui 源码层；本段证明装配/数值/防刷屏契约。-------- */
+  console.log('\n-- r32 会话统计面板（真实装配数值等价 / announce 防刷屏计数 / 归零定格 / 源码级隔离） --')
+  {
+    /* ① file:// 自动装配页：独立面板就位、初始三值、.stat-grid 内 .stat 仍恰 4（r17 断言原样保留） */
+    {
+      const errs32 = []
+      const vc32 = new VirtualConsole()
+      vc32.on('jsdomError', function (e) { errs32.push(String(e && e.message || e)) })
+      const domf32 = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {
+        url: 'file://' + path.join(root, 'index.html').replace(/\\/g, '/'),
+        runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc32,
+      })
+      const wf32 = domf32.window
+      wf32.HTMLCanvasElement.prototype.getContext = function (t) {
+        if (t !== '2d') return null
+        const noop = function () {}
+        return { setTransform: noop, clearRect: noop, fillRect: noop, beginPath: noop, moveTo: noop, lineTo: noop, stroke: noop, closePath: noop, arcTo: noop, fill: noop, drawImage: noop, save: noop, restore: noop, set globalAlpha(v) {}, set lineWidth(v) {}, set fillStyle(v) {}, set strokeStyle(v) {} }
+      }
+      await new Promise(function (r) {
+        if (wf32.document.readyState === 'complete') r()
+        else wf32.addEventListener('load', r)
+      })
+      await sleep(120)
+      check('r32 file://: 自动装配页含 #session-stats 独立面板（非脚本注入）', !!wf32.document.querySelector('#session-stats'),
+        wf32.document.querySelector('#session-stats') ? 'panel ok' : 'missing')
+      check('r32 file://: 初始三值 0 / 0 / 00:00',
+        wf32.document.getElementById('ss-placed-value').textContent === '0' &&
+        wf32.document.getElementById('ss-lines-value').textContent === '0' &&
+        wf32.document.getElementById('ss-time-value').textContent === '00:00')
+      const gridF32 = wf32.document.querySelector('.stat-grid')
+      check('r32 file://: .stat-grid 内 .stat 仍恰 4（r17 基线原样保留，未塞新块）',
+        gridF32 !== null && gridF32.querySelectorAll('.stat').length === 4,
+        gridF32 ? String(gridF32.querySelectorAll('.stat').length) : 'no grid')
+    }
+
+    /* ② 独立真实装配实例（animMs:0 + rng 固定 → 确定性）：数值等价 / 防刷屏 / 归零 / 定格 */
+    {
+      const env32 = await buildEnv()
+      const w32 = env32.window
+      const d32 = env32.doc
+      const $32 = env32.$
+      const g32 = env32.game
+      const handle32 = env32.handle
+
+      check('r32 初始: 三值 0/0/00:00，announce 为空', $32('#ss-placed-value').textContent === '0' &&
+        $32('#ss-lines-value').textContent === '0' && $32('#ss-time-value').textContent === '00:00' &&
+        $32('#session-announce').textContent === '')
+      g32.start()
+      check('r32 start: →RUNNING 播报「计时开始」', $32('#session-announce').textContent === '计时开始')
+      check('r32 start: 未落定仍 0/0/00:00', $32('#ss-placed-value').textContent === '0' &&
+        $32('#ss-time-value').textContent === '00:00')
+
+      // 落定数值等价：engine hardDrop ×3 → 面板 placed 同文
+      for (let i = 0; i < 3; i++) g32.hardDrop()
+      check('r32 落定等价: 硬降 ×3 → #ss-placed-value === "3"（引擎计数唯一源镜像）',
+        $32('#ss-placed-value').textContent === '3', $32('#ss-placed-value').textContent)
+      check('r32 消行同源: 未消行 #ss-lines-value === #lines === "0"',
+        $32('#ss-lines-value').textContent === $32('#lines').textContent && $32('#ss-lines-value').textContent === '0')
+
+      // 构造 1 行清行：row19 缺 col5 + 竖 I（x3）补缺 → 消 1 行，面板播行数与 #lines 同文
+      const bd32 = []
+      for (let r = 0; r < 20; r++) { const row = []; for (let c = 0; c < 10; c++) row.push(null); bd32.push(row) }
+      for (let c = 0; c < 10; c++) if (c !== 5) bd32[19][c] = 'I'
+      g32._debug.setBoard(bd32)
+      g32._debug.setNext('T')
+      g32._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
+      g32.hardDrop()
+      check('r32 消行同源: 消 1 行后 #ss-lines-value === #lines === "1"（镜像同一快照字段）',
+        $32('#ss-lines-value').textContent === '1' && $32('#ss-lines-value').textContent === $32('#lines').textContent,
+        $32('#ss-lines-value').textContent + '/' + $32('#lines').textContent)
+      check('r32 落定等价: 4 次落定 → placed "4"', $32('#ss-placed-value').textContent === '4')
+
+      // 防刷屏（装配路径）：连续 10 秒刻 tick（无状态跳变）→ announce 文本零变更；时长照常走表
+      const placedBefore32 = $32('#ss-placed-value').textContent
+      for (let i = 0; i < 40; i++) g32.tick(250)
+      check('r32 防刷屏: 10s tick 无跳变 → announce 仍「计时开始」（零变更）',
+        $32('#session-announce').textContent === '计时开始', $32('#session-announce').textContent)
+      check('r32 时长走表: 10s → #ss-time-value "00:10"', $32('#ss-time-value').textContent === '00:10',
+        $32('#ss-time-value').textContent)
+      check('r32 防刷屏: 期间无落定 → placed 未变（值变化不与播报耦合）',
+        $32('#ss-placed-value').textContent === placedBefore32)
+
+      // 归零 + 时长停表/定格（确定性 tick 驱动，无墙体时钟）
+      g32.restart()
+      check('r32 归零 DOM: restart 后三值回 0/0/00:00',
+        $32('#ss-placed-value').textContent === '0' && $32('#ss-lines-value').textContent === '0' &&
+        $32('#ss-time-value').textContent === '00:00')
+      g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250)
+      check('r32 时长 UI: tick(250)×4 → "00:01"', $32('#ss-time-value').textContent === '00:01',
+        $32('#ss-time-value').textContent)
+      g32.togglePause()
+      check('r32 播报: →PAUSED 恰一次含当前时长', $32('#session-announce').textContent === '已暂停，对局时长 00:01',
+        $32('#session-announce').textContent)
+      g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250)
+      check('r32 停表: 暂停 2s tick → 时长无增长（停表构造）', $32('#ss-time-value').textContent === '00:01')
+      g32.togglePause()
+      check('r32 播报: →RUNNING 恢复', $32('#session-announce').textContent === '计时开始')
+      g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250)
+      check('r32 续计: 恢复 1s → "00:02"', $32('#ss-time-value').textContent === '00:02',
+        $32('#ss-time-value').textContent)
+      g32.lose()
+      check('r32 播报: →OVER 含最终时长', $32('#session-announce').textContent === '游戏结束，最终时长 00:02',
+        $32('#session-announce').textContent)
+      g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250)
+      check('r32 定格: OVER 后 tick → 时长冻结 "00:02"', $32('#ss-time-value').textContent === '00:02')
+      handle32.dispose()
+    }
+
+    /* ③ 独立 createSessionStats 组件：announce 写入计数（AC-14 防刷屏的计数证明） */
+    {
+      const env33 = await buildEnv()
+      const w33 = env33.window
+      const mkEl = function (init) {
+        const el = w33.document.createElement('output')
+        el.textContent = init
+        return el
+      }
+      const placed33 = mkEl('0')
+      const lines33 = mkEl('0')
+      const time33 = mkEl('00:00')
+      const announce33 = mkEl('')
+      const ss33 = w33.TetrisUI.createSessionStats({
+        placed: placed33, lines: lines33, time: time33, announce: announce33,
+      })
+      ss33.update({ phase: 'READY', piecesPlaced: 0, sessionTimeMs: 0, lines: 0 })
+      check('r32 写入计数: READY 不播报、0 次', ss33.getAnnounceWrites() === 0 && announce33.textContent === '')
+      ss33.update({ phase: 'RUNNING', piecesPlaced: 0, sessionTimeMs: 0, lines: 0 })
+      check('r32 写入计数: →RUNNING 恰 1 次「计时开始」',
+        ss33.getAnnounceWrites() === 1 && announce33.textContent === '计时开始')
+      // 连续 10 秒刻值变化（无状态跳变）→ 播报零增量、文本零变更
+      const writesBefore33 = ss33.getAnnounceWrites()
+      for (let i = 1; i <= 40; i++) ss33.update({ phase: 'RUNNING', piecesPlaced: i, sessionTimeMs: i * 250, lines: 0 })
+      check('r32 防刷屏计数: 10s 值变化无跳变 → 写入 0 增量', ss33.getAnnounceWrites() === writesBefore33,
+        String(ss33.getAnnounceWrites()) + ' writes')
+      check('r32 防刷屏计数: announce 文本零变更', announce33.textContent === '计时开始')
+      check('r32 值渲染: placed/text 只读镜像（40 / 00:10）', placed33.textContent === '40' && time33.textContent === '00:10')
+      // phase 跳变 → 每次恰 +1（状态机驱动，非值变化驱动）
+      ss33.update({ phase: 'PAUSED', piecesPlaced: 40, sessionTimeMs: 10000, lines: 0 })
+      check('r32 跳变: →PAUSED 恰 +1 含时长', ss33.getAnnounceWrites() === writesBefore33 + 1 &&
+        announce33.textContent === '已暂停，对局时长 00:10')
+      ss33.update({ phase: 'RUNNING', piecesPlaced: 40, sessionTimeMs: 10000, lines: 0 })
+      check('r32 跳变: →RUNNING 恰 +1', ss33.getAnnounceWrites() === writesBefore33 + 2 &&
+        announce33.textContent === '计时开始')
+      ss33.update({ phase: 'OVER', piecesPlaced: 41, sessionTimeMs: 12000, lines: 0 })
+      check('r32 跳变: →OVER 恰 +1 含最终时长', ss33.getAnnounceWrites() === writesBefore33 + 3 &&
+        announce33.textContent === '游戏结束，最终时长 00:12')
+      ss33.dispose()
+      env33.handle.dispose()
+    }
+
+    /* ④ 源码级隔离（cssText/htmlText 静态证据，r17 段先例）：面板不落行式底栏/双轨、不触 TOUCH_KEYS */
+    {
+      const css32 = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
+      const html32 = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+      const tcOpen32 = html32.indexOf('id="touch-controls"')
+      check('r32 源码级: #touch-controls 起（含其后）片段无 session-（面板不落行式底栏/双轨）',
+        tcOpen32 !== -1 && html32.slice(tcOpen32).indexOf('session-') === -1)
+      check('r32 源码级: css 无 `.touchpad .session-*` 交叉规则（触控区零触及）',
+        !/\.touchpad[^{}]*\.session-/.test(css32))
+      check('r32 源码级: css 无 `.session-* .tkey` 交叉规则（面板不引用触屏键）',
+        !/\.session-[^{}]*\.tkey/.test(css32))
+      const env34 = await buildEnv()
+      const d34 = env34.doc
+      check('r32 源码级: 真实装配页 #touch-controls .tkey 仍恰 6（r16/r27 基线零扰动）',
+        d34.querySelectorAll('#touch-controls .tkey').length === 6,
+        String(d34.querySelectorAll('#touch-controls .tkey').length))
+      env34.handle.dispose()
+    }
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))
