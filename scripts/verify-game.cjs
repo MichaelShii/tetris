@@ -3159,3 +3159,153 @@ test('§16.10 B2B 感知 soak：50 局确定性注入（n 周期 3→4→4→2 �
   }
 })
 
+/* ════════════════════════════════════════════════════════════════════════
+ * r32 会话统计（piecesPlaced / sessionTimeMs；§4.1 纯追加，r24~r31 期望零改动）
+ * 数据面锚点 = createGame 实例快照字段 + tick ≤250ms 分片确定性驱动（无墙体时钟，
+ * AC-4 ≤1s 容差由构造保证 + 真机人工项兜底）。单一计数源红线：placed 只增于 lockFlow 收口；
+ * 时长仅 tick RUNNING 分支累计（暂停/OVER 天然停表）。事件面/既有快照键零改动。
+ * ════════════════════════════════════════════════════════════════════════ */
+
+test('r32 §4.1-1 初始化：READY getSnapshot 与首帧 onSnapshot 的 piecesPlaced/sessionTimeMs 为 0（number）', () => {
+  const { g, events } = freshGame()
+  const s0 = g.getSnapshot()
+  assert.equal(typeof s0.piecesPlaced, 'number', 'piecesPlaced 恒 number')
+  assert.equal(typeof s0.sessionTimeMs, 'number', 'sessionTimeMs 恒 number')
+  assert.equal(s0.piecesPlaced, 0, 'READY 未落定 → 0')
+  assert.equal(s0.sessionTimeMs, 0, 'READY 未计时 → 0')
+  assert.equal(events.snapshots.length >= 1, true, '创建期有初始快照')
+  assert.equal(events.snapshots[0].piecesPlaced, 0, '首帧 onSnapshot piecesPlaced=0')
+  assert.equal(events.snapshots[0].sessionTimeMs, 0, '首帧 onSnapshot sessionTimeMs=0')
+})
+
+test('r32 §4.1-2 落定计数混合（AC-2）：硬降×2 + 软降触底 + 自然锁定 → piecesPlaced === 4', () => {
+  const { g } = freshGame()
+  g.start()
+  assert.equal(g.getSnapshot().piecesPlaced, 0)
+  assert.equal(g.hardDrop().ok, true) // 硬降 ① +1
+  assert.equal(g.hardDrop().ok, true) // 硬降 ② +1
+  assert.equal(g.getSnapshot().piecesPlaced, 2, '硬降 2 次 → placed 2（每次落定恰 +1）')
+  // 软降触底：T 置触底位（y=18）→ softDrop 立即锁定 +1（计数与棋盘解耦，清板防几何干扰）
+  g._debug.setBoard(T.createBoard())
+  g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+  const rS = g.softDrop()
+  assert.equal(rS.locked, true, '软降触底立即锁定')
+  assert.equal(g.getSnapshot().piecesPlaced, 3, '软降触底锁定 → placed 3')
+  // 自然锁定：lockTimer=500ms 由 tick ≤250ms 分片确定性驱动（非 hardDrop/softDrop 路径）
+  g._debug.setBoard(T.createBoard())
+  g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+  g.tick(250)
+  assert.equal(g.getSnapshot().piecesPlaced, 3, '缓冲 250ms 未锁定，计数不变')
+  g.tick(250)
+  assert.equal(g.getSnapshot().piecesPlaced, 4, '缓冲 500ms 自然锁定 → placed 4')
+})
+
+test('r32 §4.1-3 非落定零计数（AC-2）：move/rotate/hold 成功不增 placed；时长仅 tick 后变', () => {
+  const { g } = freshGame()
+  g.start()
+  const b0 = g.getSnapshot()
+  assert.equal(b0.piecesPlaced, 0)
+  assert.equal(b0.sessionTimeMs, 0)
+  assert.equal(g.move(1).ok, true)
+  assert.equal(g.rotate().ok, true)
+  assert.equal(g.hold().ok, true)
+  const b1 = g.getSnapshot()
+  assert.equal(b1.piecesPlaced, 0, 'move/rotate/hold 不落定 → placed 不变')
+  assert.equal(b1.sessionTimeMs, 0, '无 tick → 时长不变')
+  g.tick(250)
+  const b2 = g.getSnapshot()
+  assert.equal(b2.sessionTimeMs, 250, 'tick ≤250 分片 → +250')
+  assert.equal(b2.piecesPlaced, 0, '移动/旋转/暂存后 tick 仍不落定 → placed 不变')
+})
+
+test('r32 §4.1-4 T-spin / No-line 计 1（AC-2）：full cleared=0 锁定 placed 恰 +1，combo/b2b 既有值不变', () => {
+  const { g } = tspinSession(0, T4, []) // No-line T-spin full（rot0 入窗 + rotate + lockTick）
+  const s = g.getSnapshot()
+  assert.equal(s.piecesPlaced, 1, 'No-line T-spin 落定恰 +1')
+  assert.equal(s.combo, null, 'cleared=0 无 clearing → combo 恒 null（既有语义不变）')
+  assert.equal(s.b2bChain, false, 'No-line 非资格锁 → b2bChain false（既有语义不变）')
+})
+
+test('r32 §4.1-5 消行同源（AC-3）：10 次单消 + 2 次四消 → snapshot.lines === 18，placed 与落定一一对应', () => {
+  const a = freshGame()
+  a.g.start()
+  for (let i = 0; i < 10; i++) comboStageLines(a.g, 1)
+  for (let i = 0; i < 2; i++) comboStageLines(a.g, 4)
+  const s = a.g.getSnapshot()
+  assert.equal(s.lines, 18, '消行总数 = 10×1 + 2×4（面板消行即该字段镜像，无第二计数源）')
+  assert.equal(s.piecesPlaced, 12, '12 次落定（含 10 单消 + 2 四消）→ placed 12')
+})
+
+test('r32 §4.1-6 时长语义确定性（AC-4，无墙体时钟）：tick 分片 250ms；暂停停表；恢复续计；OVER 定格', () => {
+  const { g } = freshGame()
+  g.start()
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250)
+  assert.equal(g.getSnapshot().sessionTimeMs, 1000, 'tick(250)×4 → 1000ms（≤DT_CLAMP_MS 分片）')
+  g.togglePause()
+  g.tick(1000) // 暂停期大 dt 也不累计（时钟停转构造保证，非跳过逻辑）
+  assert.equal(g.getSnapshot().sessionTimeMs, 1000, '暂停不计时（停表）')
+  g.togglePause()
+  g.tick(250); g.tick(250)
+  assert.equal(g.getSnapshot().sessionTimeMs, 1500, '恢复后续计 → 1500')
+  g.lose()
+  assert.equal(g.getPhase(), 'OVER')
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250)
+  assert.equal(g.getSnapshot().sessionTimeMs, 1500, 'OVER 定格（tick 首行守卫不进入累加点）')
+})
+
+test('r32 §4.1-7 归零（AC-4/5）：restart 两字段归 0；新实例 READY→start 同样 0', () => {
+  const { g } = freshGame()
+  g.start()
+  g.hardDrop()
+  g.tick(250); g.tick(250)
+  assert.ok(g.getSnapshot().piecesPlaced >= 1 && g.getSnapshot().sessionTimeMs >= 500, '前置：已有计数')
+  g.restart()
+  const s = g.getSnapshot()
+  assert.equal(s.piecesPlaced, 0, 'restart 归零 placed')
+  assert.equal(s.sessionTimeMs, 0, 'restart 归零时长')
+  assert.equal(s.lines, 0, 'restart 归零消行（同批会话重置）')
+  const { g: g2 } = freshGame()
+  assert.equal(g2.getSnapshot().piecesPlaced, 0)
+  assert.equal(g2.getSnapshot().sessionTimeMs, 0)
+  g2.start()
+  assert.equal(g2.getSnapshot().piecesPlaced, 0, '新实例 start 后 placed=0')
+  assert.equal(g2.getSnapshot().sessionTimeMs, 0, '新实例 start 后时长=0')
+})
+
+test('r32 §4.1-8 事件面不变（AC-9/10）：硬降落定不新增 sfx 事件（仍恰 1 次 hardDrop），tick 计时零音效', () => {
+  const { g, events } = freshGame()
+  g.start()
+  events.sfx.length = 0
+  g.hardDrop()
+  assert.deepEqual(events.sfx, ['hardDrop'], '落定计数不新增任何音效事件（硬降仍恰 1 次 hardDrop；空板无 clear/levelUp）')
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250) // 计时累加 1s
+  assert.deepEqual(events.sfx, ['hardDrop'], 'tick 时长累加零音效（既有基准承继）')
+  assert.equal(g.getSnapshot().sessionTimeMs > 0, true, '时长确已累计')
+})
+
+test('r32 §4.1-9 快照既有键不变：除两新字段外，快照键集与 READY 基线值逐一核对（防误改）', () => {
+  const baseline = ['phase', 'board', 'piece', 'next', 'queue', 'score', 'level', 'lines',
+    'clearedIndices', 'animProgress', 'holdPiece', 'tspin', 'combo', 'comboBonus', 'b2bChain', 'b2bBonus']
+  const { g } = freshGame()
+  assert.deepEqual(Object.keys(g.getSnapshot()).sort(),
+    baseline.concat(['piecesPlaced', 'sessionTimeMs']).sort(),
+    '快照键集 = 既有 16 键 + 恰 2 新字段（无缺失、无多余）')
+  const s = g.getSnapshot()
+  assert.equal(s.phase, 'READY')
+  assert.equal(s.score, 0)
+  assert.equal(s.level, 1)
+  assert.equal(s.lines, 0)
+  assert.equal(s.piece, null)
+  assert.ok(T.TYPES.includes(s.next), 'next 合法块型')
+  assert.equal(s.queue.length, 3, '队列恒长 3（r15 契约）')
+  assert.equal(s.board.length, 20)
+  assert.equal(s.clearedIndices, null)
+  assert.equal(s.animProgress, null)
+  assert.equal(s.holdPiece, null)
+  assert.equal(s.tspin, null)
+  assert.equal(s.combo, null)
+  assert.equal(s.comboBonus, null)
+  assert.equal(s.b2bChain, false)
+  assert.equal(s.b2bBonus, null)
+})
+

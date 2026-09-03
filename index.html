@@ -49,6 +49,24 @@
           <output id="lines" class="stat__value stat__value--num" aria-live="polite">0</output>
         </div>
       </div>
+      <!-- r32：本局会话统计独立面板（纯追加，勿塞入 .stat-grid——r17 断言 .stat 恰 4 个；
+           放置/消行/时长三值 + 状态跳变播报 #session-announce，DOM 契约见任务夹 TECHNICAL §3.1） -->
+      <div id="session-stats" class="session-stats" role="group" aria-label="本局统计">
+        <h3 class="session-stats__title">本局统计</h3>
+        <div id="ss-placed" class="session-stat">
+          <span class="session-stat__label">已放置</span>
+          <output id="ss-placed-value" class="session-stat__value" aria-live="polite" aria-label="已放置方块数">0</output>
+        </div>
+        <div id="ss-lines" class="session-stat">
+          <span class="session-stat__label">消行总数</span>
+          <output id="ss-lines-value" class="session-stat__value" aria-live="polite" aria-label="消行总数">0</output>
+        </div>
+        <div id="ss-time" class="session-stat">
+          <span class="session-stat__label">对局时长</span>
+          <output id="ss-time-value" class="session-stat__value" aria-label="对局时长">00:00</output>
+        </div>
+        <p id="session-announce" class="session-stat__announce" role="status" aria-live="polite"></p>
+      </div>
       <div class="hold-well">
         <span class="stat__label">Hold 暂存</span>
         <canvas id="hold-well" width="48" height="24" aria-label="Hold 暂存方块预览"></canvas>

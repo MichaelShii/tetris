@@ -1134,3 +1134,84 @@ test('r31: style.css 按键设置组（keycap/状态类 + has-touch 门控 + 动
   // 动效 ≤160ms（DESIGN §3.3）+ reduced-motion 全局裁剪覆盖（既有 §6 已含 transition-duration）
   assert.match(cssR24, /\.keycap\s*\{[^}]*transition:[\s\S]*120ms/, 'keycap 动效 120ms ≤160ms')
 })
+
+/* ════════════════════════════════════════════════════════════════════════
+ * r32 会话统计面板（§4.2 纯追加：index.html 节点契约 / 位置隔离 / formatSessionTime
+ * 矩阵 / style.css 源扫描；r24~r31 既有断言期望零改动）
+ * ════════════════════════════════════════════════════════════════════════ */
+
+test('r32: index.html #session-stats 节点契约（role=group + 3× session-stat + aria 防刷屏）', () => {
+  // 节点存在性 + role/aria（AC-14：时长 output 无 aria-live 源码级证明）
+  assert.match(htmlR24, /<div id="session-stats"[^>]*role="group"[^>]*aria-label="本局统计"/,
+    '#session-stats 容器 role=group + aria-label=本局统计')
+  assert.equal(htmlR24.split('class="session-stat"').length - 1, 3, '恰 3 个 .session-stat 行（不含 __label/__value/__announce）')
+  assert.match(htmlR24, /id="ss-placed-value"[^>]*aria-live="polite"[^>]*aria-label="已放置方块数"/,
+    '已放置：aria-live=polite + aria-label')
+  assert.match(htmlR24, /id="ss-lines-value"[^>]*aria-live="polite"[^>]*aria-label="消行总数"/,
+    '消行：aria-live=polite + aria-label')
+  const timeOpen = htmlR24.indexOf('id="ss-time-value"')
+  const timeTag = htmlR24.slice(timeOpen, htmlR24.indexOf('>', timeOpen) + 1)
+  assert.ok(timeOpen !== -1 && timeTag.indexOf('aria-live') === -1, '时长 #ss-time-value 无 aria-live（AC-14 防读屏刷屏源码级）')
+  assert.match(htmlR24, /id="session-announce"[^>]*role="status"[^>]*aria-live="polite"/,
+    '#session-announce role=status + aria-live=polite')
+})
+
+test('r32: index.html 位置与隔离（stat-grid 闭合 < #session-stats < .hold-well；计数面零交集）', () => {
+  const statGridOpen = htmlR24.indexOf('<div class="stat-grid"')
+  const sessionOpen = htmlR24.indexOf('id="session-stats"')
+  const holdOpen = htmlR24.indexOf('class="hold-well"')
+  assert.ok(statGridOpen !== -1 && sessionOpen !== -1 && holdOpen !== -1, '三个锚点均在')
+  const gridClose = htmlR24.lastIndexOf('</div>', sessionOpen) // #session-stats 前最后一个 </div> = stat-grid 闭合
+  assert.ok(gridClose > statGridOpen && gridClose < sessionOpen && sessionOpen < holdOpen,
+    '位置序：.stat-grid 闭合 < #session-stats 开 < .hold-well 开（纯追加挂载点）')
+  const frag = htmlR24.slice(sessionOpen, holdOpen)
+  assert.equal(frag.split('class="stat"').length - 1, 0, '面板片段零 .stat（r17 .stat===4 不落新块）')
+  assert.equal(frag.indexOf('class="tkey"'), -1, '面板片段零 .tkey（触控键计数面零交集）')
+  assert.equal(frag.indexOf('data-action'), -1, '面板片段零 data-action（回放器零命中）')
+})
+
+test('r32: formatSessionTime 纯函数矩阵（格式锚点）', () => {
+  assert.equal(T.formatSessionTime(0), '00:00')
+  assert.equal(T.formatSessionTime(999), '00:00') // <1s 取整为 0
+  assert.equal(T.formatSessionTime(1000), '00:01')
+  assert.equal(T.formatSessionTime(59999), '00:59')
+  assert.equal(T.formatSessionTime(60000), '01:00')
+  assert.equal(T.formatSessionTime(3600000), '1:00:00') // ≥1h 自动 hh:mm:ss（时无前导零）
+  assert.equal(T.formatSessionTime(3725000), '1:02:05')
+  assert.equal(T.formatSessionTime(-1), '00:00') // 负 → 防御
+  assert.equal(T.formatSessionTime(NaN), '00:00')
+  assert.equal(T.formatSessionTime('x'), '00:00')
+  assert.equal(T.formatSessionTime(undefined), '00:00')
+})
+
+test('r32: style.css 源扫描（@keyframes 零新增 / 卡化列表不动 / S 竖屏加行 / order:12 / 红线零改动）', () => {
+  // ① @keyframes 名集与基线一致（只含既有 4 个，无新增）——闪动复用 stat-flash
+  const kf = []
+  const kfRe = /^@keyframes\s+([a-zA-Z0-9_-]+)/gm // 行首锚定：真声明（注释提及不算）
+  let kfM
+  while ((kfM = kfRe.exec(cssR24)) !== null) kf.push(kfM[1])
+  const kfBase = ['stat-flash', 'overlay-in', 'toast-in-out', 'frame-pulse']
+  assert.equal(kf.length, kfBase.length, '@keyframes 总数仍 ' + kfBase.length + '（零新增关键帧）')
+  for (const n of kf) assert.ok(kfBase.indexOf(n) !== -1, '既有关键帧名未被替换：' + n)
+  assert.match(cssR24, /\.session-stat\.is-flashing[^{]*\{[^}]*animation:\s*stat-flash/,
+    '.session-stat.is-flashing 闪动复用既有 stat-flash（非新关键帧）')
+  // ② 既有卡化选择器列表行（§7.1 原文）不含 .session-stats → 独立卡化规则存在
+  const cardSel = '.stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls'
+  const cardIdx = cssR24.indexOf(cardSel)
+  assert.ok(cardIdx !== -1, '既有卡化选择器列表行在')
+  assert.ok(cssR24.slice(cardIdx, cardIdx + cardSel.length).indexOf('session') === -1,
+    '卡化选择器列表未含 .session-stats（横屏自包含玻璃卡不进列表）')
+  // ③ S 竖屏 #main 追加 'session' 网格行；'hold board next' 仍以 #main { … } 形式存在（r19 断言兼容）
+  assert.ok(cssR24.indexOf("'session session session'") !== -1, 'S 竖屏 areas 含 session 行')
+  assert.match(cssR24, /#main\s*\{[^}]*'hold board next'/, 'r19 锚点 #main { … \'hold board next\' } 仍命中')
+  // ④ S 档 order:12 槽位（stat-grid 10 与 btn-settings 20 之间）
+  assert.ok(cssR24.indexOf('\n  .session-stats { order: 12; }') !== -1, 'S 档 .session-stats order: 12')
+  // ⑤ 红线零改动：r32 新增片段（文末块）不含既有规则正文行（防整段复制改写）
+  const r32Start = cssR24.indexOf('/* ═ r32 统计面板')
+  assert.ok(r32Start !== -1, 'r32 文末片段锚点存在')
+  const r32Slice = cssR24.slice(r32Start)
+  for (const needle of ['padding-right: 112px', 'gap: var(--sp-5)', '.touchpad', '.tkey', 'data-action']) {
+    assert.ok(r32Slice.indexOf(needle) === -1, 'r32 新片段不含既有正文：' + needle)
+  }
+  assert.equal(/^@keyframes/m.test(r32Slice), false, 'r32 新片段零关键帧声明（注释提及 stat-flash 除外）')
+})
