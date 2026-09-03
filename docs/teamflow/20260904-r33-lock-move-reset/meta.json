@@ -1,0 +1,7 @@
+{
+  "reqId": "req-33",
+  "runId": "tf-mtlqxw2e-8pt6ij",
+  "title": "「方块锁定前的最后一次移动保护（lock move reset）」——已确认按推荐方案执行。实现：触底锁定缓冲（LOCK_DELAY_MS=500，AC-03.",
+  "mode": "lite",
+  "createdAt": 1788453350055
+}

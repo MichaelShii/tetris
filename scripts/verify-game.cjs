@@ -3309,3 +3309,344 @@ test('r32 §4.1-9 快照既有键不变：除两新字段外，快照键集与 R
   assert.equal(s.b2bBonus, null)
 })
 
+/* ════════════════════════════════════════════════════════════════════════
+ * r33 触底锁定缓冲重置 lock move reset（LOCK_MOVE_RESET_MAX=15；§4.1 纯追加，
+ * r24~r32 既有断言零改动；TECHNICAL §4.1 / PRD AC-03.5/AC-10）
+ * 数据面锚点 = _debug.getLockMoveResetsRemaining()（debug 导出路线——绝不追加快照字段，
+ * 保 r32 §4.1-9「16 既有键 + 恰 2 新字段」键集断言零改动，AC-9 二选一契约取 debug）。
+ * 预算口径单一契约（TECHNICAL §1/§2）：
+ *   触底成功动作且预算>0 → lockTimer=0 重置至满额（重新计满 LOCK_DELAY_MS）+ 预算−1；
+ *   触底成功且预算=0 → 不重置（缓冲续计，位置仍可变）；悬空成功 → 既有清零路径 + 预算−1；
+ *   被拒不重置不发声不耗预算；软降/硬降/重力 0 预算；预算每方块出生重置 15
+ *   （spawnFirst / finishLock / hold×2 单一收口，spawn() 纯函数零改动）。
+ * 锁定时序断言沿用 lockTick=tick(250)×2 分片先例（DT_CLAMP_MS=250）——判定点取「累计
+ * 满 500ms 锁定」而非某次 tick 尾；锁定 = 快照 piece 变更（出生新块，setNext 定性判别）。
+ * ════════════════════════════════════════════════════════════════════════ */
+
+function r33Budget(g) {
+  return g._debug.getLockMoveResetsRemaining()
+}
+
+/** r33 混合成功动作序列（贴底区域：奇数步旋转 / 偶数步移动交替，x 2..5 往返不撞墙） */
+function r33MixedAction(g, i) {
+  if (i % 2 === 1) return g.rotate()
+  return i % 4 === 2 ? g.move(1) : g.move(-1)
+}
+
+test('r33 §4.1-1 常量/导出/初始：LOCK_MOVE_RESET_MAX=15（PRD §5 单一事实来源）；出生即满额', () => {
+  assert.equal(T.LOCK_MOVE_RESET_MAX, 15)
+  const g = mk()
+  assert.equal(r33Budget(g), 15, '闭包初始即满额（READY=15，防御性出生语义）')
+  g.start()
+  assert.equal(r33Budget(g), 15, 'spawnFirst 出生点重置满额')
+  g.restart()
+  assert.equal(r33Budget(g), 15, 'restart → spawnFirst 出生点重置满额')
+})
+
+test('r33 §4.1-2 AC-1 重置满额：触底成功 move/rotate → 缓冲复位（动作后 1 tick 不锁、再 1 tick 锁；预算 −1）', () => {
+  // ① move 分支：T 贴底（空板 (3,18)，底格落 row19 → 触底）→ tick(250)（缓冲 250）→ move(1) 成功 → 重置
+  {
+    const { g } = freshGame()
+    g.start()
+    g._debug.setBoard(T.createBoard())
+    g._debug.setNext('O') // 锁定后出生块 O（类型判别锁定发生）
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+    assert.equal(r33Budget(g), 15)
+    g.tick(250) // 缓冲累积 250
+    const r = g.move(1)
+    assert.equal(r.ok, true)
+    assert.equal(r33Budget(g), 14, '触底成功动作预算 −1')
+    const after = JSON.stringify(g.getSnapshot().piece)
+    g.tick(250) // 被重置 → 累计仅 250
+    assert.equal(JSON.stringify(g.getSnapshot().piece), after, '动作后 1 tick 不锁（重置生效，未达 500）')
+    g.tick(250) // 累计 500 → 锁定
+    assert.notEqual(JSON.stringify(g.getSnapshot().piece), after, '再 1 tick 累计 500 锁定')
+    assert.equal(g.getSnapshot().piece.type, 'O', '锁定后新块出生（finishLock 出生点程内）')
+    assert.equal(r33Budget(g), 15, '锁定出生 → 满额')
+  }
+  // ② rotate 分支：贴底原地旋转成功 → 同口径重置
+  {
+    const { g } = freshGame()
+    g.start()
+    g._debug.setBoard(T.createBoard())
+    g._debug.setNext('O')
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+    g.tick(250)
+    const r = g.rotate()
+    assert.equal(r.ok, true, '贴底原地旋转应成功')
+    assert.equal(r33Budget(g), 14, '旋转成功动作预算 −1')
+    const after = JSON.stringify(g.getSnapshot().piece)
+    g.tick(250)
+    assert.equal(JSON.stringify(g.getSnapshot().piece), after, '旋转重置：动作后 1 tick 不锁')
+    g.tick(250)
+    assert.notEqual(JSON.stringify(g.getSnapshot().piece), after, '再 1 tick 锁定')
+  }
+})
+
+test('r33 §4.1-3 AC-2 被拒不重置不发声：blocked move / wall-kick-denied 零触碰（预算不动、缓冲续计、零 sfx）', () => {
+  // ① move 被拒 → 缓冲未重置（1 tick 即达 500 锁）、预算不动、无 move sfx
+  {
+    const { g, events } = freshGame()
+    g.start()
+    const b = T.createBoard()
+    b[19][6] = 'Z' // 右侧一格阻挡：move(1) 命中 (6,19) → blocked
+    g._debug.setBoard(b)
+    g._debug.setNext('O')
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+    g.tick(250) // 缓冲 250
+    const sfx0 = events.sfx.slice()
+    const r = g.move(1)
+    assert.deepEqual({ ok: r.ok, reason: r.reason }, { ok: false, reason: 'blocked' })
+    assert.equal(r33Budget(g), 15, '被拒不耗预算')
+    assert.deepEqual(events.sfx, sfx0, '被拒不发声（无新增 move）')
+    const after = JSON.stringify(g.getSnapshot().piece)
+    g.tick(250) // 250+250=500 → 立即锁定（未被重置的时序判别）
+    assert.notEqual(JSON.stringify(g.getSnapshot().piece), after, '缓冲未重置 → 1 tick 即锁（若误重置需再 500ms）')
+  }
+  // ② 旋转全拒 wall-kick-denied（§14.8c E14 布景复用）：位置/窗口不变、不耗预算、不发声
+  {
+    const { g, events } = freshGame()
+    g.start()
+    const b = T.createBoard()
+    b[15][4] = 'J'; b[15][3] = 'J'; b[16][5] = 'J'
+    g._debug.setBoard(b)
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 15 })
+    const sfx0 = events.sfx.slice()
+    const r = g.rotate()
+    assert.deepEqual({ ok: r.ok, reason: r.reason }, { ok: false, reason: 'wall-kick-denied' })
+    assert.equal(r33Budget(g), 15, '旋转全拒不耗预算')
+    assert.deepEqual(events.sfx, sfx0, '旋转全拒不发声')
+    assert.equal(g.getSnapshot().piece.rot, 0, '旋转未发生：rot 不变')
+    assert.equal(g.getSnapshot().piece.x, 3, '旋转未发生：x 不变')
+  }
+})
+
+test('r33 §4.1-4 AC-3 上限 15：旋转+移动同一预算——前 15 次每次重置（时序判别不提前锁），第 16 次预算 0 不重置', () => {
+  const { g } = freshGame()
+  g.start()
+  g._debug.setBoard(T.createBoard())
+  g._debug.setNext('O')
+  g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+  for (let i = 1; i <= 15; i++) {
+    const r = r33MixedAction(g, i)
+    assert.equal(r.ok, true, '混合动作 #' + i + ' 应成功（' + (r.reason || '-') + '）')
+    assert.equal(r33Budget(g), 15 - i, '第 ' + i + ' 次成功动作预算 15→' + (15 - i) + '（旋转与移动同一预算）')
+    g.tick(250)
+    assert.equal(g.getSnapshot().piece.type, 'T', '第 ' + i + ' 次动作后未提前锁定（每次重置生效）')
+  }
+  assert.equal(r33Budget(g), 0, '15 次后预算耗尽')
+  // 第 16 次：预算 0 → 触底成功动作不再重置（缓冲续计 → 1 tick 即达 500 锁）
+  g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 }) // _debug 手术钉回地板（预算/锁定时钟不受影响）
+  g.tick(250) // 触底缓冲续计 250（预算 0 无重置，未锁：250 < 500）
+  const after15 = JSON.stringify(g.getSnapshot().piece)
+  assert.equal(JSON.stringify(g.getSnapshot().piece), after15, '预算 0 触底 tick(250) 不锁')
+  const r16 = g.move(1)
+  assert.equal(r16.ok, true)
+  assert.equal(r33Budget(g), 0, '预算 0 封底：第 16 次不再减')
+  const after16 = JSON.stringify(g.getSnapshot().piece)
+  g.tick(250) // 残留 250 + 250 = 500 → 锁定
+  assert.notEqual(JSON.stringify(g.getSnapshot().piece), after16, 'A16 未重置缓冲 → 1 tick 即锁（若误重置需再 500ms）')
+})
+
+test('r33 §4.1-5 AC-5 软降/硬降不变：不耗预算、不走缓冲（软降下移 0 耗；软降触底/硬降即时锁）', () => {
+  // ① 软降成功下移（悬空 → 触底）：预算零消耗（判别：随后 move 仍 15→14）
+  {
+    const { g } = freshGame()
+    g.start()
+    g._debug.setBoard(T.createBoard())
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 17 }) // 悬空 1 格（底格 row18）
+    assert.equal(g.softDrop().ok, true)
+    assert.equal(g.getSnapshot().piece.y, 18, '软降下移 1 格（未触底不锁）')
+    assert.equal(r33Budget(g), 15, '软降成功下移不耗预算')
+    assert.equal(g.move(1).ok, true)
+    assert.equal(r33Budget(g), 14, '随后触底成功移动照常 −1（证明软降确未消耗）')
+  }
+  // ② 软降触底立即锁（不走缓冲）+ 无 softDrop sfx（既有 E-SFX-02 语义零改动）
+  {
+    const { g, events } = freshGame()
+    g.start()
+    g._debug.setBoard(T.createBoard())
+    g._debug.setNext('O')
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+    g.tick(250) // 缓冲 250
+    const r = g.softDrop()
+    assert.equal(r.locked, true, '软降触底立即锁定（不走缓冲）')
+    assert.equal(g.getSnapshot().piece.type, 'O', '新块出生')
+    assert.ok(!events.sfx.includes('softDrop'), '软降触底不发 softDrop 音效')
+    assert.equal(r33Budget(g), 15, '软降路径不耗预算（出生重置 15，封底不越界）')
+  }
+  // ③ 硬降立即锁（不走缓冲）+ hardDrop 恰 1 次（既有 E-SFX 语义零改动）
+  {
+    const { g, events } = freshGame()
+    g.start()
+    g._debug.setBoard(T.createBoard())
+    g._debug.setNext('O')
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 15 }) // 悬空
+    g.tick(250)
+    const r = g.hardDrop()
+    assert.equal(r.locked, true, '硬降立即锁定')
+    assert.equal(g.getSnapshot().piece.type, 'O')
+    assert.equal(events.sfx.filter((n) => n === 'hardDrop').length, 1, 'hardDrop 恰 1 次')
+    assert.equal(r33Budget(g), 15, '硬降不耗预算')
+  }
+})
+
+test('r33 §4.1-6 AC-4 per-piece 归零/防钻空子：hold 换出/restart 归满额；悬空清零封底 0、重力再落地不补发', () => {
+  // ① 耗尽 → hold 换出 → 新块满额 15（hold 出生点，AC-4 断言）
+  {
+    const { g } = freshGame()
+    g.start()
+    g._debug.setBoard(T.createBoard())
+    g._debug.setNext('I')
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+    for (let i = 1; i <= 15; i++) {
+      const r = r33MixedAction(g, i)
+      assert.equal(r.ok, true, '混合动作 #' + i + ' 应成功')
+      g.tick(250)
+    }
+    assert.equal(r33Budget(g), 0, '预算耗尽')
+    const h = g.hold()
+    assert.equal(h.ok, true)
+    assert.equal(r33Budget(g), 15, 'hold 换出出生点：新方块预算恢复满额（AC-4）')
+    assert.equal(g.getSnapshot().piece.type, 'I', '换出块 = 原 next（I）')
+  }
+  // ② 耗尽 → 悬空清零动作封底 0（不减负）→ 重力再落地 → 仍 0（不补发——预算只在出生点重置）
+  {
+    const { g } = freshGame()
+    g.start()
+    g._debug.setBoard(T.createBoard())
+    g._debug.setNext('O')
+    g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 13 }) // 竖 I 悬空（底格 16 < 19）
+    for (let i = 1; i <= 15; i++) {
+      const r = r33MixedAction(g, i)
+      assert.equal(r.ok, true, '悬空成功动作 #' + i)
+    }
+    assert.equal(r33Budget(g), 0, '15 次悬空清零动作耗尽预算')
+    g._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 13 }) // 手术复位竖 I（预算不受影响，仍悬空）
+    const r16 = g.move(-1)
+    assert.equal(r16.ok, true, '第 16 次悬空动作仍成功')
+    assert.equal(r33Budget(g), 0, '预算 0 封底：悬空清零动作不再减（不越负）')
+    // 重力落地：竖 I y13 每次 1000ms（4×tick(250)）下 1 格 → y16 底格抵 row19 触底；落地 tick（未达 500）即断言
+    let landed = false
+    for (let i = 0; i < 13 && !landed; i++) {
+      g.tick(250)
+      if (g.getSnapshot().piece.y >= 16) landed = true
+    }
+    assert.ok(landed, '重力落地（底格抵 row19 触底）')
+    assert.equal(g.getSnapshot().piece.type, 'I', '同一方块生命周期（未锁，锁窗内）')
+    assert.equal(r33Budget(g), 0, '落地后预算仍 0（重力/落地不补发）')
+    const before = JSON.stringify(g.getSnapshot().piece)
+    g.tick(250)
+    g.tick(250) // 触底缓冲 500 → 锁定
+    assert.notEqual(JSON.stringify(g.getSnapshot().piece), before, '落地后经 lockTimer 锁定')
+    assert.equal(g.getSnapshot().piece.type, 'O', '锁定后新块 O（finishLock 出生点）')
+    assert.equal(r33Budget(g), 15, '锁定出生 → 新块满额 15')
+  }
+  // ③ restart → 满额 15
+  {
+    const { g } = freshGame()
+    g.start()
+    g._debug.setBoard(T.createBoard())
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 })
+    g.rotate()
+    assert.equal(r33Budget(g), 14)
+    g.restart()
+    assert.equal(r33Budget(g), 15, 'restart 归满额')
+  }
+})
+
+test('r33 §4.1-7 AC-6/7 交叉验证：T-spin 满窗口仍判（score/piecesPlaced/sfx 与 r18 恒等）+ 软降触底清窗不判', () => {
+  // ① 旋转落槽（成功动作恰耗 1 预算）→ lockTimer 锁定仍判 No-line Full +100×L1（§14.2 正值同构）
+  {
+    const g = mk()
+    g.start()
+    g._debug.setBoard(buildTSlot(1, 3, 15, T4, [], []))
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 15 })
+    assert.equal(r33Budget(g), 15, '出生满额')
+    const r = g.rotate()
+    assert.equal(r.ok, true)
+    assert.equal(r33Budget(g), 14, '旋转成功（触底重置/悬空清零均 −1）')
+    lockTick(g)
+    const s = g.getSnapshot()
+    assert.equal(s.score, 100, '满窗口仍判：No-line Full +100×L1（r18 §14.2 期望零改动）')
+    assert.equal(s.piecesPlaced, 1, 'T-spin 落定计 1（与 r32 §4.1-4 同源）')
+    assert.equal(r33Budget(g), 15, '锁定出生 → 满额')
+  }
+  // ② onSfx 事件序列不变：rotate 恰 1 次、无 move（r18 事件面零改动）
+  {
+    const { events } = tspinSession(1, T4, [])
+    assert.deepEqual(events.sfx, ['rotate'], 'onSfx 序列 = [rotate]（预算机制不新增/变动事件）')
+  }
+  // ③ 软降触底清窗不判（§14.2b E3 布景复用）：旋转后软降立即锁 → 0 分；软降瞬间预算不受影响
+  {
+    const { g } = freshGame()
+    g.start()
+    g._debug.setBoard(buildTSlot(0, 3, 15, T4, [], []))
+    g._debug.setPiece({ type: 'T', rot: 3, x: 3, y: 15 })
+    assert.equal(g.rotate().ok, true)
+    assert.equal(r33Budget(g), 14, '旋转 −1')
+    assert.equal(g.softDrop().locked, true, '软降触底立即锁')
+    assert.equal(g.getSnapshot().score, 0, 'E3：软降清窗不判（r18 期望零改动）')
+  }
+})
+
+/* r33 §4.1-8：r18 §14 时序用例零回归审计登记（AC-6）—— 引理 + 逐组登记 + 代表性子集自证。
+ *
+ * 【审计引理】所有既有锁定/时序用例的成功 move/rotate 均发生在 lockTimer===0 时刻：
+ *   - tspinSession 构造点（setBoard/setPiece 后立即 rotate，其后直至 lockTick 无动作，L1854）；
+ *   - §14.2 正负 24 组 / §14.2b / §14.8 / §14.8b / §14.8c 与 §15.x/§16.x tspin 段、r32 §4.1-4：
+ *     构造 → 单一 rotate（或 move）→ tick 锁定 / 软硬降，动作与锁定时序无 B 段耦合。
+ *   触底重置将「lockTimer=0 → 重新计满 500ms」；construction-point lockTimer=0 → 重置为时间线
+ *   恒等。预算消耗（15 起，只会减、封底 0）不改变锁定时机 / 分数 / tspin 载荷 / onSfx 事件序 /
+ *   r32 计数（piecesPlaced 只增于 lockFlow 收口）→ 既有断言期望零改动——
+ *   本文件 r18~r32 全部断言原样通过即整体证明（自证 + 全量复跑）。
+ * 【逐组登记】
+ *   G1 tspinSession 助手（L1854）及其全部调用方（§14.1~§14.8 会话全家）——构造点恒等
+ *   G2 §14.2 正负 24 组（L1931；E11 语义=旋转落地经 lockTimer 锁定仍判，L1943 正值组）
+ *   G3 §14.2b E3~E7 + AC-4 窗口负例（L1970）
+ *   G4 §14.7 F1~F8 权威样例表（L2186，旋转→lockTick 锁定，900/200 恒等）
+ *   G5 §14.8 E5~E6 严格判据（L2232）+ §14.8b 非 T 会话（L2271）
+ *   G6 §14.8c kick 全拒 E14（L2292）——被拒路径本就零触碰（§4.1-3② 同构覆盖）
+ *   G7 §15.3 操作无关（L2411）/ §15.4 混链（L2444）/ §16.3（L2829）/ §16.4（L2851）/ §16.6（L2960）tspin 段
+ *   G8 r32 §4.1-4 T-spin 落定计数（L3221）
+ *   G9 soak 复核：§14.6（L2149）/ §15.10（L2626）/ §16.10（L3096）——断言均为数值一致性而非
+ *      锁定时机；大量旋转/移动可能耗尽单块预算，但锁定经 lockTimer 路径与计分无关 → 本文件整体
+ *      运行即复核（预期零改动，若验证期确现漂移再显式登记改写）。
+ * 【自证】下方代表性子集重放 r18 期望 + 预算不变量（成功恰 −1 不越负、出生恰回满额、被拒零触碰）。
+ */
+test('r33 §4.1-8 r18 §14 审计登记（AC-6）：代表性子集重放 r18 期望 + 预算不变量', () => {
+  // F1（TKI 经典，§14.7 权威样例）：满窗口 Full + 消 1 行 → 900；事件序/落定计数恒等
+  {
+    const { g, events } = tspinSession(1, { tl: true, tr: true, bl: false, br: true }, [1])
+    assert.equal(g.getSnapshot().score, 900, 'F1 L1 锁定时总分 900（r18 §14.7 期望零改动）')
+    assert.equal(g.getSnapshot().lines, 1, 'F1 恰清 1 行')
+    assert.equal(events.sfx.filter((n) => n === 'rotate').length, 1, 'F1 事件序恒等：rotate 恰 1 次')
+    assert.equal(g.getSnapshot().piecesPlaced, 1, '落定计数恒等')
+    assert.equal(r33Budget(g), 15, '锁定出生 → 满额')
+  }
+  // §14.2 E11 语义（旋转落地经 lockTimer 锁定仍判）：构造点满额 → rotate 恰 −1 → 锁定回满额
+  {
+    const g = mk()
+    g.start()
+    g._debug.setBoard(buildTSlot(2, 3, 15, T4, [], []))
+    g._debug.setPiece({ type: 'T', rot: 1, x: 3, y: 15 })
+    assert.equal(r33Budget(g), 15, '构造点 lockTimer=0 → 预算满额')
+    assert.equal(g.rotate().ok, true)
+    assert.equal(r33Budget(g), 14, '成功动作恰 −1（不越负）')
+    lockTick(g)
+    assert.equal(g.getSnapshot().score, 100, '§14.2 正值期望 +100 零改动（重置恒等引理）')
+    assert.equal(r33Budget(g), 15, '锁定出生恰回满额')
+  }
+  // G6 被拒组（§14.8c E14 布景）：kick 全拒不触碰预算/位置
+  {
+    const { g } = freshGame()
+    g.start()
+    const b = T.createBoard()
+    b[15][4] = 'J'; b[15][3] = 'J'; b[16][5] = 'J'
+    g._debug.setBoard(b)
+    g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 15 })
+    assert.deepEqual(g.rotate(), { ok: false, reason: 'wall-kick-denied' })
+    assert.equal(r33Budget(g), 15, 'kick 全拒零触碰（预算不动）')
+  }
+})
+

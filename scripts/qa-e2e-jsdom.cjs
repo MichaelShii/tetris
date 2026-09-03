@@ -3126,6 +3126,102 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     }
   }
 
+  /* ---------- r33 触底锁定缓冲重置 lock move reset（§4.2：缓冲期键盘重置 / 触控回放等价 /
+     软硬降即时锁 / 预算耗尽可感知；引擎新语义=AC-03.5，回放器 0 逻辑改动→触控=键盘同路径自然获得，
+     本段纯追加，既有一切断言零改动） ---------- */
+  console.log('\n-- r33 lock move reset（缓冲期重置 / 回放等价 / 软硬降即时锁 / 预算耗尽） --')
+  {
+    const r33Budget = function (g) { return g._debug.getLockMoveResetsRemaining() }
+    const r33GroundedT = function (g) {
+      g._debug.setBoard(window.TetrisGame.createBoard())
+      g._debug.setNext('O')
+      g._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 }) // 空板贴底（底格落 row19 → 触底）
+    }
+    const r33Mixed = function (g, i) {
+      if (i % 2 === 1) return g.rotate()
+      return i % 4 === 2 ? g.move(1) : g.move(-1)
+    }
+    // ① 缓冲期按键重置（键鼠）：触底 → tick(250)（缓冲 250）→ key moveLeft 成功重置 → 动作后 1 tick 不锁、再 1 tick 锁
+    {
+      const env4 = await buildEnv()
+      const g4 = env4.game
+      g4.start()
+      r33GroundedT(g4)
+      check('r33 初始预算满额 15（出生重置）', r33Budget(g4) === 15, 'b=' + r33Budget(g4))
+      g4.tick(250)
+      env4.key('ArrowLeft') // moveLeft 成功（触底、预算>0 → 重置至满额）
+      check('r33 触底成功移动：预算 −1 → 14', r33Budget(g4) === 14, 'b=' + r33Budget(g4))
+      const pieceA = JSON.stringify(g4.getSnapshot().piece)
+      g4.tick(250)
+      check('r33 缓冲复位生效：动作后 1 tick 不锁（累计仅 250）', JSON.stringify(g4.getSnapshot().piece) === pieceA)
+      g4.tick(250)
+      check('r33 缓冲复位生效：再 1 tick 累计 500 锁定（O 出生）',
+        JSON.stringify(g4.getSnapshot().piece) !== pieceA && g4.getSnapshot().piece.type === 'O')
+      env4.handle.dispose()
+    }
+    // ② 触控回放等价（AC-7）：tp.tap 与键鼠同口径（回放器 0 逻辑改动 → 同路径自然获得新语义，无独立实现）
+    {
+      const env4 = await buildEnv()
+      const g4 = env4.game
+      const tp4 = {
+        btn: function (a) { return env4.doc.querySelector('.tkey[data-action="' + a + '"]') },
+        ev: function (t) { return new env4.window.Event(t, { bubbles: true, cancelable: true }) },
+        tap: function (a) { const b = tp4.btn(a); b.dispatchEvent(tp4.ev('touchstart')); b.dispatchEvent(tp4.ev('touchend')) },
+      }
+      g4.start()
+      r33GroundedT(g4)
+      g4.tick(250)
+      tp4.tap('moveLeft')
+      check('r33 触控回放等价：tap moveLeft 预算 −1 → 14（触控=键盘同路径）', r33Budget(g4) === 14, 'b=' + r33Budget(g4))
+      const pieceB = JSON.stringify(g4.getSnapshot().piece)
+      g4.tick(250)
+      check('r33 触控回放等价：动作后 1 tick 不锁', JSON.stringify(g4.getSnapshot().piece) === pieceB)
+      g4.tick(250)
+      check('r33 触控回放等价：再 1 tick 锁定（与键鼠同口径）', JSON.stringify(g4.getSnapshot().piece) !== pieceB)
+      env4.handle.dispose()
+    }
+    // ③ 软降/硬降即时锁（不走缓冲）：缓冲中途按键 → 立即锁定（新块出生）
+    {
+      const env4 = await buildEnv()
+      const g4 = env4.game
+      g4.start()
+      r33GroundedT(g4)
+      g4.tick(250) // 缓冲 250
+      const pz1 = JSON.stringify(g4.getSnapshot().piece)
+      env4.key('ArrowDown') // 软降触底 → 立即锁定
+      check('r33 软降即时锁：缓冲中途软降 → 按键即锁', JSON.stringify(g4.getSnapshot().piece) !== pz1)
+      g4._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 15 }) // 悬空块
+      g4.tick(250)
+      const pz2 = JSON.stringify(g4.getSnapshot().piece)
+      env4.key(' ') // 硬降 → 立即锁定
+      check('r33 硬降即时锁：缓冲中途硬降 → 按键即锁', JSON.stringify(g4.getSnapshot().piece) !== pz2)
+      env4.handle.dispose()
+    }
+    // ④ 预算耗尽可感知：15 次成功动作 → getter=0；预算 0 触底成功动作不再延长缓冲（1 tick 即达 500 锁定）
+    {
+      const env4 = await buildEnv()
+      const g4 = env4.game
+      g4.start()
+      r33GroundedT(g4)
+      for (let i = 1; i <= 15; i++) {
+        const r = r33Mixed(g4, i)
+        if (r.ok !== true) throw new Error('r33 qa 混合动作应成功 #' + i + ': ' + JSON.stringify(r))
+        g4.tick(250)
+      }
+      check('r33 预算耗尽：15 次成功动作后 getter=0', r33Budget(g4) === 0, 'b=' + r33Budget(g4))
+      g4._debug.setPiece({ type: 'T', rot: 0, x: 3, y: 18 }) // 手术钉回地板（预算/锁定时钟不受影响）
+      g4.tick(250) // 预算 0 触底：缓冲续计 250（不锁）
+      const r16 = g4.move(1)
+      check('r33 预算耗尽可感知：第 16 次成功动作不再重置（getter 0 封底）', r16.ok === true && r33Budget(g4) === 0,
+        'b=' + r33Budget(g4))
+      const pieceW = JSON.stringify(g4.getSnapshot().piece)
+      g4.tick(250) // 残留 250 + 250 = 500 → 锁定（若误重置需再 500ms）
+      check('r33 预算耗尽可感知：不再延长缓冲 → 1 tick 即锁（棋盘落定，DOM 层可观察）',
+        JSON.stringify(g4.getSnapshot().piece) !== pieceW)
+      env4.handle.dispose()
+    }
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))

@@ -82,6 +82,9 @@
     const B2B_BONUS_BASE = 400
     // 触底锁定缓冲（AC-03.5，≤ 500ms）
     const LOCK_DELAY_MS = 500
+    // 触底缓冲重置预算（r33，PRD §5/AC-03.5）：每方块至多 15 次成功移动/旋转重置（旋转+移动同一上限）；
+    // 随出生/hold 交换/restart 归零；被拒不计数；软降/硬降/重力不计数
+    const LOCK_MOVE_RESET_MAX = 15
     // 输入 DAS：首移延迟 170ms / 重复 100ms（≥ 8 次/秒，AC-02.1）；软降重复 50ms（AC-02.2）
     const DAS_DELAY_MS = 170
     const DAS_REPEAT_MS = 100
@@ -629,6 +632,14 @@
       // start/restart 归零重计；0 行为变化（纯计数/累加赋值，不读取既有状态、不改返回值/emit/sfx）
       let piecesPlaced = 0
       let sessionTimeMs = 0
+      // r33（AC-03.5，additive）：触底锁定重置预算剩余次数——per-piece 会话内存（与 r32 计数同风格闭包，
+      // 不入 state 对象）：每次方块出生重置为 LOCK_MOVE_RESET_MAX；触底成功动作/悬空清零动作各 −1（封底 0）；
+      // 被拒不耗；软降/硬降/重力不耗——仅 move/rotate 成功分支读写，_debug getter 作断言锚点
+      let lockMoveResetsRemaining = LOCK_MOVE_RESET_MAX
+      // r33：预算出生点单一收口小助手（spawnFirst / finishLock / hold×2 共用；spawn() 纯函数零改动保导出契约）
+      function resetLockMoveBudget() {
+        lockMoveResetsRemaining = LOCK_MOVE_RESET_MAX
+      }
       // 消行动画时长（r13，AC-1/AC-9）：默认 240ms（容差 160~320）；0 = 即时消除（与 reduced-motion 等价，AC-7）；
       // 强制布尔/负值兜底为默认值（对齐 wallKickEnabled 的 opts 解析风格）；构造期只读，无运行期 setter
       const animMs = typeof opts.animMs === 'number' && opts.animMs >= 0 ? opts.animMs : 240
@@ -778,6 +789,7 @@
           return { ok: true, locked: true, cleared: cleared, levelUp: levelUp, gameOver: true }
         }
         state.piece = p
+        resetLockMoveBudget() // r33：finishLock 自然出生点——锁定后新块预算恢复满额（防跨方块继承耗尽预算）
         holdUsed = false // r14 AC-5：新方块出生后重置 hold 使用限制
         emit()
         if (levelUp && cb.onLevelUp) cb.onLevelUp(state.level)
@@ -797,6 +809,7 @@
           stopLoop()
         } else {
           state.piece = p
+          resetLockMoveBudget() // r33：start/restart 出生点——新方块周期预算满额（TECHNICAL §2.3）
         }
       }
 
@@ -871,7 +884,15 @@
         if (collides(state.board, moved)) return { ok: false, reason: 'blocked' } // E2 原位不动（不发声，AC-09.3）
         state.piece = moved
         tspinPending = false // r18（D-01/AC-1）：水平移动成功清窗——"最后动作是旋转"字面，滑入不判
-        if (!isGrounded(state.board, state.piece)) state.lockTimer = 0 // 脱离触底则重置缓冲
+        // r33（AC-03.5）：成功移动三支化——触底且预算>0 → 重置缓冲至满额（重新计满 LOCK_DELAY_MS）；
+        // 触底且预算=0 → 不重置（缓冲按原速率续计至 500ms 锁定）；悬空 → 沿用既有清零路径（AC-1）；
+        // 成功动作（触底重置或悬空清零）各耗 1 预算（封底 0）；被拒路径零触碰（不重置不发声不耗预算）
+        if (isGrounded(state.board, state.piece)) {
+          if (lockMoveResetsRemaining > 0) state.lockTimer = 0
+        } else {
+          state.lockTimer = 0 // 悬空清零（既有路径逐字节保留）
+        }
+        if (lockMoveResetsRemaining > 0) lockMoveResetsRemaining-- // 含悬空清零动作（PRD §4「预算 −1（≤15，含悬空清零动作）」）
         emit()
         sfx('move') // 仅移动成功（含 DAS 每次成功，AC-09.2）
         return { ok: true }
@@ -887,7 +908,13 @@
         if (!collides(state.board, next)) {
           // 原地合法：直接成功（AC-18/AC-19 共用路径）
           state.piece = next
-          if (!isGrounded(state.board, state.piece)) state.lockTimer = 0
+          // r33：原地旋转成功——同 move 三支化（触底+预算>0 重置满额 / 触底+预算=0 不重置 / 悬空既有清零），成功动作耗 1 预算
+          if (isGrounded(state.board, state.piece)) {
+            if (lockMoveResetsRemaining > 0) state.lockTimer = 0
+          } else {
+            state.lockTimer = 0 // 悬空清零（既有路径逐字节保留）
+          }
+          if (lockMoveResetsRemaining > 0) lockMoveResetsRemaining-- // 含悬空清零动作
           emit()
           sfx('rotate') // 仅旋转成功
           tspinPending = true // r18（AC-1）：旋转成功置窗（原地旋转，位移非必需）
@@ -903,7 +930,13 @@
           const candidate = { type: next.type, rot: next.rot, x: next.x + off[0], y: next.y + off[1] }
           if (!collides(state.board, candidate)) {
             state.piece = candidate // 命中：x/y 随偏移更新、rot 生效
-            if (!isGrounded(state.board, state.piece)) state.lockTimer = 0
+            // r33：kick 命中旋转成功——同 move 三支化（触底+预算>0 重置满额 / 触底+预算=0 不重置 / 悬空既有清零），成功动作耗 1 预算
+            if (isGrounded(state.board, state.piece)) {
+              if (lockMoveResetsRemaining > 0) state.lockTimer = 0
+            } else {
+              state.lockTimer = 0 // 悬空清零（既有路径逐字节保留）
+            }
+            if (lockMoveResetsRemaining > 0) lockMoveResetsRemaining-- // 含悬空清零动作
             emit()
             sfx('rotate') // 仅旋转成功
             tspinPending = true // r18（AC-1）：kick 命中置窗（踢墙位移后的最终落位，AC-9 快照）
@@ -975,11 +1008,13 @@
           const nextType = state.next
           state.next = state.queue.next()
           state.piece = spawn(nextType)
+          resetLockMoveBudget() // r33：hold 暂存（槽空）出生点——新方块周期预算满额
         } else {
           // 暂存槽非空：交换当前方块与暂存槽
           const heldType = state.holdPiece.type
           state.holdPiece = { type: currentType }
           state.piece = spawn(heldType)
+          resetLockMoveBudget() // r33：hold 交换出生点——换出方块新周期预算满额
           // next 不变——交换暂存槽不消耗队列
         }
 
@@ -1315,6 +1350,9 @@
             state.lines = n
             state.level = levelForLines(n)
           },
+          // r33（AC-03.5/AC-10）：触底重置预算只读 getter——断言锚点（debug 导出路线，不追加快照字段，
+          // 保 r32 §4.1-9 快照键集断言零改动；TECHNICAL §2.5）
+          getLockMoveResetsRemaining: function () { return lockMoveResetsRemaining },
         },
       }
 
@@ -1349,6 +1387,8 @@
       // r23（PRD §5）：Back-to-back 定值基数（单一事实来源，verify-game.cjs §16.0 / qa-e2e B 段断言）
       B2B_BONUS_BASE: B2B_BONUS_BASE,
       LOCK_DELAY_MS: LOCK_DELAY_MS,
+      // r33（PRD §5）：触底锁定重置预算上限（每方块至多 15 次成功移动/旋转重置；单一事实来源）
+      LOCK_MOVE_RESET_MAX: LOCK_MOVE_RESET_MAX,
       DAS_DELAY_MS: DAS_DELAY_MS,
       DAS_REPEAT_MS: DAS_REPEAT_MS,
       SOFT_DROP_REPEAT_MS: SOFT_DROP_REPEAT_MS,
