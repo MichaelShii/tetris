@@ -3428,6 +3428,14 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       // 激活态：非 degraded → #lb-settings-group 可见（index.html 默认 hidden，激活才移除——DESIGN §2.1）
       check('r37 激活态: #lb-settings-group 可见（非 degraded 移除 hidden）', d37.getElementById('lb-settings-group').hidden === false)
       check('r37 激活态: #btn-leaderboard 平级入口可见（非 degraded 移除 hidden）', d37.getElementById('btn-leaderboard').hidden === false)
+      // r37b 回归：输入框内单字符 keydown 不得被游戏 window 监听 preventDefault（否则昵称框打字全被吞）；
+      // 非输入区单字符拦截语义保留（防滚动）
+      const kbIn37 = new w37.KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true })
+      d37.getElementById('nm-input').dispatchEvent(kbIn37)
+      check('r37b: 输入框内打字不被全局键盘拦截（defaultPrevented=false）', kbIn37.defaultPrevented === false)
+      const kbOut37 = new w37.KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true })
+      w37.dispatchEvent(kbOut37)
+      check('r37b: 非输入区单字符仍拦截（防滚动语义保留）', kbOut37.defaultPrevented === true)
       // 构造 score>0 OVER：row19 仅 col9 空 + 竖 I (x=7,rot=1,y=16) 补缺 → 消 1 行 100 分；tick 1s → sessionTimeMs=1000
       g37.start()
       const dbg37 = g37._debug

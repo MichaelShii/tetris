@@ -1878,6 +1878,10 @@
       // r31：键位走绑定表（默认 m，可在按键设置改绑；表为按键映射单一事实来源）
       function onMuteKey(e) {
         if (e.repeat) return
+        // r37b：输入框/可编辑区打字不触发静音（如昵称输入 'm'）
+        const mt = e.target
+        if (mt && (String(mt.tagName).toUpperCase() === 'INPUT' || String(mt.tagName).toUpperCase() === 'TEXTAREA' ||
+          String(mt.tagName).toUpperCase() === 'SELECT' || mt.isContentEditable === true)) return
         const k = normalizeKbKey(e.key)
         if (k !== null && keyBindings.mute === k) {
           sfx.setMuted(!sfx.isMuted())

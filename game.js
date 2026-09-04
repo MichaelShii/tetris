@@ -1277,7 +1277,17 @@
         return false
       }
 
+      // r37b：输入框/可编辑区打字目标排除（否则单字符 preventDefault 吞键、keyAction 误触动作——
+      // 昵称输入回归：window 级监听必须对 INPUT/TEXTAREA/SELECT/contentEditable 目标放行）
+      function isEditableTarget(e) {
+        const t = e && e.target
+        if (!t || !t.tagName) return false
+        const tag = String(t.tagName).toUpperCase()
+        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true
+      }
+
       function onKeyDown(e) {
+        if (isEditableTarget(e)) return
         const k = e.key
         if (preventForKey(k)) e.preventDefault()
         if (e.repeat) return // 重复键由 DAS/软降定时器管理，单发键忽略系统重复
