@@ -3427,6 +3427,7 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       const g37 = ui37.game
       // 激活态：非 degraded → #lb-settings-group 可见（index.html 默认 hidden，激活才移除——DESIGN §2.1）
       check('r37 激活态: #lb-settings-group 可见（非 degraded 移除 hidden）', d37.getElementById('lb-settings-group').hidden === false)
+      check('r37 激活态: #btn-leaderboard 平级入口可见（非 degraded 移除 hidden）', d37.getElementById('btn-leaderboard').hidden === false)
       // 构造 score>0 OVER：row19 仅 col9 空 + 竖 I (x=7,rot=1,y=16) 补缺 → 消 1 行 100 分；tick 1s → sessionTimeMs=1000
       g37.start()
       const dbg37 = g37._debug
@@ -3618,12 +3619,12 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       const d37d = w37d.document
       const settingsModal37d = d37d.getElementById('settings-modal')
       const lbModal37d = d37d.getElementById('leaderboard-modal')
-      // 从设置打开排行榜：先开设置 → 点「查看榜单」→ 设置关 + 榜开（弹层互斥）
+      // 平级入口（r37b）：设置开 → 点 #btn-leaderboard → 设置关（防御性互斥）+ 榜开
       d37d.getElementById('btn-settings').click()
       check('r37 互斥: 设置弹层先打开', settingsModal37d.hidden === false)
-      d37d.getElementById('btn-open-leaderboard').click()
+      d37d.getElementById('btn-leaderboard').click()
       await sleep(220) // 设置 close 160ms + 榜开 rAF
-      check('r37 互斥: 点查看榜单 → 设置已关（互斥）+ 榜单打开',
+      check('r37 互斥: 点 #btn-leaderboard → 设置已关（互斥）+ 榜单打开',
         settingsModal37d.hidden === true && lbModal37d.hidden === false,
         'settings=' + settingsModal37d.hidden + ' lb=' + lbModal37d.hidden)
       check('r37 面板: 打开即拉取（GET 1 次）', gets37d === 1, String(gets37d))
@@ -3643,12 +3644,12 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
         d37d.querySelectorAll('#lb-list .lb-row').length === 1,
         String(d37d.querySelectorAll('#lb-list .lb-row').length))
       check('r37 tab: 切换零请求（GET 仍 1 次，缓存重渲染）', gets37d === 1, String(gets37d))
-      // Esc 关榜 → 焦点回 #btn-settings（D8）
+      // Esc 关榜 → 焦点回打开入口 #btn-leaderboard（r37b）
       d37d.dispatchEvent(new w37d.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
       await sleep(200)
-      check('r37 Esc: 关榜后焦点统一回 #btn-settings（D8）',
+      check('r37 Esc: 关榜后焦点回打开入口 #btn-leaderboard',
         d37d.getElementById('leaderboard-modal').hidden === true &&
-        w37d.document.activeElement && w37d.document.activeElement.id === 'btn-settings',
+        w37d.document.activeElement && w37d.document.activeElement.id === 'btn-leaderboard',
         w37d.document.activeElement ? w37d.document.activeElement.id : 'none')
       // 错误态 + 重试
       const env37e = await buildEnv()
@@ -3677,8 +3678,7 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
         persist: persist37e, leaderboard: lb37e,
       })
       const d37e = w37e.document
-      d37e.getElementById('btn-settings').click()
-      d37e.getElementById('btn-open-leaderboard').click()
+      d37e.getElementById('btn-leaderboard').click() // 平级入口直接开榜（r37b）
       await sleep(30)
       check('r37 错误态: 拉取失败 → #lb-state「暂不可用」+ 重试钮', d37e.getElementById('lb-state').hidden === false &&
         d37e.getElementById('lb-state').textContent.indexOf('暂不可用') !== -1 &&
@@ -3720,6 +3720,8 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       const df37 = wf37.document
       check('r37 file://: degraded → #lb-settings-group 保持 hidden（无入口，AC-8）',
         df37.getElementById('lb-settings-group').hidden === true)
+      check('r37 file://: degraded → #btn-leaderboard 平级入口保持 hidden（无入口，AC-8）',
+        df37.getElementById('btn-leaderboard').hidden === true)
       check('r37 file://: 两弹层不可达（hidden 不在 Tab 序/读屏树）',
         df37.getElementById('leaderboard-modal').hidden === true && df37.getElementById('nickname-modal').hidden === true)
       check('r37 file://: 0 次 fetch（degraded 停摆，可观测断言）', fetchCount37 === 0, 'fetch=' + fetchCount37)
@@ -3746,7 +3748,7 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       const h37 = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
       const lbFile37 = fs.readFileSync(path.join(root, 'leaderboard.js'), 'utf8')
       const p37 = fs.readFileSync(path.join(root, 'persist.js'), 'utf8')
-      const anchors37 = ['lb-settings-group', 'lb-nickname-value', 'btn-edit-nickname', 'btn-open-leaderboard',
+      const anchors37 = ['lb-settings-group', 'lb-nickname-value', 'btn-edit-nickname', 'btn-leaderboard',
         'leaderboard-modal', 'lb-list', 'lb-state', 'nickname-modal', 'nm-input', 'nm-error', 'nm-confirm', 'nm-cancel']
       check('r37 源码级: index.html 含 12 装配锚点（must()×12 清单同源）',
         anchors37.every(function (s) { return h37.indexOf('id="' + s + '"') !== -1 }))

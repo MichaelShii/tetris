@@ -1425,9 +1425,11 @@
       let activeView = 'total' // 'total' | 'weekly'
       let loadSeq = 0 // 竞态守卫：重开/关闭使在途 fetch 结果作废
       let disposed = false
+      let openerEl = null // r37b：弹层打开入口（关闭时焦点还原）
 
-      // AC-8：degraded → 设置组保持 hidden（index.html 默认 hidden，激活才移除——DESIGN §2.1）
+      // AC-8：degraded → 设置组与平级入口按钮保持 hidden（index.html 默认 hidden，激活才移除——DESIGN §2.1；r37b 入口同规）
       els.settingsGroup.hidden = api.degraded ? true : false
+      if (els.btnOpen) els.btnOpen.hidden = api.degraded ? true : false
 
       function renderState(kind) {
         // kind: 'loading' | 'error' | 'empty'
@@ -1541,8 +1543,9 @@
         }
       }
 
-      function open() {
+      function open(opener) {
         if (isOpen || disposed || api.degraded) return
+        openerEl = opener || null // r37b：关闭时焦点还原到打开入口
         isOpen = true
         els.modal.hidden = false
         openRafId = requestAnimationFrame(function () {
@@ -1567,9 +1570,18 @@
         }, 160) // 与 #overlay 动画时长一致
         document.removeEventListener('keydown', onKeyDown)
         disableTrap()
-        // D8：焦点统一回 #btn-settings（恒在，避免焦点丢失）
-        const sb = document.getElementById('btn-settings')
-        if (sb && typeof sb.focus === 'function') sb.focus()
+        // 焦点还原（r37b）：优先回打开入口；回退 #btn-settings（恒在，避免焦点丢失）
+        const fb = openerEl || document.getElementById('btn-settings')
+        if (fb && typeof fb.focus === 'function') fb.focus()
+      }
+
+      function onCloseBtnClick() {
+        close()
+        blurElement(this)
+      }
+
+      function onBackdropClick(e) {
+        if (e.target && e.target.classList && e.target.classList.contains('lb-modal__backdrop')) close()
       }
 
       /** refreshNickname(value)——昵称行从 persist 回读刷新（value: string|null） */
@@ -1582,13 +1594,17 @@
       function dispose() {
         if (disposed) return
         disposed = true
-        close() // 复位弹层（含 esc/陷阱/计时清理；D8 焦点落 #btn-settings）
+        close() // 复位弹层（含 esc/陷阱/计时清理；焦点还原）
         els.tabTotal.removeEventListener('click', onTabTotalClick)
         els.tabWeekly.removeEventListener('click', onTabWeeklyClick)
+        if (els.modalClose) els.modalClose.removeEventListener('click', onCloseBtnClick)
+        els.modal.removeEventListener('click', onBackdropClick)
       }
 
       els.tabTotal.addEventListener('click', onTabTotalClick)
       els.tabWeekly.addEventListener('click', onTabWeeklyClick)
+      if (els.modalClose) els.modalClose.addEventListener('click', onCloseBtnClick)
+      els.modal.addEventListener('click', onBackdropClick)
 
       return { open: open, close: close, refreshNickname: refreshNickname, dispose: dispose }
     }
@@ -2211,7 +2227,7 @@
         const lbSettingsGroup = must('#lb-settings-group')
         const lbNicknameValue = must('#lb-nickname-value')
         const btnEditNickname = must('#btn-edit-nickname')
-        const btnOpenLeaderboard = must('#btn-open-leaderboard')
+        const btnOpenLeaderboard = must('#btn-leaderboard')
         const leaderboardModal = must('#leaderboard-modal')
         const lbListEl = must('#lb-list')
         const lbStateEl = must('#lb-state')
@@ -2222,6 +2238,7 @@
         const nmCancel = must('#nm-cancel')
         leaderboardPanel = createLeaderboardPanel({
           settingsGroup: lbSettingsGroup,
+          btnOpen: btnOpenLeaderboard, // r37b：平级入口（degraded 同设隐藏）
           nicknameValue: lbNicknameValue,
           modal: leaderboardModal,
           modalClose: leaderboardModal.querySelector('.lb-modal__close'),
@@ -2248,10 +2265,13 @@
           closeSettingsModal() // 防御性互斥（幂等 no-op 当未开）
           nicknamePrompt.open('first', '')
         })
-        // 从设置打开新弹层：先关设置（互斥），再开目标弹层
+        // 从平级入口打开榜单（r37b）：先关设置（互斥），再开目标弹层；同设置弹层规约打开自动暂停
         btnOpenLeaderboard.addEventListener('click', function () {
           closeSettingsModal()
-          leaderboardPanel.open()
+          if (typeof game !== 'undefined' && game && game.getPhase() === 'RUNNING' && typeof game.togglePause === 'function') {
+            game.togglePause()
+          }
+          leaderboardPanel.open(btnOpenLeaderboard)
           blurElement(this)
         })
         btnEditNickname.addEventListener('click', function () {

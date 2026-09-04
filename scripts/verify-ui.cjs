@@ -1165,7 +1165,7 @@ test('r32: style.css 源扫描（@keyframes 零新增 / 卡化列表不动 / r19
   assert.equal(kf.length, kfBase.length, '@keyframes 总数仍 ' + kfBase.length + '（零新增关键帧）')
   for (const n of kf) assert.ok(kfBase.indexOf(n) !== -1, '既有关键帧名未被替换：' + n)
   // ② 既有卡化选择器列表行（§7.1 原文）不含 .session-stats/.global-stats → 独立卡化规则存在
-  const cardSel = '.stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls'
+  const cardSel = '.stat-grid, #btn-settings, #btn-leaderboard, .next-well, #board-col, .hold-well, .key-hints, #controls'
   const cardIdx = cssR24.indexOf(cardSel)
   assert.ok(cardIdx !== -1, '既有卡化选择器列表行在')
   assert.ok(cssR24.slice(cardIdx, cardIdx + cardSel.length).indexOf('session') === -1,
@@ -1230,7 +1230,7 @@ test('r34: style.css 源扫描（stat-flash 复用 / 文末块零关键帧 / S �
   // ④ S 档 order:13 槽位（r36 移除 session order:12 后紧随 .stat-grid；先于 #btn-settings order:20）
   assert.ok(cssR24.indexOf('\n  .global-stats { order: 13; }') !== -1, 'S 档 .global-stats order: 13')
   // ⑤ 既有卡化选择器列表行不含 .global-stats（横屏自包含玻璃卡不进列表）
-  const cardSel = '.stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls'
+  const cardSel = '.stat-grid, #btn-settings, #btn-leaderboard, .next-well, #board-col, .hold-well, .key-hints, #controls'
   const cardIdx = cssR24.indexOf(cardSel)
   assert.ok(cardIdx !== -1, '既有卡化选择器列表行在')
   assert.ok(cssR24.slice(cardIdx, cardIdx + cardSel.length).indexOf('global') === -1,

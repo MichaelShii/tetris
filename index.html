@@ -82,6 +82,10 @@
       <!-- v3.0 设置入口（齿轮图标按钮）：点击打开设置弹层（AC-01） -->
       <button type="button" id="btn-settings" class="btn btn--secondary"
               aria-label="打开设置">⚙ 设置</button>
+      <!-- r37b 排行榜入口（与设置平级，非设置内）：点击直接打开全网排行榜弹层；
+           degraded 由 leaderboard.js 侧 JS 门控 hidden（index.html 默认位，不写 display 规则） -->
+      <button type="button" id="btn-leaderboard" class="btn btn--secondary"
+              aria-label="打开全网排行榜">🏆 榜</button>
     </section>
 
     <!-- 游戏板列：唯一逐帧重绘 Canvas；遮罩/toast 为 #board-frame 子节点（覆盖板面，非全页） -->
@@ -340,10 +344,6 @@
               <span class="stat__label">昵称</span>
               <output id="lb-nickname-value" class="lb-nickname-value" aria-live="polite">未设置</output>
               <button type="button" id="btn-edit-nickname" class="btn btn--secondary">修改</button>
-            </div>
-            <div class="lb-entry-row" role="group" aria-label="打开全网排行榜">
-              <span class="stat__label">全网榜</span>
-              <button type="button" id="btn-open-leaderboard" class="btn btn--secondary" aria-label="打开全网排行榜">查看榜单</button>
             </div>
           </div>
         </div>

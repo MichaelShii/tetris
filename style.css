@@ -880,8 +880,9 @@ kbd {
 
 /* ═══════════════ 5. 设置弹层（v3.0，AC-01~06：齿轮图标触发的毛玻璃风格模态框） ═══════════════ */
 
-/* 齿轮图标按钮（AC-01）：左面板顶部，复用 .btn--secondary */
-#btn-settings {
+/* 齿轮图标按钮（AC-01）+ 排行榜入口（r37b，与设置平级）：左面板顶部，复用 .btn--secondary */
+#btn-settings,
+#btn-leaderboard {
   width: 100%;
   white-space: nowrap;
   margin-bottom: var(--sp-3);
@@ -1669,9 +1670,10 @@ input:focus-visible + .dock-skin-option__tile {
   #panel-right { display: contents; }  /* 摊平：面板子块上浮参与父级布局（r17 机制承继） */
 
   /* r17 ORDER 表（横屏面板内排序效应存续；竖屏显式 grid-area 下惰性） */
-  .stat-grid    { order: 10; }
-  #btn-settings { order: 20; }
-  .next-well    { order: 30; }
+  .stat-grid      { order: 10; }
+  #btn-settings   { order: 20; }
+  #btn-leaderboard { order: 21; }
+  .next-well      { order: 30; }
   #board-col    { order: 40; }
   .hold-well    { order: 50; }
   .key-hints    { order: 60; }
@@ -1684,7 +1686,7 @@ input:focus-visible + .dock-skin-option__tile {
      r17 的卡片玻璃底写在旧 §7.1 外层（横竖屏通用）；r19 竖屏弃用卡片流后，
      横屏变体（§7.2 面板 flex 复位，子块即卡片）仍需此外观 → 原样收口至此 */
   @media (orientation: landscape) {
-    .stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls {
+    .stat-grid, #btn-settings, #btn-leaderboard, .next-well, #board-col, .hold-well, .key-hints, #controls {
       width: 100%;
       max-width: 420px;
       background: var(--glass-bg);
@@ -1746,15 +1748,18 @@ input:focus-visible + .dock-skin-option__tile {
     .next-well    { grid-area: next; align-self: center; }
     .key-hints    { display: none; }  /* 键位图例退场：触屏键自带标签（PRD AC-8 已确认变更） */
 
-    /* 设置钮：绝对定位 #main 右上角（与统计行同带），不参与网格轨道尺寸；
-       width:auto 豁免 v3.0 基座的 width:100%（面板铺满遗留）——否则钮体被拉成整屏宽 */
-    #btn-settings {
+    /* 设置钮 + 排行榜入口（r37b）：绝对定位 #main 右上角并排（排行榜在齿轮左侧），
+       不参与网格轨道尺寸；width:auto 豁免 v3.0 基座的 width:100%（面板铺满遗留）
+       ——否则钮体被拉成整屏宽 */
+    #btn-settings,
+    #btn-leaderboard {
       position: absolute;
       top: var(--sp-2);
-      right: var(--sp-3);
       width: auto;
       margin-bottom: 0;
     }
+    #btn-settings   { right: var(--sp-3); }
+    #btn-leaderboard { right: calc(var(--sp-3) + 96px); }
 
     /* 统计行（DESIGN §1.2）：四列 label 上/value 下；数值 18px ≥16 可读性红线（AC-4）；
        右侧内距避让绝对定位的设置钮（钮宽 ~90px + 间距） */
@@ -1763,7 +1768,7 @@ input:focus-visible + .dock-skin-option__tile {
       grid-template-columns: repeat(4, auto);
       justify-content: space-between;
       gap: var(--sp-3);
-      padding-right: 112px;
+      padding-right: 184px; /* r37b：右上角并排双钮（齿轮 ~88px + 排行榜入口 ~70px + 间距）避让 */
     }
     .stat__value--score,
     .stat__value--num { font-size: var(--fs-lg); }
