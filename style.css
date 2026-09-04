@@ -2163,41 +2163,8 @@ html:not(.has-touch) .touchpad {
   color: var(--muted);
 }
 
-/* ═ r32 统计面板（#session-stats 独立面板；纯追加，既有规则体零动） ═ */
+/* ═ r34/r36 全局统计面板（#global-stats 第二卡；纯追加，既有规则体零动；r36 移除「本局统计」整卡后 #global-stats 即信息面板第二组） ═ */
 /* ① 基座行式（桌面/M/L：#panel-left 内自然排列） */
-.session-stats { display: flex; flex-direction: column; gap: var(--sp-1); }
-.session-stats__title { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: var(--sp-2); }
-.session-stat { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
-.session-stat__label { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.session-stat__value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.1; font-size: var(--fs-lg); }
-.session-stat__announce { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-/* 已放置/消行闪动：复用既有 @keyframes stat-flash（零新增关键帧）；时长每秒不闪 */
-.session-stat.is-flashing .session-stat__value { animation: stat-flash 120ms ease-out; }
-@media (prefers-reduced-motion: reduce) { .session-stat.is-flashing .session-stat__value { animation: none; } }
-/* ② S 档（<600px）ORDER 槽位：紧随 .stat-grid(order:10)、先于 #btn-settings(order:20)（§7.2 面板 flex 排序列用；竖屏显式 grid-area 下惰性） */
-@media (max-width: 599px) {
-  .session-stats { order: 12; }
-  /* ③ S 竖屏：(orientation:portrait) —— #main 网格追加 'session' 行（既有四区名原样）；3 列 mini-grid */
-  @media (orientation: portrait) {
-    #main { grid-template-rows: auto auto auto minmax(0, 1fr); grid-template-areas:
-      'stats stats stats'
-      'session session session'
-      'controls controls controls'
-      'hold board next'; }
-    .session-stats { grid-area: session; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
-    .session-stats__title { display: none; }
-    .session-stat { flex-direction: column; gap: var(--sp-1); }
-  }
-  /* ④ S 横屏：(orientation:landscape) —— 自包含玻璃卡（复刻 §7.1 卡化四件套；不进既有卡化选择器列表） */
-  @media (orientation: landscape) {
-    .session-stats { width: 100%; max-width: 420px; background: var(--glass-bg); -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--sp-3); margin: var(--sp-2) 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
-    .session-stats__title { display: none; }
-    .session-stat { flex-direction: column; gap: var(--sp-1); }
-  }
-}
-
-/* ═ r34 全局统计面板（#global-stats 第三卡；纯追加，既有规则体零动） ═ */
-/* ① 基座行式（桌面/M/L：#panel-left 内自然排列；镜像 .session-* 同款） */
 .global-stats { display: flex; flex-direction: column; gap: var(--sp-1); }
 .global-stats__title { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: var(--sp-2); }
 .global-stat { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
@@ -2205,14 +2172,13 @@ html:not(.has-touch) .touchpad {
 .global-stat__value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.1; font-size: var(--fs-lg); }
 .global-stat.is-flashing .global-stat__value { animation: stat-flash 120ms ease-out; }
 @media (prefers-reduced-motion: reduce) { .global-stat.is-flashing .global-stat__value { animation: none; } }
-/* ② S 档（<600px）ORDER 槽位：紧随 .session-stats(order:12)、先于 #btn-settings(order:20) */
+/* ② S 档（<600px）ORDER 槽位：紧随 .stat-grid(order:10)、先于 #btn-settings(order:20)（r36 移除「本局统计」槽位后 .global-stats 升为 order:13 保持其后置） */
 @media (max-width: 599px) {
   .global-stats { order: 13; }
-  /* ③ S 竖屏：#main areas 后置覆写追加 'global' 行（r32 规则体零动；同特异度、声明在后 → 胜出） */
+  /* ③ S 竖屏：#main areas 追加 'global' 行（r36 移除「本局统计」行，恰四区名原样：stats/global/controls/hold-board-next） */
   @media (orientation: portrait) {
-    #main { grid-template-rows: auto auto auto auto minmax(0, 1fr); grid-template-areas:
+    #main { grid-template-rows: auto auto auto minmax(0, 1fr); grid-template-areas:
       'stats stats stats'
-      'session session session'
       'global global global'
       'controls controls controls'
       'hold board next'; }
@@ -2220,7 +2186,7 @@ html:not(.has-touch) .touchpad {
     .global-stats__title { display: none; }
     .global-stat { flex-direction: column; gap: var(--sp-1); }
   }
-  /* ④ S 横屏：自包含玻璃卡（复刻 r32 卡化四件套；不进既有卡化选择器列表） */
+  /* ④ S 横屏：自包含玻璃卡（复刻 §7.1 卡化四件套；不进既有卡化选择器列表） */
   @media (orientation: landscape) {
     .global-stats { width: 100%; max-width: 420px; background: var(--glass-bg); -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--sp-3); margin: var(--sp-2) 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
     .global-stats__title { display: none; }

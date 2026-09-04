@@ -1136,38 +1136,10 @@ test('r31: style.css 按键设置组（keycap/状态类 + has-touch 门控 + 动
 })
 
 /* ════════════════════════════════════════════════════════════════════════
- * r32 会话统计面板（§4.2 纯追加：index.html 节点契约 / 位置隔离 / formatSessionTime
- * 矩阵 / style.css 源扫描；r24~r31 既有断言期望零改动）
+ * r32 会话时长格式化（formatSessionTime 纯函数矩阵 + style.css 源扫描基线；
+ * r36 移除「本局统计」#session-stats 整卡，Delete 其 DOM 节点契约/位置隔离
+ * 断言，其余非 session 断言逐字保留；r24~r31 既有断言期望零改动）
  * ════════════════════════════════════════════════════════════════════════ */
-
-test('r32: index.html #session-stats 节点契约（role=group + 2× session-stat + aria 防刷屏；r35 去重删 #ss-lines 行）', () => {
-  // 节点存在性 + role/aria（AC-14：时长 output 无 aria-live 源码级证明）
-  assert.match(htmlR24, /<div id="session-stats"[^>]*role="group"[^>]*aria-label="本局统计"/,
-    '#session-stats 容器 role=group + aria-label=本局统计')
-  assert.equal(htmlR24.split('class="session-stat"').length - 1, 2, '恰 2 个 .session-stat 行（不含 __label/__value/__announce；r35 删 #ss-lines）')
-  assert.match(htmlR24, /id="ss-placed-value"[^>]*aria-live="polite"[^>]*aria-label="已放置方块数"/,
-    '已放置：aria-live=polite + aria-label')
-  // r35：消行总数唯一于冻结卡 #lines（#ss-lines 行已整节点删除，见文末 §r35 删除证明）
-  const timeOpen = htmlR24.indexOf('id="ss-time-value"')
-  const timeTag = htmlR24.slice(timeOpen, htmlR24.indexOf('>', timeOpen) + 1)
-  assert.ok(timeOpen !== -1 && timeTag.indexOf('aria-live') === -1, '时长 #ss-time-value 无 aria-live（AC-14 防读屏刷屏源码级）')
-  assert.match(htmlR24, /id="session-announce"[^>]*role="status"[^>]*aria-live="polite"/,
-    '#session-announce role=status + aria-live=polite')
-})
-
-test('r32: index.html 位置与隔离（stat-grid 闭合 < #session-stats < .hold-well；计数面零交集）', () => {
-  const statGridOpen = htmlR24.indexOf('<div class="stat-grid"')
-  const sessionOpen = htmlR24.indexOf('id="session-stats"')
-  const holdOpen = htmlR24.indexOf('class="hold-well"')
-  assert.ok(statGridOpen !== -1 && sessionOpen !== -1 && holdOpen !== -1, '三个锚点均在')
-  const gridClose = htmlR24.lastIndexOf('</div>', sessionOpen) // #session-stats 前最后一个 </div> = stat-grid 闭合
-  assert.ok(gridClose > statGridOpen && gridClose < sessionOpen && sessionOpen < holdOpen,
-    '位置序：.stat-grid 闭合 < #session-stats 开 < .hold-well 开（纯追加挂载点）')
-  const frag = htmlR24.slice(sessionOpen, holdOpen)
-  assert.equal(frag.split('class="stat"').length - 1, 0, '面板片段零 .stat（r17 .stat===4 不落新块）')
-  assert.equal(frag.indexOf('class="tkey"'), -1, '面板片段零 .tkey（触控键计数面零交集）')
-  assert.equal(frag.indexOf('data-action'), -1, '面板片段零 data-action（回放器零命中）')
-})
 
 test('r32: formatSessionTime 纯函数矩阵（格式锚点）', () => {
   assert.equal(T.formatSessionTime(0), '00:00')
@@ -1183,7 +1155,7 @@ test('r32: formatSessionTime 纯函数矩阵（格式锚点）', () => {
   assert.equal(T.formatSessionTime(undefined), '00:00')
 })
 
-test('r32: style.css 源扫描（@keyframes 零新增 / 卡化列表不动 / S 竖屏加行 / order:12 / 红线零改动）', () => {
+test('r32: style.css 源扫描（@keyframes 零新增 / 卡化列表不动 / r19 hold-board-next 锚点；r36 移除 session 行/order:12 断言）', () => {
   // ① @keyframes 名集与基线一致（只含既有 4 个，无新增）——闪动复用 stat-flash
   const kf = []
   const kfRe = /^@keyframes\s+([a-zA-Z0-9_-]+)/gm // 行首锚定：真声明（注释提及不算）
@@ -1192,33 +1164,21 @@ test('r32: style.css 源扫描（@keyframes 零新增 / 卡化列表不动 / S �
   const kfBase = ['stat-flash', 'overlay-in', 'toast-in-out', 'frame-pulse']
   assert.equal(kf.length, kfBase.length, '@keyframes 总数仍 ' + kfBase.length + '（零新增关键帧）')
   for (const n of kf) assert.ok(kfBase.indexOf(n) !== -1, '既有关键帧名未被替换：' + n)
-  assert.match(cssR24, /\.session-stat\.is-flashing[^{]*\{[^}]*animation:\s*stat-flash/,
-    '.session-stat.is-flashing 闪动复用既有 stat-flash（非新关键帧）')
-  // ② 既有卡化选择器列表行（§7.1 原文）不含 .session-stats → 独立卡化规则存在
+  // ② 既有卡化选择器列表行（§7.1 原文）不含 .session-stats/.global-stats → 独立卡化规则存在
   const cardSel = '.stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls'
   const cardIdx = cssR24.indexOf(cardSel)
   assert.ok(cardIdx !== -1, '既有卡化选择器列表行在')
   assert.ok(cssR24.slice(cardIdx, cardIdx + cardSel.length).indexOf('session') === -1,
-    '卡化选择器列表未含 .session-stats（横屏自包含玻璃卡不进列表）')
-  // ③ S 竖屏 #main 追加 'session' 网格行；'hold board next' 仍以 #main { … } 形式存在（r19 断言兼容）
-  assert.ok(cssR24.indexOf("'session session session'") !== -1, 'S 竖屏 areas 含 session 行')
+    '卡化选择器列表未含 .session-stats（本局统计卡已移除）')
+  // ③ r19 锚点 #main { … 'hold board next' } 仍命中（S 竖屏网格行序）
   assert.match(cssR24, /#main\s*\{[^}]*'hold board next'/, 'r19 锚点 #main { … \'hold board next\' } 仍命中')
-  // ④ S 档 order:12 槽位（stat-grid 10 与 btn-settings 20 之间）
-  assert.ok(cssR24.indexOf('\n  .session-stats { order: 12; }') !== -1, 'S 档 .session-stats order: 12')
-  // ⑤ 红线零改动：r32 新增片段（文末块）不含既有规则正文行（防整段复制改写）
-  const r32Start = cssR24.indexOf('/* ═ r32 统计面板')
-  assert.ok(r32Start !== -1, 'r32 文末片段锚点存在')
-  const r32Slice = cssR24.slice(r32Start)
-  for (const needle of ['padding-right: 112px', 'gap: var(--sp-5)', '.touchpad', '.tkey', 'data-action']) {
-    assert.ok(r32Slice.indexOf(needle) === -1, 'r32 新片段不含既有正文：' + needle)
-  }
-  assert.equal(/^@keyframes/m.test(r32Slice), false, 'r32 新片段零关键帧声明（注释提及 stat-flash 除外）')
 })
 
 /* ════════════════════════════════════════════════════════════════════════
  * r34 全局统计面板（§4.2 纯追加：index.html 节点契约 / 位置隔离 / style.css
- * 源扫描；r35 去重收口原地改写计数面——.stat 恰 4、.session-stat 3→2、
- * .global-stat 5→4，areas 子串、order 10/12/13/20、卡化列表行全部原样穿过）
+ * 源扫描；r35 去重收口原地改写计数面——.stat 恰 4、.global-stat 5→4；
+ * r36 移除「本局统计」整卡后位置隔离改为 stat-grid 闭合 < #global-stats，
+ * 删去全部 .session-stat 计数断言（现应为 0），areas/order 断言仅留 global 行）
  * ════════════════════════════════════════════════════════════════════════ */
 
 test('r34: index.html #global-stats 节点契约（role=group + 恰 4 行 .global-stat + 四 aria-label 完整名 + 初值 0/0/00:00/0；r35 删 #gs-hi）', () => {
@@ -1240,20 +1200,19 @@ test('r34: index.html #global-stats 节点契约（role=group + 恰 4 行 .globa
   assert.match(htmlR24, /<output id="gs-time-value"[^>]*>00:00<\/output>/, 'gs-time-value 初值 00:00')
 })
 
-test('r34: index.html 位置与隔离（session-stats 闭合 < #global-stats < .hold-well；计数面零交集）', () => {
-  const sessionOpen = htmlR24.indexOf('id="session-stats"')
+test('r34: index.html 位置与隔离（stat-grid 闭合 < #global-stats < .hold-well；计数面零交集）', () => {
+  const statGridOpen = htmlR24.indexOf('<div class="stat-grid"')
   const globalOpen = htmlR24.indexOf('id="global-stats"')
   const holdOpen = htmlR24.indexOf('class="hold-well"')
-  assert.ok(sessionOpen !== -1 && globalOpen !== -1 && holdOpen !== -1, '三锚点均在')
-  const sessionClose = htmlR24.indexOf('</div>', sessionOpen) // #session-stats 内第一个 </div> 即其闭合
-  assert.ok(sessionClose < globalOpen && globalOpen < holdOpen,
-    '位置序：#session-stats 闭合 < #global-stats 开 < .hold-well 开（纯追加挂载点）')
-  // 隔离：全文 .stat 仍恰 4（r17）、.session-stat 仍恰 2（r35 去重）——global-stat 不落两冻结卡计数面
+  assert.ok(statGridOpen !== -1 && globalOpen !== -1 && holdOpen !== -1, '三个锚点均在')
+  const gridClose = htmlR24.lastIndexOf('</div>', globalOpen) // #global-stats 前最后一个 </div> = stat-grid 闭合
+  assert.ok(gridClose > statGridOpen && gridClose < globalOpen && globalOpen < holdOpen,
+    '位置序：.stat-grid 闭合 < #global-stats 开 < .hold-well 开（r36 移除 session 卡后信息面板恰两组）')
+  // 隔离：全文 .stat 仍恰 4（r17）——global-stat 不落 r17 冻结计数面；.session-stat 已随整卡移除
   assert.equal(htmlR24.split('class="stat"').length - 1, 4, '全文 class="stat" 仍恰 4（r17 基线，global-stat 不干扰精确串）')
-  assert.equal(htmlR24.split('class="session-stat"').length - 1, 2, '全文 class="session-stat" 仍恰 2（r35 去重后基线）')
+  assert.equal(htmlR24.split('class="session-stat"').length - 1, 0, '全文 class="session-stat" 恰 0（r36 整卡移除）')
   const frag = htmlR24.slice(globalOpen, holdOpen)
   assert.equal(frag.split('class="stat"').length - 1, 0, 'global 卡片段零 .stat（计数面零交集）')
-  assert.equal(frag.split('class="session-stat"').length - 1, 0, 'global 卡片段零 .session-stat（本局两卡冻结）')
 })
 
 test('r34: style.css 源扫描（stat-flash 复用 / 文末块零关键帧 / S 竖屏加行 / order:13 / 卡化列表不动 / 红线零改动）', () => {
@@ -1261,16 +1220,14 @@ test('r34: style.css 源扫描（stat-flash 复用 / 文末块零关键帧 / S �
   assert.match(cssR24, /\.global-stat\.is-flashing[^{]*\{[^}]*animation:\s*stat-flash/,
     '.global-stat.is-flashing 闪动复用既有 stat-flash')
   // ② r34 文末块锚点起片段零 @keyframes 声明
-  const r34Start = cssR24.indexOf('/* ═ r34 全局统计面板')
+  const r34Start = cssR24.indexOf('/* ═ r34/r36 全局统计面板')
   assert.ok(r34Start !== -1, 'r34 文末片段锚点存在')
   const r34Slice = cssR24.slice(r34Start)
   assert.equal(/^@keyframes/m.test(r34Slice), false, 'r34 新片段零关键帧声明')
-  // ③ S 竖屏 #main areas：含 global 行且 r32 session 行、r19 'hold board next' 原样命中（后置覆写非改写）
+  // ③ S 竖屏 #main areas：含 global 行且 r19 'hold board next' 原样命中（r36 移除 session 行后恰四区名）
   assert.ok(cssR24.indexOf("'global global global'") !== -1, 'S 竖屏 areas 含 global 行')
-  assert.ok(cssR24.indexOf("'session session session'") !== -1, 'r32 session areas 行原样保留')
   assert.match(cssR24, /#main\s*\{[^}]*'hold board next'/, 'r19 锚点 #main { … \'hold board next\' } 仍命中')
-  // ④ S 档 order:13 槽位（紧随 .session-stats order:12、先于 #btn-settings order:20）；两句行格式断言
-  assert.ok(cssR24.indexOf('\n  .session-stats { order: 12; }') !== -1, 'r32 .session-stats order: 12 原样')
+  // ④ S 档 order:13 槽位（r36 移除 session order:12 后紧随 .stat-grid；先于 #btn-settings order:20）
   assert.ok(cssR24.indexOf('\n  .global-stats { order: 13; }') !== -1, 'S 档 .global-stats order: 13')
   // ⑤ 既有卡化选择器列表行不含 .global-stats（横屏自包含玻璃卡不进列表）
   const cardSel = '.stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls'
@@ -1285,9 +1242,10 @@ test('r34: style.css 源扫描（stat-flash 复用 / 文末块零关键帧 / S �
 })
 
 /* ════════════════════════════════════════════════════════════════════════
- * r35 统计面板去重收口（纯展示面：整节点删除 #gs-hi 与 #ss-lines 两行，删除非
- * 隐藏——本段用 indexOf===-1 证明 id 已彻底移除，拦截「改为隐藏/注释而非删除」
- * 的绕过；最高分唯一单通道 #hi-score、本局消行唯一 #lines）
+ * r35/r36 统计面板去重收口 + 整卡移除（纯展示面：r35 整节点删除 #gs-hi 与
+ * #ss-lines 两行，r36 进一步移除整个「本局统计」#session-stats 卡——本段用
+ * indexOf===-1 / querySelector 法证明相关 id/类已彻底消失，拦截「改为隐藏/
+ * 注释而非删除」的绕过；最高分唯一单通道 #hi-score、本局消行唯一 #lines）
  * ════════════════════════════════════════════════════════════════════════ */
 
 test('r35: #gs-hi 整节点删除证明（id 不存在 == 删除非隐藏，拦截隐藏绕过）', () => {
@@ -1296,13 +1254,17 @@ test('r35: #gs-hi 整节点删除证明（id 不存在 == 删除非隐藏，拦�
   assert.ok(htmlR24.indexOf('id="hi-score"') !== -1, '#hi-score 保留：最高分唯一单通道（r17 冻结 + aria-live=polite）')
 })
 
-test('r35: #ss-lines 整节点删除证明（id 不存在 == 删除非隐藏，拦截隐藏绕过）', () => {
-  assert.equal(htmlR24.indexOf('id="ss-lines"'), -1, '#ss-lines 容器 id 已移除（若仅隐藏 id 仍在，此处失败）')
-  assert.equal(htmlR24.indexOf('id="ss-lines-value"'), -1, '#ss-lines-value 输出已移除：本局消行镜像删除')
-  assert.ok(htmlR24.indexOf('id="lines"') !== -1, '#lines 保留：本局消行唯一（冻结卡，aria-live=polite）')
-})
-
-test('r35: 面板计数收敛（全局卡 5→4、本局卡 3→2，与 r32/r34 计数断言同源）', () => {
+test('r36: #session-stats 整卡删除证明（#session-stats/.session-stat/#ss-/session-announce 全消失，信息面板恰两组）', () => {
+  // #session-stats 整卡（含两行 .session-stat + session-announce）已彻底移除（删除非隐藏）
+  assert.equal(htmlR24.indexOf('id="session-stats"'), -1, '#session-stats 容器 id 已移除（若仅隐藏 id 仍在，此处失败）')
+  assert.equal(htmlR24.indexOf('id="ss-placed"'), -1, '#ss-placed 行 id 已移除（本局已放置行删除）')
+  assert.equal(htmlR24.indexOf('id="ss-placed-value"'), -1, '#ss-placed-value 输出已移除（本局已放置镜像删除）')
+  assert.equal(htmlR24.indexOf('id="ss-time"'), -1, '#ss-time 行 id 已移除（本局对局时长行删除）')
+  assert.equal(htmlR24.indexOf('id="ss-time-value"'), -1, '#ss-time-value 输出已移除（本局对局时长镜像删除）')
+  assert.equal(htmlR24.indexOf('id="ss-lines"'), -1, '#ss-lines 容器 id 已移除（r35 删除后 r36 保持）')
+  assert.equal(htmlR24.indexOf('id="session-announce"'), -1, '#session-announce 播报节点已移除（本局播报删除）')
+  // 信息面板恰两组：.stat-grid 四块 + #global-stats 四行；.session-stat 恰 0
+  assert.equal(htmlR24.split('class="session-stat"').length - 1, 0, '.session-stat 恰 0（整卡移除）')
   assert.equal(htmlR24.split('class="global-stat"').length - 1, 4, '.global-stat 恰 4（gs-placed/gs-lines/gs-time/gs-games）')
-  assert.equal(htmlR24.split('class="session-stat"').length - 1, 2, '.session-stat 恰 2（ss-placed/ss-time）')
+  assert.ok(htmlR24.indexOf('id="lines"') !== -1, '#lines 保留：本局消行唯一（冻结卡，aria-live=polite）')
 })

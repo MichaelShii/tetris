@@ -25,9 +25,8 @@
  *   TetrisUI.isTouchDevice()                          （r16 触屏能力检测，Node 恒 false）
  *   TetrisUI.createTouchControls(els, game, opts?)    （r16 触屏输入控制器 → { dispose }，
  *                                                      签名风格同 createHud/createAudioPanel）
- *   TetrisUI.formatSessionTime(ms)                    （r32 会话时长格式纯函数，Node 可单测）
- *   TetrisUI.createSessionStats(els)                  （r32 会话统计只读渲染 →
- *                                                      { update, dispose, getAnnounceWrites }）
+ *   TetrisUI.formatSessionTime(ms)                    （r32 会话时长格式纯函数，Node 可单测；
+ *                                                      r36 起供全局统计累计时长复用）
  *
  * 自动装配：ui.js 加载后若检测到应用 DOM（#board 存在），将在 DOMContentLoaded
  * 时自动 createUI() 并把句柄写入 window.__tetris（双击 index.html 即玩，AC-01）。
@@ -43,7 +42,6 @@
  *   │   │   ├─ #stat-score.stat    > .stat__label + .stat__value.stat__value--score
  *   │   │   ├─ #stat-level.stat    > .stat__label + .stat__value.stat__value--num
  *   │   │   ├─ #stat-lines.stat    > .stat__label + .stat__value.stat__value--num
- *   │   │   ├─ #session-stats.session-stats（r32 本局统计面板：3× .session-stat + #session-announce）
  *   │   │   ├─ .hold-well > .stat__label + #hold-well（4×2 迷你 Canvas，r14 Hold 暂存）
  *   │   │   ├─ .next-well > .stat__label + #next-well（48×80 三格队列 Canvas，r15）
  *   │   │   └─ #audio-controls.audio-controls（v2.0 音量控件）
@@ -1320,9 +1318,10 @@
     }
 
     /* ======================================================================
-     * 3c. r32 会话统计面板（formatSessionTime + createSessionStats；纯追加）
-     *     数据源：game.js 快照 piecesPlaced（成功落定计数）/ sessionTimeMs（有效时长 ms，
-     *     暂停不计、OVER 定格）——UI 只读渲染、绝不独立累计（AC-2 单一计数源红线）。
+     * 3c. r32 会话时长格式化（formatSessionTime）+ r36 移除「本局统计」整卡：
+     *     r36 删除「本局统计」面板（含其只读渲染组件与状态跳变播报），
+     *     仅保留 formatSessionTime 纯函数（供 r34 全局统计累计时长复用）。
+     *     数据源：game.js 快照 sessionTimeMs（有效时长 ms，暂停不计、OVER 定格）。
      *     动效全复用既有 .is-flashing + stat-flash（120ms，HUD_FLASH_MS），零新增关键帧。
      * ==================================================================== */
 
@@ -1341,84 +1340,14 @@
     }
 
     /**
-     * r32：会话统计只读渲染组件（签名平行 createHud）→ { update, dispose, getAnnounceWrites }。
-     * els: { placed, time, announce }——#ss-placed-value / #ss-time-value / #session-announce
-     *   （createUI 内 must() 装配，缺失即抛错；r35 删 #ss-lines 行，本局消行唯一于冻结卡 #lines）。
-     * 只读快照渲染（数据面单一计数源在引擎，AC-2）：
-     *   - 已放置：s.piecesPlaced 文本变更才写 + 行级 .is-flashing 闪动（120ms，复用 stat-flash）；
-     *   - 时长：formatSessionTime(s.sessionTimeMs) 文本变更才写，**不 flash、不播报**（每秒静默）；
-     *   - 播报（AC-14 防刷屏）：#session-announce 仅 phase 跳变写一次文本（状态机驱动、
-     *     非值变化驱动）——→RUNNING「计时开始」/ →PAUSED「已暂停，对局时长 …」/
-     *     →OVER「游戏结束，最终时长 …」；READY 及同态数值刷新（含每秒秒数变化）零播报。
-     *   flash 行 = 值元素父节点（.session-stat 行；独立测试实例无父节点时闪动安全跳过）。
-     *   getAnnounceWrites()：announce 写入计数（组件自持，供 qa-e2e 防刷屏断言）。
-     * 注：flash 小段与 createHud.flash 刻意重复（≤8 行，不抽公共 helper——抽离须改既有
-     *   createHud，违反 r32 既有逻辑零改红线；接受为受控重复，独立重构单另议）。
-     */
-    function createSessionStats(els) {
-      const timers = new Map()
-      let lastPhase = null
-      let announceWrites = 0
-
-      function flash(block) {
-        if (!block) return
-        const prev = timers.get(block)
-        if (prev !== undefined) clearTimeout(prev)
-        block.classList.add('is-flashing')
-        timers.set(block, setTimeout(function () {
-          block.classList.remove('is-flashing')
-          timers.delete(block)
-        }, HUD_FLASH_MS))
-      }
-
-      function setText(el, value) {
-        if (el.textContent !== value) el.textContent = value
-      }
-
-      function announce(text) {
-        announceWrites += 1
-        setText(els.announce, text)
-      }
-
-      function update(s) {
-        // 已放置：值与 textContent 不同才写 + 闪动（.is-flashing 挂 .session-stat 行，CSS 驱动值闪）
-        const placedText = String(typeof s.piecesPlaced === 'number' ? s.piecesPlaced : 0)
-        if (els.placed.textContent !== placedText) {
-          setText(els.placed, placedText)
-          flash(els.placed.parentElement)
-        }
-        // 时长：文本变更才写；不 flash、不写 announce（每秒静默，AC-14）
-        setText(els.time, formatSessionTime(s.sessionTimeMs))
-        // 播报：仅 phase 跳变（状态机驱动，非值变化驱动）；READY 不播报；首帧写入不播报
-        if (s.phase !== lastPhase) {
-          lastPhase = s.phase
-          if (s.phase === 'RUNNING') announce('计时开始')
-          else if (s.phase === 'PAUSED') announce('已暂停，对局时长 ' + formatSessionTime(s.sessionTimeMs))
-          else if (s.phase === 'OVER') announce('游戏结束，最终时长 ' + formatSessionTime(s.sessionTimeMs))
-        }
-      }
-
-      function dispose() {
-        timers.forEach(function (t) { clearTimeout(t) })
-        timers.clear()
-      }
-
-      return {
-        update: update,
-        dispose: dispose,
-        getAnnounceWrites: function () { return announceWrites },
-      }
-    }
-
-    /**
-     * r34：全局统计只读渲染组件（签名平行 createSessionStats）→ { update, dispose }。
+     * r34：全局统计只读渲染组件（签名 r36 起对齐 createHud → { update, dispose }）。
      * els: { placed, lines, time, games }——#gs-placed-value / #gs-lines-value /
      *   #gs-time-value / #gs-games-value（createUI 内 must()×4 装配，缺失即抛错）。
      * 只读镜像 persist 载荷（禁独立累计，AC-4 漂移红线）：update(payload) 接受**部分**载荷
      *   { placed?, lines?, timeMs?, games? }，缺省字段跳过；值文本变更才写 + 行级 .is-flashing
      *   闪动（120ms，复用 stat-flash）；timeMs 经 formatSessionTime（mm:ss / ≥1h hh:mm:ss，与 r32 同函数）。
-     * flash 小段与 createHud/createSessionStats 刻意重复（≤8 行，不抽公共 helper——抽离须改既有组件，
-     * 违反既有逻辑零改红线；r32 已接受此受控重复，承继同款理由）。
+     * flash 小段与 createHud 刻意重复（≤8 行，不抽公共 helper——抽离须改既有组件，
+     * 违反既有逻辑零改红线；r32/r34 已接受此受控重复，承继同款理由）。
      */
     function createGlobalStats(els) {
       const timers = new Map()
@@ -1530,15 +1459,6 @@
       const hud = createHud(hudEls)
       const overlay = createOverlay(overlayEls)
       const feedback = createFeedback({ toast: toastEl, rewardToast: rewardToastEl, boardFrame: boardFrame }) // r21：双槽（LEVEL UP + 特殊奖励）
-      /* ---- r32 会话统计面板（只读渲染 + 状态跳变播报；零交互控件/零事件监听） ----
-         挂载点 #session-stats 与 ui.js must() 装配契约同批交付（T2 index.html，缺失即抛错）：
-         走既有组件装配路径（同 buildRewardText/createHud 先例），只读消费快照
-         piecesPlaced/sessionTimeMs，绝不独立累计（AC-2 单一计数源红线）。 ---- */
-      const sessionStats = createSessionStats({
-        placed: must('#ss-placed-value'),
-        time: must('#ss-time-value'),
-        announce: must('#session-announce'),
-      })
       /* ---- r34 全局统计面板（只读镜像 persist 载荷；挂载点 #global-stats 与 must()×4 契约同批交付——
          缺失即抛错；零交互控件/零事件监听，数据唯一事实在 persist 层，AC-4 禁 UI 独立累计） ---- */
       const globalStats = createGlobalStats({
@@ -2055,7 +1975,6 @@
         }
         holdWell.render(holdEnabled ? s.holdPiece : null)
         hud.update(s)
-        sessionStats.update(s) // r32：会话统计只读渲染（hud.update 之后，纯追加）
         if (s.phase === 'RUNNING') overlay.hide()
         else overlay.show(s.phase, { finalScore: s.score })
         // GAME OVER 板框红光描边（style.css #board-frame.is-gameover，DESIGN §4.2）
@@ -2407,8 +2326,7 @@
         holdWell.dispose()
         nextWell.dispose()
         hud.dispose()
-        sessionStats.dispose() // r32：清除会话统计内部定时器（与 createHud 对称）
-        globalStats.dispose() // r34：清除全局统计闪动定时器（与 sessionStats 对称）
+        globalStats.dispose() // r34：清除全局统计闪动定时器（与 createHud 对称）
         overlay.dispose()
         feedback.dispose()
         game.dispose()
@@ -2475,9 +2393,7 @@
       createOverlay: createOverlay,
       createFeedback: createFeedback,
       createAudioPanel: createAudioPanel, // v2.0：音量/静音控件（AC-10，签名对齐 TECHNICAL §3.3）
-      // r32：会话统计只读渲染组件（签名平行 createHud → { update, dispose, getAnnounceWrites }）
-      createSessionStats: createSessionStats,
-      // r34：全局统计只读渲染组件（签名平行 createSessionStats → { update, dispose }；只读镜像 persist 载荷）
+      // r34：全局统计只读渲染组件（签名平行 createHud → { update, dispose }；只读镜像 persist 载荷）
       createGlobalStats: createGlobalStats,
       // r16：触屏输入通道（TOUCH_KEYS 单一事实来源 / 能力检测 / 输入控制器，签名对齐 TECHNICAL §3.1/§3.3）
       TOUCH_KEYS: TOUCH_KEYS,

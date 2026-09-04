@@ -1,0 +1,7 @@
+{
+  "reqId": "req-36",
+  "runId": "tf-mtmsmpol-ej6242",
+  "title": "删掉整个「本局统计」块（#session-stats 卡，含已放置、对局时长两行 + session-announce 播报），信息面板只保留两组：「对局统计」",
+  "mode": "lite",
+  "createdAt": 1788516642746
+}
