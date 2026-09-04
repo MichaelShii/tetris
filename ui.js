@@ -1417,6 +1417,59 @@
       }
     }
 
+    /**
+     * r34：全局统计只读渲染组件（签名平行 createSessionStats）→ { update, dispose }。
+     * els: { hi, placed, lines, time, games }——#gs-hi-value / #gs-placed-value / #gs-lines-value /
+     *   #gs-time-value / #gs-games-value（createUI 内 must()×5 装配，缺失即抛错）。
+     * 只读镜像 persist 载荷（禁独立累计，AC-4 漂移红线）：update(payload) 接受**部分**载荷
+     *   { hi?, placed?, lines?, timeMs?, games? }，缺省字段跳过；值文本变更才写 + 行级 .is-flashing
+     *   闪动（120ms，复用 stat-flash）；timeMs 经 formatSessionTime（mm:ss / ≥1h hh:mm:ss，与 r32 同函数）。
+     * flash 小段与 createHud/createSessionStats 刻意重复（≤8 行，不抽公共 helper——抽离须改既有组件，
+     * 违反既有逻辑零改红线；r32 已接受此受控重复，承继同款理由）。
+     */
+    function createGlobalStats(els) {
+      const timers = new Map()
+
+      function flash(block) {
+        if (!block) return
+        const prev = timers.get(block)
+        if (prev !== undefined) clearTimeout(prev)
+        block.classList.add('is-flashing')
+        timers.set(block, setTimeout(function () {
+          block.classList.remove('is-flashing')
+          timers.delete(block)
+        }, HUD_FLASH_MS))
+      }
+
+      function setText(el, value) {
+        if (el.textContent !== value) el.textContent = value
+      }
+
+      function setNum(el, value) {
+        const t = String(value)
+        if (el.textContent !== t) {
+          setText(el, t)
+          flash(el.parentElement)
+        }
+      }
+
+      function update(p) {
+        if (!p || typeof p !== 'object') return
+        if (typeof p.hi === 'number') setNum(els.hi, p.hi)
+        if (typeof p.placed === 'number') setNum(els.placed, p.placed)
+        if (typeof p.lines === 'number') setNum(els.lines, p.lines)
+        if (typeof p.timeMs === 'number') setNum(els.time, formatSessionTime(p.timeMs))
+        if (typeof p.games === 'number') setNum(els.games, p.games)
+      }
+
+      function dispose() {
+        timers.forEach(function (t) { clearTimeout(t) })
+        timers.clear()
+      }
+
+      return { update: update, dispose: dispose }
+    }
+
     /* ======================================================================
      * 4. 装配 createUI —— 一键接入 game.js（持有渲染/UI 全部副作用）
      * ==================================================================== */
@@ -1494,6 +1547,15 @@
         lines: must('#ss-lines-value'),
         time: must('#ss-time-value'),
         announce: must('#session-announce'),
+      })
+      /* ---- r34 全局统计面板（只读镜像 persist 载荷；挂载点 #global-stats 与 must()×5 契约同批交付——
+         缺失即抛错；零交互控件/零事件监听，数据唯一事实在 persist 层，AC-4 禁 UI 独立累计） ---- */
+      const globalStats = createGlobalStats({
+        hi: must('#gs-hi-value'),
+        placed: must('#gs-placed-value'),
+        lines: must('#gs-lines-value'),
+        time: must('#gs-time-value'),
+        games: must('#gs-games-value'),
       })
 
       /* ---- 触屏操控区装配（r16，AC-1 显隐；TECHNICAL §2.2） ----
@@ -1876,6 +1938,8 @@
           ? opts.persist
           : null
       let persistedHighScore = 0
+      // r34 全局统计只读镜像（唯一覆写点：load 恢复初值 / onStats 全量读回 / 破纪录 hi 同源；绝不独立累计，AC-4）
+      const statsUi = { hi: 0, placed: 0, lines: 0, timeMs: 0, games: 0 }
       // 可选 HUD 最高分元素（#hi-score）：装配根未提供则该钩子为空——回读为 no-op、向后兼容
       const hiScoreEl = persist ? root.querySelector('#hi-score') : null
 
@@ -1933,6 +1997,16 @@
             }
           }
         }
+        // r34 全局统计：初始镜像 = persist 载荷（只读；缺省 0/00:00；禁 UI 独立累计，AC-4 漂移红线）
+        statsUi.hi = persistedHighScore
+        const gs = loaded && loaded.stats && typeof loaded.stats === 'object' ? loaded.stats : null
+        if (gs) {
+          if (typeof gs.placed === 'number') statsUi.placed = gs.placed
+          if (typeof gs.lines === 'number') statsUi.lines = gs.lines
+          if (typeof gs.timeMs === 'number') statsUi.timeMs = gs.timeMs
+          if (typeof gs.games === 'number') statsUi.games = gs.games
+        }
+        globalStats.update(statsUi)
         if (touchPadEl) applyDockSkin(touchPadEl, dockSkin)
         syncDockSkin() // radio checked 镜像（含 #touch-controls 缺失时的纯状态恢复）
         audioPanel.sync() // 音量/静音 DOM 镜像
@@ -2046,6 +2120,9 @@
             persistedHighScore = s.score
             try { persist.saveHighScore(s.score) } catch (e) { /* 契约不 throw，兜底不中断 */ }
             updateHiScoreEl()
+            // r34：破纪录时点同源恒等（与 #hi-score 同一变量 persistedHighScore）刷新全局最高分行
+            statsUi.hi = persistedHighScore
+            globalStats.update({ hi: persistedHighScore })
           }
           if (typeof opts.onSnapshot === 'function') opts.onSnapshot(s)
         },
@@ -2058,6 +2135,23 @@
         },
         onSfx: function (name) {
           sfx.play(name) // 事件名 → 合成引擎（AC-09；发声职责唯一在 audio.js）
+        },
+        // r34 全局统计入账/补记：集成点唯一接线——引擎 onStats（'over' 定格 / 'flush' 补记）→
+        // persist.saveStats 只增不减累加 → load 读回全量覆写 statsUi 镜像（UI 只读，禁独立累计 AC-4）；
+        // persist 缺 saveStats 时等效旧版（跳过持久化，UI 静默）；契约不 throw，兜底不中断
+        onStats: function (delta) {
+          if (persist && typeof persist.saveStats === 'function') {
+            try {
+              persist.saveStats(delta)
+              const st = persist.load()
+              statsUi.hi = st.highScore
+              statsUi.placed = st.stats.placed
+              statsUi.lines = st.stats.lines
+              statsUi.timeMs = st.stats.timeMs
+              statsUi.games = st.stats.games
+              globalStats.update(statsUi)
+            } catch (e) { /* 契约不 throw，兜底不中断 */ }
+          }
         },
       })
 
@@ -2329,6 +2423,7 @@
         nextWell.dispose()
         hud.dispose()
         sessionStats.dispose() // r32：清除会话统计内部定时器（与 createHud 对称）
+        globalStats.dispose() // r34：清除全局统计闪动定时器（与 sessionStats 对称）
         overlay.dispose()
         feedback.dispose()
         game.dispose()
@@ -2397,6 +2492,8 @@
       createAudioPanel: createAudioPanel, // v2.0：音量/静音控件（AC-10，签名对齐 TECHNICAL §3.3）
       // r32：会话统计只读渲染组件（签名平行 createHud → { update, dispose, getAnnounceWrites }）
       createSessionStats: createSessionStats,
+      // r34：全局统计只读渲染组件（签名平行 createSessionStats → { update, dispose }；只读镜像 persist 载荷）
+      createGlobalStats: createGlobalStats,
       // r16：触屏输入通道（TOUCH_KEYS 单一事实来源 / 能力检测 / 输入控制器，签名对齐 TECHNICAL §3.1/§3.3）
       TOUCH_KEYS: TOUCH_KEYS,
       isTouchDevice: isTouchDevice,

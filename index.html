@@ -67,6 +67,30 @@
         </div>
         <p id="session-announce" class="session-stat__announce" role="status" aria-live="polite"></p>
       </div>
+      <!-- r34：全局统计独立面板（纯追加；「本局组」= .stat-grid + #session-stats 既有两卡合计，勿塞入两冻结卡） -->
+      <div id="global-stats" class="global-stats" role="group" aria-label="全局统计">
+        <h3 class="global-stats__title">全局统计</h3>
+        <div id="gs-hi" class="global-stat">
+          <span class="global-stat__label">最高分</span>
+          <output id="gs-hi-value" class="global-stat__value" aria-live="polite" aria-label="最高分">0</output>
+        </div>
+        <div id="gs-placed" class="global-stat">
+          <span class="global-stat__label">累计方块</span>
+          <output id="gs-placed-value" class="global-stat__value" aria-live="polite" aria-label="累计已放置方块数">0</output>
+        </div>
+        <div id="gs-lines" class="global-stat">
+          <span class="global-stat__label">累计消行</span>
+          <output id="gs-lines-value" class="global-stat__value" aria-live="polite" aria-label="累计消行总数">0</output>
+        </div>
+        <div id="gs-time" class="global-stat">
+          <span class="global-stat__label">累计时长</span>
+          <output id="gs-time-value" class="global-stat__value" aria-live="polite" aria-label="累计游戏时长">00:00</output>
+        </div>
+        <div id="gs-games" class="global-stat">
+          <span class="global-stat__label">对局次数</span>
+          <output id="gs-games-value" class="global-stat__value" aria-live="polite" aria-label="对局次数">0</output>
+        </div>
+      </div>
       <div class="hold-well">
         <span class="stat__label">Hold 暂存</span>
         <canvas id="hold-well" width="48" height="24" aria-label="Hold 暂存方块预览"></canvas>

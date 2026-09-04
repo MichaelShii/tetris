@@ -439,3 +439,95 @@ test('persist: r31 keybindings 经真实写/读往返恢复 + 旧载荷缺字段
   const old = P.createPersistence({ storage: backing2 }).load()
   assert.deepEqual(old.settings.keybindings, P.DEFAULT_KEYBINDINGS, '旧载荷无 keybindings → 补默认表')
 })
+
+/* ============================================================================
+ * 10. r34 全局统计持久化（纯追加段：saveStats 只增不减累加 / 旧载荷全 0 / 空增量 /
+ *     降级 / dispose / 混合保留；PAYLOAD_VERSION 保持 1——additive 不升版）
+ * ========================================================================== */
+test('r34: DEFAULT_STATS 导出 + load 初始 stats 全 0（PAYLOAD_VERSION 仍 1）', () => {
+  assert.deepEqual(P.DEFAULT_STATS, { placed: 0, lines: 0, timeMs: 0, games: 0 }, 'DEFAULT_STATS 四元组默认')
+  const backing = makeBacking()
+  const p = P.createPersistence({ storage: backing })
+  const loaded = p.load()
+  assert.deepEqual(loaded.stats, { placed: 0, lines: 0, timeMs: 0, games: 0 }, '空库存初始 stats 全 0')
+  assert.equal(P.PAYLOAD_VERSION, 1, 'r34 新增 stats 字段不升 PAYLOAD_VERSION（additive）')
+})
+
+test('r34: saveStats 写入→读出 roundtrip（跨实例恢复）', () => {
+  const backing = makeBacking()
+  const p1 = P.createPersistence({ storage: backing })
+  p1.saveStats({ placed: 12, lines: 30, timeMs: 60000, games: 3 })
+  const p2 = P.createPersistence({ storage: backing }) // 等价刷新重开
+  const loaded2 = p2.load()
+  assert.deepEqual(loaded2.stats, { placed: 12, lines: 30, timeMs: 60000, games: 3 }, '四字段跨实例恢复')
+})
+
+test('r34: 只增不减——负/NaN/非数增量清洗为 0 不叠加；浮点 floor；叠加单调递增', () => {
+  const backing = makeBacking()
+  const p = P.createPersistence({ storage: backing })
+  p.saveStats({ placed: 5, lines: 0, timeMs: 1000, games: 1 })
+  p.saveStats({ placed: -3, lines: NaN, timeMs: 'x', games: -1 }) // 各字段非法 → 0
+  let s = p.load().stats
+  assert.deepEqual(s, { placed: 5, lines: 0, timeMs: 1000, games: 1 }, '非法增量零叠加（只增不减天然成立）')
+  p.saveStats({ placed: 2.9, lines: 3.7, timeMs: 250.9, games: 0.9 }) // 浮点 → floor
+  s = p.load().stats
+  assert.equal(s.placed, 7, 'placed 5+2（floor 2.9）')
+  assert.equal(s.lines, 3, 'lines 0+3（floor 3.7）')
+  assert.equal(s.timeMs, 1250, 'timeMs 1000+250（floor 250.9）')
+  assert.equal(s.games, 1, 'games 1+0（floor 0.9）')
+  p.saveStats({ placed: 0, lines: 0, timeMs: 500, games: 0 })
+  assert.equal(p.load().stats.timeMs, 1750, '部分字段增量单字段叠加')
+})
+
+test('r34: 空增量快路径——返回 true 且底层字符串不变（不写盘）', () => {
+  const backing = makeBacking()
+  const p = P.createPersistence({ storage: backing })
+  p.saveStats({ placed: 5, lines: 0, timeMs: 0, games: 0 })
+  const before = backing.get(P.TETRIS_PERSIST_KEY)
+  const ret = p.saveStats({ placed: 0, lines: 0, timeMs: 0, games: 0 })
+  assert.equal(ret, true, '空增量按成功返回')
+  assert.equal(backing.get(P.TETRIS_PERSIST_KEY), before, '空增量未写盘（幂等快路径）')
+  assert.equal(p.saveStats(undefined), true, 'delta 缺失 → 空增量成功不写盘')
+})
+
+test('r34: 旧载荷（仅 highScore+settings）→ stats 全 0 且 highScore 原值保留（AC-3）', () => {
+  const legacy = { version: P.PAYLOAD_VERSION, highScore: 300, settings: { volume: 0.7, muted: true } }
+  const backing = makeBacking()
+  seedRaw(backing, P.TETRIS_PERSIST_KEY, JSON.stringify(legacy))
+  const p = P.createPersistence({ storage: backing })
+  const loaded = p.load()
+  assert.equal(loaded.highScore, 300, '旧载荷最高分原值保留')
+  assert.equal(loaded.settings.volume, 0.7, '旧载荷设置原值保留')
+  assert.deepEqual(loaded.stats, { placed: 0, lines: 0, timeMs: 0, games: 0 }, '旧载荷无 stats → 全 0（AC-3）')
+})
+
+test('r34: 内存降级（无 localStorage）saveStats 不 throw 且成功；dispose 后 false', () => {
+  const p = P.createPersistence() // 内存 Map
+  let ret
+  assert.doesNotThrow(() => { ret = p.saveStats({ placed: 7, lines: 1, timeMs: 500, games: 1 }) })
+  assert.equal(ret, true, '内存降级 saveStats 静默成功')
+  assert.deepEqual(p.load().stats, { placed: 7, lines: 1, timeMs: 500, games: 1 }, '降级下会话内往返')
+  p.dispose()
+  assert.equal(p.saveStats({ placed: 1, lines: 0, timeMs: 0, games: 0 }), false, 'dispose 后 saveStats 返回 false')
+})
+
+test('r34: 混合保留——saveStats 不改 highScore/settings；saveHighScore/saveSettings 不清 stats（单键顶端字段保全）', () => {
+  const backing = makeBacking()
+  const p = P.createPersistence({ storage: backing })
+  p.saveHighScore(120)
+  p.saveSettings({ volume: 0.5, muted: true, ghostEnabled: false, bgmEnabled: true, wallKickEnabled: false, holdEnabled: false, previewQueueEnabled: false, dockSkin: 'pod', keybindings: { moveLeft: 'a' } })
+  p.saveStats({ placed: 4, lines: 1, timeMs: 2000, games: 1 })
+  let loaded = p.load()
+  assert.equal(loaded.highScore, 120, 'saveStats 后 highScore 原值不变')
+  assert.equal(loaded.settings.muted, true, 'saveStats 后 settings 原值不变')
+  assert.deepEqual(loaded.stats, { placed: 4, lines: 1, timeMs: 2000, games: 1 }, 'stats 入账完毕')
+  // 兜底红线：随后 saveHighScore/saveSettings 均整体写盘——不得清掉已入账 stats
+  p.saveHighScore(150)
+  loaded = p.load()
+  assert.equal(loaded.highScore, 150, '更高分写入成功')
+  assert.deepEqual(loaded.stats, { placed: 4, lines: 1, timeMs: 2000, games: 1 }, 'saveHighScore 后 stats 保留（单键顶端字段保全）')
+  p.saveSettings({ volume: 0.3 })
+  loaded = p.load()
+  assert.equal(loaded.settings.volume, 0.3, '设置更新成功')
+  assert.deepEqual(loaded.stats, { placed: 4, lines: 1, timeMs: 2000, games: 1 }, 'saveSettings 后 stats 保留（单键顶端字段保全）')
+})

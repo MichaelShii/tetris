@@ -1,0 +1,7 @@
+{
+  "reqId": "req-34",
+  "runId": "tf-mtmmceke-az4irz",
+  "title": "统计面板改为全局统计：已放置方块数、消行总数、游戏时长应为全局累计，与最高分同级需持久化（localStorage）。已与用户确认的数据分界：①局内状态（会话内",
+  "mode": "medium",
+  "createdAt": 1788506098012
+}

@@ -2195,3 +2195,35 @@ html:not(.has-touch) .touchpad {
     .session-stat { flex-direction: column; gap: var(--sp-1); }
   }
 }
+
+/* ═ r34 全局统计面板（#global-stats 第三卡；纯追加，既有规则体零动） ═ */
+/* ① 基座行式（桌面/M/L：#panel-left 内自然排列；镜像 .session-* 同款） */
+.global-stats { display: flex; flex-direction: column; gap: var(--sp-1); }
+.global-stats__title { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: var(--sp-2); }
+.global-stat { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+.global-stat__label { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.global-stat__value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.1; font-size: var(--fs-lg); }
+.global-stat.is-flashing .global-stat__value { animation: stat-flash 120ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .global-stat.is-flashing .global-stat__value { animation: none; } }
+/* ② S 档（<600px）ORDER 槽位：紧随 .session-stats(order:12)、先于 #btn-settings(order:20) */
+@media (max-width: 599px) {
+  .global-stats { order: 13; }
+  /* ③ S 竖屏：#main areas 后置覆写追加 'global' 行（r32 规则体零动；同特异度、声明在后 → 胜出） */
+  @media (orientation: portrait) {
+    #main { grid-template-rows: auto auto auto auto minmax(0, 1fr); grid-template-areas:
+      'stats stats stats'
+      'session session session'
+      'global global global'
+      'controls controls controls'
+      'hold board next'; }
+    .global-stats { grid-area: global; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
+    .global-stats__title { display: none; }
+    .global-stat { flex-direction: column; gap: var(--sp-1); }
+  }
+  /* ④ S 横屏：自包含玻璃卡（复刻 r32 卡化四件套；不进既有卡化选择器列表） */
+  @media (orientation: landscape) {
+    .global-stats { width: 100%; max-width: 420px; background: var(--glass-bg); -webkit-backdrop-filter: blur(20px) saturate(140%); backdrop-filter: blur(20px) saturate(140%); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--sp-3); margin: var(--sp-2) 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); }
+    .global-stats__title { display: none; }
+    .global-stat { flex-direction: column; gap: var(--sp-1); }
+  }
+}

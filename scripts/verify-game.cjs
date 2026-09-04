@@ -3650,3 +3650,153 @@ test('r33 §4.1-8 r18 §14 审计登记（AC-6）：代表性子集重放 r18 �
   }
 })
 
+/* ============================================================================
+ * r34 全局统计入账/补记（§4.1 纯追加：onStats 生命周期事件出口——OVER 定格入账 /
+ * 隐藏·卸载补记 / 幂等 / 暂停不计 / 归零复位 / 事件面 0 变化 / soak 无漂移；
+ * 快照键集零追加——其上 §4.1-9「16+2」断言原样穿过）
+ * ========================================================================== */
+
+/** r34 专用基线工厂：onStats 记录器（无 DOM 依赖，Node 直调；flushTime 公共方法直测） */
+function r34mk(extra) {
+  const stats = []
+  const sfxEvts = []
+  const g = mk(Object.assign({ rng: () => 0, onSfx: (n) => sfxEvts.push(n), onStats: (d) => stats.push(d) }, extra || {}))
+  return { g: g, stats: stats, sfx: sfxEvts }
+}
+
+test('r34 §4.1-1 快照键集零追加：getSnapshot 不新增任何统计入账字段（16+2 原样穿过）', () => {
+  const { g, stats } = r34mk()
+  g.start()
+  g.hardDrop()
+  g.tick(250)
+  g.lose()
+  const snap = g.getSnapshot()
+  assert.ok(!('stats' in snap), '快照无 stats 字段（入账走 onStats 事件，不经快照——AC-4 键集红线）')
+  assert.ok(!('statsAccounted' in snap) && !('timeFlushWatermark' in snap), '快照无 r34 内部标记')
+  assert.equal(stats.length, 1, '一次 OVER 恰 1 条 onStats')
+})
+
+test('r34 §4.1-2 OVER 入账恰 1 次：hardDrop×3 + tick 1s → lose → {over, placed:3, timeMs:1000, games:1}；二次 lose 不重发', () => {
+  const { g, stats } = r34mk()
+  g.start()
+  g.hardDrop(); g.hardDrop(); g.hardDrop()
+  assert.equal(g.getSnapshot().piecesPlaced, 3, '前置：3 次落定')
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250)
+  assert.equal(g.getSnapshot().sessionTimeMs, 1000, '前置：1s 时长')
+  const r = g.lose()
+  assert.equal(r.ok, true)
+  assert.deepEqual(stats, [{ reason: 'over', placed: 3, lines: 0, timeMs: 1000, games: 1 }], 'over 定格全量恰 1 次')
+  g.lose() // 二次 lose：illegal-phase（phase 状态机拦截）+ statsAccounted 兜底
+  g.tick(250) // OVER 后 tick 早退
+  assert.equal(stats.length, 1, '二次触发不重发（幂等）')
+})
+
+test('r34 §4.1-3 两局累加：局1 定格 → restart → 局2 定格 → over 事件之和 = placed N1+N2 / games 2 / timeMs t1+t2', () => {
+  const { g, stats } = r34mk()
+  g.start()
+  g.hardDrop(); g.hardDrop()
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250)
+  g.lose()
+  assert.deepEqual(stats[0], { reason: 'over', placed: 2, lines: 0, timeMs: 1000, games: 1 }, '局1 定格')
+  g.restart()
+  assert.equal(g.getSnapshot().piecesPlaced, 0, '局2 从零起')
+  g.hardDrop()
+  g.tick(250); g.tick(250)
+  g.lose()
+  assert.deepEqual(stats[1], { reason: 'over', placed: 1, lines: 0, timeMs: 500, games: 1 }, '局2 定格')
+  const sum = stats.reduce(function (a, d) { return { placed: a.placed + d.placed, games: a.games + d.games, timeMs: a.timeMs + d.timeMs } }, { placed: 0, games: 0, timeMs: 0 })
+  assert.deepEqual(sum, { placed: 3, games: 2, timeMs: 1500 }, '两局加总（持久化累加语义对账）')
+})
+
+test('r34 §4.1-4 flush 幂等：RUNNING 补记差值、水印推进后不再补；PAUSED/OVER flush 不发；无 tick 不发', () => {
+  const { g, stats } = r34mk()
+  g.start()
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250)
+  assert.equal(g.flushTime(), undefined, 'flushTime 无返回值契约（副作用通道）')
+  assert.deepEqual(stats[0], { reason: 'flush', placed: 0, lines: 0, timeMs: 1000, games: 0 }, '首 flush 差值 1000')
+  g.tick(250); g.tick(250)
+  g.flushTime()
+  assert.deepEqual(stats[1], { reason: 'flush', placed: 0, lines: 0, timeMs: 500, games: 0 }, '二次 flush 仅余量 500')
+  g.flushTime() // 无新 tick → delta=0 早退
+  assert.equal(stats.length, 2, '无增量不重复发')
+  g.togglePause() // PAUSED
+  assert.equal(g.getPhase(), 'PAUSED')
+  g.tick(250)
+  g.flushTime()
+  assert.equal(stats.length, 2, 'PAUSED flush 不发（RUNNING 判定）')
+  g.togglePause()
+  g.tick(250)
+  g.lose() // OVER → accountOver 采用未入账余量
+  assert.deepEqual(stats[2], { reason: 'over', placed: 0, lines: 0, timeMs: 250, games: 1 }, 'OVER 定格取未入账余量 250（水印 1500 后 +250）')
+  g.flushTime()
+  assert.equal(stats.length, 3, 'OVER flush 不发（statsAccounted 拦截）')
+})
+
+test('r34 §4.1-5 暂停不计：tick 1s + 暂停 2s + 恢复 1s → over timeMs=2000（暂停段不入账，AC-7）', () => {
+  const { g, stats } = r34mk()
+  g.start()
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250)
+  g.togglePause()
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250); g.tick(250); g.tick(250); g.tick(250); g.tick(250) // 2s 暂停
+  assert.equal(g.getSnapshot().sessionTimeMs, 1000, '暂停停表')
+  g.togglePause()
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250)
+  g.lose()
+  assert.equal(stats[0].reason, 'over')
+  assert.equal(stats[0].timeMs, 2000, 'over 定格 2000（暂停 2s 不计）')
+})
+
+test('r34 §4.1-6 刷新不丢等价：tick 1s → flushTime（=pagehide）→ 再 lose → over 余量 0 + placed 全额 + games 1', () => {
+  const { g, stats } = r34mk()
+  g.start()
+  g.hardDrop(); g.hardDrop()
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250)
+  g.flushTime() // 等价 pagehide 补记
+  assert.deepEqual(stats[0], { reason: 'flush', placed: 0, lines: 0, timeMs: 1000, games: 0 }, '刷新前已补记 1000')
+  g.lose()
+  assert.deepEqual(stats[1], { reason: 'over', placed: 2, lines: 0, timeMs: 0, games: 1 }, 'over 余量 0 + placed 全额 + games 1')
+})
+
+test('r34 §4.1-7 start/restart 重置：OVER → restart → tick 500 → flush {timeMs:500}（无跨局残留）', () => {
+  const { g, stats } = r34mk()
+  g.start()
+  g.tick(250); g.tick(250)
+  g.lose()
+  assert.equal(stats[0].timeMs, 500, '局1 over 500')
+  g.restart()
+  g.tick(250); g.tick(250)
+  g.flushTime()
+  assert.equal(stats.length, 2, '局2 flush 恰 1 条')
+  assert.deepEqual(stats[1], { reason: 'flush', placed: 0, lines: 0, timeMs: 500, games: 0 }, '无跨局残留（标记已复位）')
+})
+
+test('r34 §4.1-8 事件面 0 变化：flush/over 通道零 sfx 追加（既有事件序列恒等）', () => {
+  const { g, stats, sfx } = r34mk()
+  g.start()
+  g.hardDrop() // 恰 1 次 hardDrop 音效
+  g.tick(250); g.tick(250); g.tick(250); g.tick(250)
+  g.flushTime()
+  g.lose()
+  assert.ok(stats.length === 2 && stats[0].reason === 'flush' && stats[1].reason === 'over', '两事件已发')
+  // 事件面恒等：仅既有 hardDrop（动作）+ gameOver（OVER 既有发声，E-SFX-06）；flush/over 补记通道零新增 sfx
+  assert.deepEqual(sfx, ['hardDrop', 'gameOver'], 'flush/over 全程零新增 sfx（事件面与既有基线恒等，AC-9）')
+})
+
+test('r34 §4.1-9 soak 无漂移：确定性 dt 分片（17/250/31…）之和 == flush delta 之和（差值累计非计数乘法）', () => {
+  const { g, stats } = r34mk()
+  g.start()
+  const frags = [17, 250, 31, 100, 250, 250, 150, 50, 17, 31, 250, 5] // 含 rAF 抖动分片，均 ≤ DT_CLAMP_MS
+  const total = frags.reduce(function (a, d) { return a + d }, 0)
+  const sum = frags.reduce(function (a, d) { return a + d }, 0)
+  for (let i = 0; i < frags.length; i++) g.tick(frags[i])
+  g.flushTime()
+  assert.equal(stats.length, 1, '整段恰 1 次 flush')
+  assert.equal(stats[0].timeMs, sum, 'flush delta == 确定性 dt 之和（' + sum + '）')
+  const session = g.getSnapshot().sessionTimeMs
+  assert.equal(session, total, 'sessionTimeMs 与 dt 之和恒等（飘移不随风化累积，AC-10）')
+  // 再叠加一段 → 水印差值口径仍成立
+  g.tick(250); g.tick(250)
+  g.flushTime()
+  assert.equal(stats[1].timeMs, 500, '二次 flush 仅新段')
+})
+

@@ -29,8 +29,8 @@ for (const k of needPersist) { if (k in P) ok(`TetrisPersist.${k}`); else bad(`M
 // createPersistence() 契约：load/saveHighScore/saveSettings/dispose（装配/自包含/审计依赖）
 {
   const inst = typeof P.createPersistence === 'function' ? P.createPersistence() : null
-  const m = inst ? ['load','saveHighScore','saveSettings','dispose'].filter((k) => typeof inst[k] !== 'function') : ['createPersistence missing']
-  if (m.length === 0) ok('createPersistence() 暴露 load/saveHighScore/saveSettings/dispose')
+  const m = inst ? ['load','saveHighScore','saveSettings','saveStats','dispose'].filter((k) => typeof inst[k] !== 'function') : ['createPersistence missing']
+  if (m.length === 0) ok('createPersistence() 暴露 load/saveHighScore/saveSettings/saveStats/dispose')
   else bad('TetrisPersist.createPersistence() 契约缺失: ' + m.join(','))
 }
 
@@ -52,7 +52,8 @@ const sel = ['#board','#next-well','#board-frame','#overlay','#feedback-toast',
   '#hold-well','#hold-control','#btn-hold', // v3.2：Hold 暂存方块预览与开关（AC-23）
   '#preview-queue-control','#btn-preview-queue', // r15：多格预览队列开关（纯显示层）
   '#stat-hi','#hi-score',      // v2.6：HUD 最高分元素（持久化回读钩子，AC-16）
-  '#btn-settings','#settings-modal','.settings-modal__card','.settings-modal__close'] // v3.0：设置弹层（AC-01~06）
+  '#btn-settings','#settings-modal','.settings-modal__card','.settings-modal__close', // v3.0：设置弹层（AC-01~06）
+  '#global-stats','#gs-hi-value','#gs-placed-value','#gs-lines-value','#gs-time-value','#gs-games-value'] // r34：全局统计面板六锚点（ui.js must()×5 + 容器）
 for (const s of sel) {
   if (s.includes(' ')) {
     const [pid, cls] = s.split(' ')

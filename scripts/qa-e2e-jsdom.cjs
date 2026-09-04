@@ -3222,6 +3222,229 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     }
   }
 
+  /* ---------- r34 全局统计持久化（§4.3 纯追加：入账/补记数值等价 / 刷新恢复 / 幂等 / 暂停不计 / 组件 / 源码级） ----------
+     数据源断言锚点：persist.stats 单键唯一事实（saveStats 只增不减累加），引擎 onStats 事件打通 UI 只读镜像
+     （v2.6 持久化先例承继）；jsdom 无布局几何 → 样式断言留在 verify-ui 源码层；本段证明装配/入账/补记/恢复/幂等。-------- */
+  console.log('\n-- r34 全局统计持久化（真实装配入账/补记 / 刷新恢复 / 幂等 / 暂停不计 / 组件 / 源码级） --')
+  {
+    /* ① file:// 自动装配页：第三卡就位、初始五值、.stat/.session-stat 基线不扰动 */
+    {
+      const errs34 = []
+      const vc34 = new VirtualConsole()
+      vc34.on('jsdomError', function (e) { errs34.push(String(e && e.message || e)) })
+      const domf34 = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {
+        url: 'file://' + path.join(root, 'index.html').replace(/\\/g, '/'),
+        runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc34,
+      })
+      const wf34 = domf34.window
+      wf34.HTMLCanvasElement.prototype.getContext = function (t) {
+        if (t !== '2d') return null
+        const noop = function () {}
+        return { setTransform: noop, clearRect: noop, fillRect: noop, beginPath: noop, moveTo: noop, lineTo: noop, stroke: noop, closePath: noop, arcTo: noop, fill: noop, drawImage: noop, save: noop, restore: noop, set globalAlpha(v) {}, set lineWidth(v) {}, set fillStyle(v) {}, set strokeStyle(v) {} }
+      }
+      await new Promise(function (r) {
+        if (wf34.document.readyState === 'complete') r()
+        else wf34.addEventListener('load', r)
+      })
+      await sleep(120)
+      const df34 = wf34.document
+      check('r34 file://: 自动装配页含 #global-stats 独立面板（非脚本注入）', !!df34.querySelector('#global-stats'),
+        df34.querySelector('#global-stats') ? 'panel ok' : 'missing')
+      check('r34 file://: 初始五值 0/0/0/00:00/0',
+        df34.getElementById('gs-hi-value').textContent === '0' &&
+        df34.getElementById('gs-placed-value').textContent === '0' &&
+        df34.getElementById('gs-lines-value').textContent === '0' &&
+        df34.getElementById('gs-time-value').textContent === '00:00' &&
+        df34.getElementById('gs-games-value').textContent === '0')
+      const gridF34 = df34.querySelector('.stat-grid')
+      check('r34 file://: .stat-grid 内 .stat 仍恰 4（r17 基线）+ .session-stat 仍恰 3（r32 基线）',
+        gridF34 !== null && gridF34.querySelectorAll('.stat').length === 4 &&
+        df34.querySelectorAll('.session-stat').length === 3,
+        gridF34 ? String(gridF34.querySelectorAll('.stat').length) : 'no grid')
+    }
+
+    /* ② 真实装配（共享 backing persist，autoLoop:false 手动 tick）：初始镜像 / OVER 入账定格 / 破纪录 hi 同源 */
+    {
+      window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+      const R34 = window.TetrisPersist
+      const mkStoreR34 = function () {
+        const backing = {}
+        return {
+          backing: backing,
+          store: Object.freeze({
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(backing, k) ? backing[k] : null },
+            setItem: function (k, v) { backing[k] = String(v) },
+            removeItem: function (k) { delete backing[k] },
+          }),
+        }
+      }
+      const statsRawR34 = function (s) {
+        const raw = s.backing[R34.TETRIS_PERSIST_KEY]
+        return raw ? JSON.parse(raw).stats : null
+      }
+      const mkUIR34 = function (store) {
+        const persist = R34.createPersistence({ storage: store })
+        const ui = window.TetrisUI.createUI({
+          autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0, persist: persist,
+        })
+        return { ui: ui, persist: persist }
+      }
+
+      const sA = mkStoreR34()
+      const a = mkUIR34(sA.store)
+      const gA = a.ui.game
+      const $A = window.document
+      const gsvA = function (id) { return $A.getElementById(id).textContent }
+      check('r34 初始镜像: 五值 0/0/0/00:00/0（空库存 persist 载荷全 0）',
+        gsvA('gs-hi-value') === '0' && gsvA('gs-placed-value') === '0' && gsvA('gs-lines-value') === '0' &&
+        gsvA('gs-time-value') === '00:00' && gsvA('gs-games-value') === '0')
+      gA.start()
+      for (let i = 0; i < 3; i++) gA.hardDrop()
+      for (let i = 0; i < 4; i++) gA.tick(250)
+      gA.lose()
+      check('r34 OVER 入账定格: #gs-placed-value "3" / #gs-games-value "1" / #gs-time-value "00:01"（onStats→saveStats→load 镜像）',
+        gsvA('gs-placed-value') === '3' && gsvA('gs-games-value') === '1' && gsvA('gs-time-value') === '00:01',
+        gsvA('gs-placed-value') + '/' + gsvA('gs-games-value') + '/' + gsvA('gs-time-value'))
+      check('r34 OVER 入账: backing stats 定格 {placed:3, lines:0, timeMs:1000, games:1}',
+        (function () { const s = statsRawR34(sA); return s && s.placed === 3 && s.lines === 0 && s.timeMs === 1000 && s.games === 1 })(),
+        JSON.stringify(statsRawR34(sA)))
+      check('r34 OVER 后 hi 行不变 "0"（未破纪录 → 同源镜像不动）', gsvA('gs-hi-value') === '0')
+      a.ui.dispose()
+
+      // 破纪录同源：预置 saveHighScore(120) → 初值高分行 "120"；OVER 后不变（与 #hi-score 同一变量 persistedHighScore）
+      const sB = mkStoreR34()
+      const persistB = R34.createPersistence({ storage: sB.store })
+      persistB.saveHighScore(120)
+      const b = mkUIR34(sB.store)
+      const gB = b.ui.game
+      check('r34 破纪录同源: 预置 saveHighScore(120) → 初值高分行 "120"（#gs-hi-value === #hi-score === 120）',
+        $A.getElementById('gs-hi-value').textContent === '120' && $A.getElementById('hi-score').textContent === '120',
+        $A.getElementById('gs-hi-value').textContent + '/' + $A.getElementById('hi-score').textContent)
+      gB.start()
+      gB.lose() // 0 分不破纪录
+      check('r34 破纪录同源: OVER 后高分行不变 "120"（同源镜像，未受入账流程影响）',
+        $A.getElementById('gs-hi-value').textContent === '120' && $A.getElementById('hi-score').textContent === '120')
+      b.ui.dispose()
+    }
+
+    /* ③ ④ ⑤ 刷新不丢 / 幂等（pagehide 双触发 + visibilitychange 双隐藏）/ 暂停不计 */
+    {
+      window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+      const R34 = window.TetrisPersist
+      const backingC = {}
+      const storeC = {
+        getItem: function (k) { return Object.prototype.hasOwnProperty.call(backingC, k) ? backingC[k] : null },
+        setItem: function (k, v) { backingC[k] = String(v) },
+        removeItem: function (k) { delete backingC[k] },
+      }
+      const statsRawC = function () {
+        const raw = backingC[R34.TETRIS_PERSIST_KEY]
+        return raw ? JSON.parse(raw).stats : null
+      }
+      const mkUIC = function (persist) {
+        const ui = window.TetrisUI.createUI({
+          autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0, persist: persist,
+        })
+        return ui
+      }
+      const dd = window.document
+
+      // ③ 刷新不丢：tick 1s → pagehide 补记 → 同 backing 新 persist+新 UI（刷新重开）→ 时长恢复
+      const persistC1 = R34.createPersistence({ storage: storeC })
+      const uiC1 = mkUIC(persistC1)
+      const gC = uiC1.game
+      gC.start()
+      for (let i = 0; i < 4; i++) gC.tick(250)
+      window.dispatchEvent(new window.Event('pagehide'))
+      let sc = statsRawC()
+      check('r34 刷新不丢: pagehide 补记 → backing timeMs=1000', sc !== null && sc.timeMs === 1000, sc ? String(sc.timeMs) : 'no stats')
+      // ④ 幂等：同帧二次 pagehide（delta 已归零水印）→ 无二次叠加
+      window.dispatchEvent(new window.Event('pagehide'))
+      sc = statsRawC()
+      check('r34 幂等: 二次 pagehide 不叠加（timeMs 仍 1000）', sc !== null && sc.timeMs === 1000, sc ? String(sc.timeMs) : 'no stats')
+      uiC1.dispose()
+      // 刷新重开（同 backing）→ 全局时长恢复（≥N，formatSessionTime 粒度容差）
+      const persistC2 = R34.createPersistence({ storage: storeC })
+      const uiC2 = mkUIC(persistC2)
+      const gC2 = uiC2.game
+      check('r34 刷新恢复: 新实例 #gs-time-value "00:01"（≥1s 粒度容差）', dd.getElementById('gs-time-value').textContent === '00:01',
+        dd.getElementById('gs-time-value').textContent)
+      check('r34 刷新恢复: 新实例 #gs-placed-value/#gs-games-value 仍 0（未入账不含）',
+        dd.getElementById('gs-placed-value').textContent === '0' && dd.getElementById('gs-games-value').textContent === '0')
+
+      // ④ visibilitychange 双隐藏幂等：隐藏→（自动暂停）→再隐藏 → 全局时长仅 +1 次
+      gC2.start()
+      for (let i = 0; i < 4; i++) gC2.tick(250) // +1s（c2 会话）
+      Object.defineProperty(dd, 'hidden', { configurable: true, value: true })
+      dd.dispatchEvent(new window.Event('visibilitychange')) // RUNNING → 先补记 1000 再自动暂停
+      const setHiddenOk = dd.hidden === true
+      dd.dispatchEvent(new window.Event('visibilitychange')) // 第二次隐藏：phase 已 PAUSED → 拦截
+      window.dispatchEvent(new window.Event('pagehide')) // PAUSED → flushTime 早退
+      sc = statsRawC()
+      check('r34 双隐藏幂等: 隐藏→再隐藏→pagehide 全局时长仅 +1 次（1000+1000=2000）',
+        setHiddenOk && sc !== null && sc.timeMs === 2000, setHiddenOk ? String(sc && sc.timeMs) : 'hidden set failed')
+      // ⑤ 暂停不计：恢复 → 暂停 → tick → pagehide → 无增量
+      gC2.togglePause() // PAUSED → RUNNING
+      gC2.togglePause() // RUNNING → PAUSED（用户暂停）
+      for (let i = 0; i < 4; i++) gC2.tick(250)
+      window.dispatchEvent(new window.Event('pagehide'))
+      sc = statsRawC()
+      check('r34 暂停不计: 用户暂停后 pagehide 不补记（timeMs 仍 2000；AC-5 书面口径）',
+        sc !== null && sc.timeMs === 2000, String(sc && sc.timeMs))
+      Object.defineProperty(dd, 'hidden', { configurable: true, value: false })
+      uiC2.dispose()
+    }
+
+    /* ⑥ 独立 createGlobalStats 组件：部分载荷更新 / 文本变更才写 / 闪动类挂卸 / dispose */
+    {
+      const env36 = await buildEnv()
+      const w36 = env36.window
+      const mkO = function (init) {
+        const el = w36.document.createElement('output')
+        el.textContent = init
+        return el
+      }
+      const hiEl = mkO('0')
+      const placedEl = mkO('0')
+      const linesEl = mkO('0')
+      const timeEl = mkO('00:00')
+      const gamesEl = mkO('0')
+      const wrap = w36.document.createElement('div')
+      wrap.appendChild(placedEl)
+      const gs36 = w36.TetrisUI.createGlobalStats({
+        hi: hiEl, placed: placedEl, lines: linesEl, time: timeEl, games: gamesEl,
+      })
+      gs36.update({ hi: 120 }) // 部分载荷：仅 hi
+      check('r34 组件: 部分载荷更新（仅 hi）→ hi "120" 其余原值', hiEl.textContent === '120' && placedEl.textContent === '0' &&
+        linesEl.textContent === '0' && timeEl.textContent === '00:00' && gamesEl.textContent === '0')
+      gs36.update({ placed: 5, lines: 7, timeMs: 60000, games: 2 })
+      check('r34 组件: 全量更新 → 5/7/01:00/2（timeMs 走 formatSessionTime）', placedEl.textContent === '5' &&
+        linesEl.textContent === '7' && timeEl.textContent === '01:00' && gamesEl.textContent === '2' && hiEl.textContent === '120')
+      gs36.update({ placed: 5, lines: 7, timeMs: 60000, games: 2 })
+      check('r34 组件: 同值更新不写（文本变更才写）', placedEl.textContent === '5')
+      gs36.update({ placed: 6 })
+      check('r34 组件: 变更 → 行父节点挂 .is-flashing（复用 stat-flash 闪动）', wrap.classList.contains('is-flashing'))
+      await sleep(160)
+      check('r34 组件: 闪动类按时卸下（120ms 定时）', !wrap.classList.contains('is-flashing'))
+      gs36.dispose()
+      env36.handle.dispose()
+    }
+
+    /* ⑦ 源码级隔离：面板不落行式底栏/双轨、不触 TOUCH_KEYS；六锚点装配契约 */
+    {
+      const css34 = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
+      const html34 = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+      const tcOpen34 = html34.indexOf('id="touch-controls"')
+      check('r34 源码级: #touch-controls 起（含其后）片段无 global-（面板不落行式底栏/双轨）',
+        tcOpen34 !== -1 && html34.slice(tcOpen34).indexOf('global-') === -1)
+      check('r34 源码级: css 无 `.touchpad .global-*` 交叉规则（触控区零触及）', !/\.touchpad[^{}]*\.global-/.test(css34))
+      check('r34 源码级: css 无 `.global-* .tkey` 交叉规则（面板不引用触屏键）', !/\.global-[^{}]*\.tkey/.test(css34))
+      const sixG34 = ['global-stats', 'gs-hi-value', 'gs-placed-value', 'gs-lines-value', 'gs-time-value', 'gs-games-value']
+      check('r34 源码级: index.html 含 #global-stats 六锚点（must()×5 + 容器装配契约）',
+        sixG34.every(function (s) { return html34.indexOf('id="' + s + '"') !== -1 }))
+    }
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))

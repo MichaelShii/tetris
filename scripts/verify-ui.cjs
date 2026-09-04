@@ -1215,3 +1215,72 @@ test('r32: style.css 源扫描（@keyframes 零新增 / 卡化列表不动 / S �
   }
   assert.equal(/^@keyframes/m.test(r32Slice), false, 'r32 新片段零关键帧声明（注释提及 stat-flash 除外）')
 })
+
+/* ════════════════════════════════════════════════════════════════════════
+ * r34 全局统计面板（§4.2 纯追加：index.html 节点契约 / 位置隔离 / style.css
+ * 源扫描；r32 及更早断言期望零改动——.stat 恰 4、.session-stat 恰 3、areas 子串、
+ * order 10/12/20、卡化列表行全部原样穿过）
+ * ════════════════════════════════════════════════════════════════════════ */
+
+test('r34: index.html #global-stats 节点契约（role=group + 恰 5 行 .global-stat + 五 aria-label 完整名 + 初值 0/0/0/00:00/0）', () => {
+  assert.match(htmlR24, /<div id="global-stats"[^>]*role="group"[^>]*aria-label="全局统计"/,
+    '#global-stats 容器 role=group + aria-label=全局统计')
+  assert.equal(htmlR24.split('class="global-stat"').length - 1, 5, '恰 5 行 .global-stat（不含 __label/__value）')
+  const five = [
+    ['gs-hi-value', '最高分'], ['gs-placed-value', '累计已放置方块数'], ['gs-lines-value', '累计消行总数'],
+    ['gs-time-value', '累计游戏时长'], ['gs-games-value', '对局次数'],
+  ]
+  for (const [id, label] of five) {
+    assert.match(htmlR24, new RegExp('id="' + id + '"[^>]*aria-live="polite"[^>]*aria-label="' + label + '"'),
+      id + ' aria-live=polite + aria-label=' + label)
+  }
+  // 初值 0/0/0/00:00/0（装配时由 persist 载荷覆写，DESIGN §2.1 原样）
+  for (const id of ['gs-hi-value', 'gs-placed-value', 'gs-lines-value', 'gs-games-value']) {
+    assert.match(htmlR24, new RegExp('<output id="' + id + '"[^>]*>0</output>'), id + ' 初值 0')
+  }
+  assert.match(htmlR24, /<output id="gs-time-value"[^>]*>00:00<\/output>/, 'gs-time-value 初值 00:00')
+})
+
+test('r34: index.html 位置与隔离（session-stats 闭合 < #global-stats < .hold-well；计数面零交集）', () => {
+  const sessionOpen = htmlR24.indexOf('id="session-stats"')
+  const globalOpen = htmlR24.indexOf('id="global-stats"')
+  const holdOpen = htmlR24.indexOf('class="hold-well"')
+  assert.ok(sessionOpen !== -1 && globalOpen !== -1 && holdOpen !== -1, '三锚点均在')
+  const sessionClose = htmlR24.indexOf('</div>', sessionOpen) // #session-stats 内第一个 </div> 即其闭合
+  assert.ok(sessionClose < globalOpen && globalOpen < holdOpen,
+    '位置序：#session-stats 闭合 < #global-stats 开 < .hold-well 开（纯追加挂载点）')
+  // 隔离：全文 .stat 仍恰 4（r17）、.session-stat 仍恰 3（r32）——global-stat 不落两冻结卡计数面
+  assert.equal(htmlR24.split('class="stat"').length - 1, 4, '全文 class="stat" 仍恰 4（r17 基线，global-stat 不干扰精确串）')
+  assert.equal(htmlR24.split('class="session-stat"').length - 1, 3, '全文 class="session-stat" 仍恰 3（r32 基线）')
+  const frag = htmlR24.slice(globalOpen, holdOpen)
+  assert.equal(frag.split('class="stat"').length - 1, 0, 'global 卡片段零 .stat（计数面零交集）')
+  assert.equal(frag.split('class="session-stat"').length - 1, 0, 'global 卡片段零 .session-stat（本局两卡冻结）')
+})
+
+test('r34: style.css 源扫描（stat-flash 复用 / 文末块零关键帧 / S 竖屏加行 / order:13 / 卡化列表不动 / 红线零改动）', () => {
+  // ① flash 复用既有 @keyframes stat-flash（零新增关键帧）
+  assert.match(cssR24, /\.global-stat\.is-flashing[^{]*\{[^}]*animation:\s*stat-flash/,
+    '.global-stat.is-flashing 闪动复用既有 stat-flash')
+  // ② r34 文末块锚点起片段零 @keyframes 声明
+  const r34Start = cssR24.indexOf('/* ═ r34 全局统计面板')
+  assert.ok(r34Start !== -1, 'r34 文末片段锚点存在')
+  const r34Slice = cssR24.slice(r34Start)
+  assert.equal(/^@keyframes/m.test(r34Slice), false, 'r34 新片段零关键帧声明')
+  // ③ S 竖屏 #main areas：含 global 行且 r32 session 行、r19 'hold board next' 原样命中（后置覆写非改写）
+  assert.ok(cssR24.indexOf("'global global global'") !== -1, 'S 竖屏 areas 含 global 行')
+  assert.ok(cssR24.indexOf("'session session session'") !== -1, 'r32 session areas 行原样保留')
+  assert.match(cssR24, /#main\s*\{[^}]*'hold board next'/, 'r19 锚点 #main { … \'hold board next\' } 仍命中')
+  // ④ S 档 order:13 槽位（紧随 .session-stats order:12、先于 #btn-settings order:20）；两句行格式断言
+  assert.ok(cssR24.indexOf('\n  .session-stats { order: 12; }') !== -1, 'r32 .session-stats order: 12 原样')
+  assert.ok(cssR24.indexOf('\n  .global-stats { order: 13; }') !== -1, 'S 档 .global-stats order: 13')
+  // ⑤ 既有卡化选择器列表行不含 .global-stats（横屏自包含玻璃卡不进列表）
+  const cardSel = '.stat-grid, #btn-settings, .next-well, #board-col, .hold-well, .key-hints, #controls'
+  const cardIdx = cssR24.indexOf(cardSel)
+  assert.ok(cardIdx !== -1, '既有卡化选择器列表行在')
+  assert.ok(cssR24.slice(cardIdx, cardIdx + cardSel.length).indexOf('global') === -1,
+    '卡化选择器列表未含 .global-stats（横屏自包含玻璃卡不进列表）')
+  // ⑥ 红线零改动：r34 新片段（文末块）不含既有规则正文行（防整段复制改写）
+  for (const needle of ['padding-right: 112px', 'gap: var(--sp-5)', '.touchpad', '.tkey', 'data-action']) {
+    assert.ok(r34Slice.indexOf(needle) === -1, 'r34 新片段不含既有正文：' + needle)
+  }
+})
