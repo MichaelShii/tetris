@@ -2325,6 +2325,23 @@ html:not(.has-touch) .touchpad {
   color: var(--primary-hi);
 }
 
+/* 表头（r37b）：与 .lb-row 同网格列 + 行内距，哑色小字；数据单元格已有牢靠 aria-label，视觉表头对读屏隐藏 */
+.lb-head {
+  display: grid;
+  grid-template-columns: 3ch 1fr auto 2ch 3ch;
+  gap: var(--sp-2);
+  align-items: baseline;
+  padding: var(--sp-1) var(--sp-2);
+  margin-bottom: var(--sp-1);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.lb-head span:nth-child(n+3) { text-align: right; } /* 分数/等级/消行与数据行右对齐 */
+
 /* 榜单列表：Top20 五列网格 名次/昵称/分数/等级/消行（DESIGN §2.2 行骨架） */
 .lb-list {
   list-style: none;

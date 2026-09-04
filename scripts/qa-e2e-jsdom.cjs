@@ -3643,6 +3643,7 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
         d37d.getElementById('lb-list').textContent.indexOf('甲') !== -1,
         String(d37d.querySelectorAll('#lb-list .lb-row').length))
       check('r37 面板: #lb-state 隐藏（有数据）', d37d.getElementById('lb-state').hidden === true)
+      check('r37 面板: 表头显示（有数据行，r37b）', d37d.getElementById('lb-head').hidden === false)
       // tab 切换（周榜）→ aria-pressed 互斥 + 重渲染零请求
       const tabWeek37d = d37d.querySelector('.lb-tab[data-view="weekly"]')
       tabWeek37d.click()
@@ -3692,6 +3693,7 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
         d37e.getElementById('lb-state').textContent.indexOf('暂不可用') !== -1 &&
         d37e.getElementById('lb-state').querySelector('button') !== null,
         d37e.getElementById('lb-state').textContent.trim())
+      check('r37 错误态: 无数据 → 表头隐藏（r37b）', d37e.getElementById('lb-head').hidden === true)
       d37e.getElementById('lb-state').querySelector('button').click() // 重试
       await sleep(30)
       check('r37 错误态: 重试成功 → 列表渲染（重新拉取）',

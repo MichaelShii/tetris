@@ -1433,6 +1433,7 @@
 
       function renderState(kind) {
         // kind: 'loading' | 'error' | 'empty'
+        if (els.head) els.head.hidden = true // 无数据态不显示表头（r37b）
         els.list.innerHTML = ''
         els.stateEl.hidden = false
         els.stateEl.textContent = ''
@@ -1452,6 +1453,7 @@
       }
 
       function renderList(rows) {
+        if (els.head) els.head.hidden = false // 有数据时显示表头（r37b）
         els.list.innerHTML = ''
         rows.forEach(function (item, i) {
           const rank = i + 1
@@ -2246,6 +2248,7 @@
           nicknameValue: lbNicknameValue,
           modal: leaderboardModal,
           modalClose: leaderboardModal.querySelector('.lb-modal__close'),
+          head: must('#lb-head'),
           tabTotal: leaderboardModal.querySelector('.lb-tab[data-view="total"]'),
           tabWeekly: leaderboardModal.querySelector('.lb-tab[data-view="weekly"]'),
           list: lbListEl,

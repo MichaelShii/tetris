@@ -55,7 +55,7 @@ const sel = ['#board','#next-well','#board-frame','#overlay','#feedback-toast',
   '#btn-settings','#settings-modal','.settings-modal__card','.settings-modal__close', // v3.0：设置弹层（AC-01~06）
   '#global-stats','#gs-placed-value','#gs-lines-value','#gs-time-value','#gs-games-value'] // r34：全局统计面板五锚点（ui.js must()×4 + 容器；r35 删 #gs-hi-value）
 // r37：全网排行榜装配锚点（ui.js createUI must()×12 清单同源——§3.3；与 index.html 同批交付）
-for (const s of ['#lb-settings-group','#lb-nickname-value','#btn-edit-nickname','#btn-leaderboard','#leaderboard-modal','#lb-list','#lb-state','#nickname-modal','#nm-input']) {
+for (const s of ['#lb-settings-group','#lb-nickname-value','#btn-edit-nickname','#btn-leaderboard','#leaderboard-modal','#lb-list','#lb-head','#lb-state','#nickname-modal','#nm-input']) {
   sel.push(s)
 }
 for (const s of sel) {
