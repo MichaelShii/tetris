@@ -1392,6 +1392,352 @@
     }
 
     /* ======================================================================
+     * 3e. r37 全网排行榜弹层组件工厂（纯追加独立组件；签名平行 createHud/createGlobalStats
+     *      → { dispose }）。职责分界（r37 TECH §3.3）：leaderboard.js 纯逻辑无 DOM，
+     *      DOM 组件工厂归 ui.js——复用 must()/焦点陷阱/Esc/背板已有基建：
+     *      ① createLeaderboardPanel：榜单弹层（#leaderboard-modal 开合 / 三态渲染 /
+     *         总榜周榜 aria-pressed 互斥切换零请求 / api.degraded → 设置组隐藏 / 昵称行刷新）；
+     *      ② createNicknamePrompt：昵称弹层（#nickname-modal，首弹确认=持久化+续提、
+     *         设置修改=仅持久化、取消=静默放弃本局提交）。
+     *     弹层互斥（DESIGN 裁定）：开新弹层前先关设置弹层（见 createUI 接线处）——
+     *     本文件不直接引用 closeSettingsModal，由接线层组合驱动。
+     * ==================================================================== */
+
+    /** 焦点陷阱选择器（镜像 createUI 内 enableFocusTrap 的既有清单，独立绑定副本） */
+    const LB_TRAP_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+
+    /**
+     * createLeaderboardPanel(els, api) → { open, close, refreshNickname, dispose }
+     * els: { settingsGroup, nicknameValue, btnEditNickname, btnOpenLeaderboard,
+     *        modal, modalClose, tabTotal, tabWeekly, list, stateEl }（createUI 内 must() 解析传入）
+     * api: leaderboard 句柄（degraded / fetchBoards——契约见 leaderboard.js §3.2）。
+     * 状态机（r37 TECH §4.2）：closed → opening(loading] → data(总榜|周榜) | error(暂不可用+重试) |
+     *   empty(暂无成绩) → closed；数据缓存于弹层，tab 切换仅改渲染视图（零请求），重开重新拉取（零轮询）。
+     * 弹层开合镜像 settings-modal 既有模式：hidden 属性 + rAF 加 .is-open + 160ms 后 hidden 复位；
+     * Esc/焦点陷阱/背板×关闭均独立绑定（互斥保证同刻仅一陷阱）。
+     */
+    function createLeaderboardPanel(els, api) {
+      let isOpen = false
+      let openRafId = null
+      let keyHandler = null
+      let trapHandler = null
+      let cached = null // { ok:true, all, week } | { ok:false }
+      let activeView = 'total' // 'total' | 'weekly'
+      let loadSeq = 0 // 竞态守卫：重开/关闭使在途 fetch 结果作废
+      let disposed = false
+
+      // AC-8：degraded → 设置组保持 hidden（index.html 默认 hidden，激活才移除——DESIGN §2.1）
+      els.settingsGroup.hidden = api.degraded ? true : false
+
+      function renderState(kind) {
+        // kind: 'loading' | 'error' | 'empty'
+        els.list.innerHTML = ''
+        els.stateEl.hidden = false
+        els.stateEl.textContent = ''
+        if (kind === 'loading') {
+          els.stateEl.textContent = '加载中…'
+        } else if (kind === 'empty') {
+          els.stateEl.textContent = '暂无成绩，快去创造纪录'
+        } else {
+          els.stateEl.textContent = '暂不可用'
+          const btn = document.createElement('button')
+          btn.type = 'button'
+          btn.className = 'btn btn--secondary'
+          btn.textContent = '重试'
+          btn.addEventListener('click', onRetry)
+          els.stateEl.appendChild(btn)
+        }
+      }
+
+      function renderList(rows) {
+        els.list.innerHTML = ''
+        rows.forEach(function (item, i) {
+          const rank = i + 1
+          const li = document.createElement('li')
+          li.className = 'lb-row'
+          const cell = function (cls, label, text) {
+            const el = document.createElement('span')
+            el.className = cls
+            el.setAttribute('aria-label', label)
+            el.textContent = text
+            return el
+          }
+          li.appendChild(cell('lb-rank' + (rank <= 3 ? ' lb-rank--top' : ''), '第 ' + rank + ' 名', String(rank)))
+          li.appendChild(cell('lb-name', '昵称 ' + item.nickname, String(item.nickname)))
+          li.appendChild(cell('lb-score', '分数 ' + item.score, String(item.score)))
+          li.appendChild(cell('lb-level', '等级 ' + item.level, String(item.level)))
+          li.appendChild(cell('lb-lines', '消除 ' + item.lines, String(item.lines)))
+          els.list.appendChild(li)
+        })
+        els.stateEl.hidden = true
+        els.stateEl.textContent = ''
+      }
+
+      function render() {
+        if (!cached) return
+        if (!cached.ok) { renderState('error'); return }
+        const rows = activeView === 'total' ? cached.all : cached.week
+        if (!rows || rows.length === 0) { renderState('empty'); return }
+        renderList(rows)
+      }
+
+      function load() {
+        const seq = ++loadSeq
+        renderState('loading')
+        api.fetchBoards().then(function (res) {
+          if (disposed || seq !== loadSeq) return
+          cached = res
+          render()
+        })
+      }
+
+      function onRetry() {
+        load()
+        blurElement(this)
+      }
+
+      function switchView(view) {
+        if (disposed || activeView === view) return
+        activeView = view
+        els.tabTotal.setAttribute('aria-pressed', view === 'total' ? 'true' : 'false')
+        els.tabWeekly.setAttribute('aria-pressed', view === 'weekly' ? 'true' : 'false')
+        if (cached) render() // 已缓存 → 切换零请求
+      }
+
+      function onTabTotalClick() { switchView('total'); blurElement(this) }
+      function onTabWeeklyClick() { switchView('weekly'); blurElement(this) }
+
+      function onKeyDown(e) {
+        if (e.key === 'Escape') {
+          e.stopPropagation() // 阻断 window 级游戏键盘（镜像 settings-modal Esc 约定）
+          close()
+        }
+      }
+
+      function enableTrap() {
+        const focusables = Array.prototype.slice.call(
+          els.modal.querySelectorAll(LB_TRAP_SELECTOR)
+        ).filter(function (el) {
+          return !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true'
+        })
+        if (focusables.length === 0) return
+        trapHandler = function (e) {
+          if (e.key !== 'Tab') return
+          const first = focusables[0]
+          const last = focusables[focusables.length - 1]
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault(); last.focus()
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault(); first.focus()
+          }
+        }
+        els.modal.addEventListener('keydown', trapHandler)
+      }
+
+      function disableTrap() {
+        if (trapHandler) {
+          els.modal.removeEventListener('keydown', trapHandler)
+          trapHandler = null
+        }
+      }
+
+      function open() {
+        if (isOpen || disposed || api.degraded) return
+        isOpen = true
+        els.modal.hidden = false
+        openRafId = requestAnimationFrame(function () {
+          openRafId = null
+          // 关闭竞态守卫：关闭已发生在该帧之前则不补加动画类
+          if (isOpen) els.modal.classList.add('is-open')
+        })
+        if (els.modalClose && typeof els.modalClose.focus === 'function') els.modalClose.focus()
+        document.addEventListener('keydown', onKeyDown)
+        enableTrap()
+        load()
+      }
+
+      function close() {
+        if (!isOpen) return
+        isOpen = false
+        loadSeq++ // 在途 fetch 结果作废
+        if (openRafId !== null) { cancelAnimationFrame(openRafId); openRafId = null }
+        els.modal.classList.remove('is-open')
+        setTimeout(function () {
+          if (!isOpen) els.modal.hidden = true
+        }, 160) // 与 #overlay 动画时长一致
+        document.removeEventListener('keydown', onKeyDown)
+        disableTrap()
+        // D8：焦点统一回 #btn-settings（恒在，避免焦点丢失）
+        const sb = document.getElementById('btn-settings')
+        if (sb && typeof sb.focus === 'function') sb.focus()
+      }
+
+      /** refreshNickname(value)——昵称行从 persist 回读刷新（value: string|null） */
+      function refreshNickname(value) {
+        const name = value || null
+        els.nicknameValue.textContent = name || '未设置'
+        els.nicknameValue.classList.toggle('is-set', !!name)
+      }
+
+      function dispose() {
+        if (disposed) return
+        disposed = true
+        close() // 复位弹层（含 esc/陷阱/计时清理；D8 焦点落 #btn-settings）
+        els.tabTotal.removeEventListener('click', onTabTotalClick)
+        els.tabWeekly.removeEventListener('click', onTabWeeklyClick)
+      }
+
+      els.tabTotal.addEventListener('click', onTabTotalClick)
+      els.tabWeekly.addEventListener('click', onTabWeeklyClick)
+
+      return { open: open, close: close, refreshNickname: refreshNickname, dispose: dispose }
+    }
+
+    /**
+     * createNicknamePrompt(els, api, opts?) → { open, dispose }
+     * els: { modal, input, error, confirm, cancel }（createUI 内 must() 解析传入）
+     * api: leaderboard 句柄（setNickname/submitPending/cancelPendingSubmission）
+     * opts.onApplied?: 确认持久化成功后的回调（createUI 接线：昵称行刷新）
+     * 打开者二（r37 TECH §3.3）：① 首弹——api.onNeedNickname 回调（OVER 后置门槛，input 空）；
+     *   ② 设置「修改」——预填当前昵称。确认语义按打开者区分：首弹 confirm → setNickname+
+     *   submitPending（续提）；设置 confirm → setNickname 仅持久化（§5#5）；取消 → cancelPendingSubmission
+     *   + 关弹层（本次不上榜，静默）；非法 → #nm-error role=alert 显示且不关闭。
+     * 输入时即时按 D3 剔除非法字符（input 事件内 sanitize 回写 + maxlength=12 由 HTML 属性保证）。
+     */
+    function createNicknamePrompt(els, api, opts) {
+      const opt = opts || {}
+      let isOpen = false
+      let mode = 'first' // 'first'（首弹确认→续提）| 'edit'（修改→仅持久化）
+      let openRafId = null
+      let keyHandler = null
+      let trapHandler = null
+      let disposed = false
+
+      function showError(msg) {
+        els.error.textContent = msg
+        els.error.hidden = false
+      }
+
+      function clearError() {
+        els.error.textContent = ''
+        els.error.hidden = true
+      }
+
+      function onInput() {
+        // D3 即时剔除：仅保留白名单字符集（白名单以 worker 正则为准，双端同规应收紧同源）
+        const clean = String(els.input.value).replace(/[^\p{L}\p{N} _\-·.]/gu, '')
+        if (clean !== els.input.value) els.input.value = clean
+        clearError()
+      }
+
+      function onConfirm() {
+        const name = els.input.value
+        const ok = api.setNickname(name)
+        if (!ok) {
+          // 非法（空/清洗后超长/首字符空白或符号）：显示错误不关闭
+          showError(name.trim() === '' ? '昵称不能为空' : '昵称包含不支持的字符，请使用字母、数字、中文、空格、_、-、·、.')
+          return
+        }
+        if (mode === 'first') api.submitPending() // 首弹确认 → 续提（该局已提交的不回溯重提）
+        clearError()
+        if (typeof opt.onApplied === 'function') opt.onApplied(name)
+        close()
+      }
+
+      function onCancel() {
+        api.cancelPendingSubmission() // 取消 = 放弃本次提交（静默，无残留；edit 模式无待提交为 no-op）
+        close()
+      }
+
+      function onBackdropClick(e) {
+        if (e.target && e.target.classList && e.target.classList.contains('nm-modal__backdrop')) onCancel()
+      }
+
+      function onKeyDown(e) {
+        if (e.key === 'Escape') {
+          e.stopPropagation() // 阻断 window 级游戏键盘（镜像 settings-modal Esc 约定）
+          onCancel()
+        }
+      }
+
+      function enableTrap() {
+        const focusables = Array.prototype.slice.call(
+          els.modal.querySelectorAll(LB_TRAP_SELECTOR)
+        ).filter(function (el) {
+          return !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true'
+        })
+        if (focusables.length === 0) return
+        trapHandler = function (e) {
+          if (e.key !== 'Tab') return
+          const first = focusables[0]
+          const last = focusables[focusables.length - 1]
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault(); last.focus()
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault(); first.focus()
+          }
+        }
+        els.modal.addEventListener('keydown', trapHandler)
+      }
+
+      function disableTrap() {
+        if (trapHandler) {
+          els.modal.removeEventListener('keydown', trapHandler)
+          trapHandler = null
+        }
+      }
+
+      function close() {
+        if (!isOpen) return
+        isOpen = false
+        if (openRafId !== null) { cancelAnimationFrame(openRafId); openRafId = null }
+        els.modal.classList.remove('is-open')
+        setTimeout(function () {
+          if (!isOpen) els.modal.hidden = true
+        }, 160)
+        document.removeEventListener('keydown', onKeyDown)
+        disableTrap()
+        // D8：焦点统一回 #btn-settings
+        const sb = document.getElementById('btn-settings')
+        if (sb && typeof sb.focus === 'function') sb.focus()
+      }
+
+      /** open(m, prefill)——m: 'first'|'edit'；prefill: 设置修改预填的当前昵称 */
+      function open(m, prefill) {
+        if (isOpen || disposed) return
+        mode = m === 'edit' ? 'edit' : 'first'
+        els.input.value = typeof prefill === 'string' ? prefill : ''
+        clearError()
+        isOpen = true
+        els.modal.hidden = false
+        openRafId = requestAnimationFrame(function () {
+          openRafId = null
+          if (isOpen) els.modal.classList.add('is-open')
+        })
+        if (els.input && typeof els.input.focus === 'function') els.input.focus()
+        document.addEventListener('keydown', onKeyDown)
+        enableTrap()
+      }
+
+      function dispose() {
+        if (disposed) return
+        disposed = true
+        close()
+        els.confirm.removeEventListener('click', onConfirm)
+        els.cancel.removeEventListener('click', onCancel)
+        els.input.removeEventListener('input', onInput)
+        els.modal.removeEventListener('click', onBackdropClick)
+      }
+
+      els.confirm.addEventListener('click', onConfirm)
+      els.cancel.addEventListener('click', onCancel)
+      els.input.addEventListener('input', onInput)
+      els.modal.addEventListener('click', onBackdropClick)
+
+      return { open: open, dispose: dispose }
+    }
+
+    /* ======================================================================
      * 4. 装配 createUI —— 一键接入 game.js（持有渲染/UI 全部副作用）
      * ==================================================================== */
 
@@ -1400,10 +1746,15 @@
      * options:
      *   el?           查询根（默认 document；用于隔离测试/多实例）
      *   rng? / autoLoop? / keyboard? / autoPauseOnBlur?   透传给 game.js createGame
-     *   onSnapshot? / onLevelUp? / onGameOver?   宿主附加回调（与内部回调串联）
+     *   onSnapshot? / onLevelUp? / onGameOver?   宿主附加回调（与内部回调串联）；
+     *                  onGameOver(score, snap?)——r37 起第二参 snap 为 OVER 定格帧快照
+     *                  （prevSnapshot，D4；仅加参，既有宿主只读首参零影响）
      *   persist?      （v2.6 可选）应用层持久化句柄 = TetrisPersist.createPersistence()；
      *                 提供则启动恢复四设置+回填 HUD 最高分、onSnapshot 只增不减写回；
      *                 缺失即等效旧版（不持久化、零影响，向后兼容）。
+     *   leaderboard?  （r37 可选）全网排行榜逻辑句柄 = TetrisLeaderboard.createLeaderboard({persist})；
+     *                 提供则装配两弹层组件（榜单/昵称）+ 设置组激活态；缺失即等效旧版
+     *                 （组件不装配、设置组保持 hidden，向后兼容——对齐 persist 可选模式）。
      * 内部创建 game（autoLoop/keyboard 默认开启），并驱动：逐帧渲染 → HUD →
      * 遮罩同步 → 升级反馈 → 按钮绑定（点击后 blur 防空格二次触发，E9）→ resize。
      */
@@ -1847,6 +2198,73 @@
         opts.persist && typeof opts.persist.load === 'function' && typeof opts.persist.saveHighScore === 'function'
           ? opts.persist
           : null
+
+      /* ---- r37 全网排行榜装配（可选句柄 opts.leaderboard；缺失=旧版零影响，对齐 persist 可选模式） ----
+         DOM 契约：12 锚点 must()×N（缺失即抛，与 index.html 同批交付——§3.3 装配锚点清单；
+         仅当 leaderboardHandle 存在时装配——§5#10「缺失不装配相关组件」，旧宿主零影响）；
+         弹层互斥：从设置打开新弹层先 closeSettingsModal()（§3.3/D8；其 close 路径含端录制/焦点还原）；
+         api.degraded → 设置组保持 hidden（index.html 默认 hidden，激活才移除——DESIGN §2.1，D9）。 ---- */
+      const leaderboardHandle = opts.leaderboard || null
+      let leaderboardPanel = null
+      let nicknamePrompt = null
+      if (leaderboardHandle) {
+        const lbSettingsGroup = must('#lb-settings-group')
+        const lbNicknameValue = must('#lb-nickname-value')
+        const btnEditNickname = must('#btn-edit-nickname')
+        const btnOpenLeaderboard = must('#btn-open-leaderboard')
+        const leaderboardModal = must('#leaderboard-modal')
+        const lbListEl = must('#lb-list')
+        const lbStateEl = must('#lb-state')
+        const nicknameModal = must('#nickname-modal')
+        const nmInput = must('#nm-input')
+        const nmError = must('#nm-error')
+        const nmConfirm = must('#nm-confirm')
+        const nmCancel = must('#nm-cancel')
+        leaderboardPanel = createLeaderboardPanel({
+          settingsGroup: lbSettingsGroup,
+          nicknameValue: lbNicknameValue,
+          modal: leaderboardModal,
+          modalClose: leaderboardModal.querySelector('.lb-modal__close'),
+          tabTotal: leaderboardModal.querySelector('.lb-tab[data-view="total"]'),
+          tabWeekly: leaderboardModal.querySelector('.lb-tab[data-view="weekly"]'),
+          list: lbListEl,
+          stateEl: lbStateEl,
+        }, leaderboardHandle)
+        nicknamePrompt = createNicknamePrompt({
+          modal: nicknameModal,
+          input: nmInput,
+          error: nmError,
+          confirm: nmConfirm,
+          cancel: nmCancel,
+        }, leaderboardHandle, {
+          // 昵称行即时刷新（persist 回读；设置组 output，DESIGN §2.1）
+          onApplied: function () {
+            const st = (persist && typeof persist.load === 'function') ? persist.load() : null
+            leaderboardPanel.refreshNickname(st && st.nickname ? st.nickname : null)
+          },
+        })
+        // 首弹门槛：OVER 后置回调（决策树在 leaderboard.js reportOver；此处只开弹窗）
+        leaderboardHandle.onNeedNickname(function () {
+          closeSettingsModal() // 防御性互斥（幂等 no-op 当未开）
+          nicknamePrompt.open('first', '')
+        })
+        // 从设置打开新弹层：先关设置（互斥），再开目标弹层
+        btnOpenLeaderboard.addEventListener('click', function () {
+          closeSettingsModal()
+          leaderboardPanel.open()
+          blurElement(this)
+        })
+        btnEditNickname.addEventListener('click', function () {
+          closeSettingsModal()
+          const st = (persist && typeof persist.load === 'function') ? persist.load() : null
+          nicknamePrompt.open('edit', st && st.nickname ? st.nickname : '')
+          blurElement(this)
+        })
+        // 初始昵称行回显（load 恢复后；未设置 → 「未设置」弱化）
+        const st0 = (persist && typeof persist.load === 'function') ? persist.load() : null
+        leaderboardPanel.refreshNickname(st0 && st0.nickname ? st0.nickname : null)
+      }
+
       let persistedHighScore = 0
       // r34 全局统计只读镜像（唯一覆写点：load 恢复初值 / onStats 全量读回；绝不独立累计，AC-4）
       const statsUi = { placed: 0, lines: 0, timeMs: 0, games: 0 }
@@ -2036,7 +2454,9 @@
           if (typeof opts.onLevelUp === 'function') opts.onLevelUp(level)
         },
         onGameOver: function (score) {
-          if (typeof opts.onGameOver === 'function') opts.onGameOver(score)
+          // D4（r37）：第二参 prevSnapshot = OVER 定格帧快照（引擎三处 OVER 路径均 emit 先于
+          // onGameOver，renderAll 已将 prevSnapshot 更新至定格帧；仅加参，既有宿主只读首参零影响）
+          if (typeof opts.onGameOver === 'function') opts.onGameOver(score, prevSnapshot)
         },
         onSfx: function (name) {
           sfx.play(name) // 事件名 → 合成引擎（AC-09；发声职责唯一在 audio.js）
@@ -2327,6 +2747,12 @@
         nextWell.dispose()
         hud.dispose()
         globalStats.dispose() // r34：清除全局统计闪动定时器（与 createHud 对称）
+        // r37：排行榜组件对称解绑（弹层复位/监听移除）+ 逻辑句柄清理（契约不 throw，兜底不中断）
+        if (leaderboardPanel) leaderboardPanel.dispose()
+        if (nicknamePrompt) nicknamePrompt.dispose()
+        if (leaderboardHandle && typeof leaderboardHandle.dispose === 'function') {
+          try { leaderboardHandle.dispose() } catch (e) { /* 契约不 throw，兜底不中断 */ }
+        }
         overlay.dispose()
         feedback.dispose()
         game.dispose()
@@ -2395,6 +2821,9 @@
       createAudioPanel: createAudioPanel, // v2.0：音量/静音控件（AC-10，签名对齐 TECHNICAL §3.3）
       // r34：全局统计只读渲染组件（签名平行 createHud → { update, dispose }；只读镜像 persist 载荷）
       createGlobalStats: createGlobalStats,
+      // r37：排行榜/昵称弹层组件工厂（签名平行 createGlobalStats → { dispose }；DOM 交互归 ui.js）
+      createLeaderboardPanel: createLeaderboardPanel,
+      createNicknamePrompt: createNicknamePrompt,
       // r16：触屏输入通道（TOUCH_KEYS 单一事实来源 / 能力检测 / 输入控制器，签名对齐 TECHNICAL §3.1/§3.3）
       TOUCH_KEYS: TOUCH_KEYS,
       isTouchDevice: isTouchDevice,

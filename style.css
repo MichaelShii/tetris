@@ -2163,6 +2163,327 @@ html:not(.has-touch) .touchpad {
   color: var(--muted);
 }
 
+/* ═══════════════ r37 全网排行榜（纯追加独立类：.lb-* / .nm-* 族；既有规则体零改、
+   零新增 token/keyframe——玻璃卡四件套复用 --glass-bg + blur(20px) saturate(140%) + --line +
+   --radius-md；入场复用 @keyframes overlay-in；触屏 ≥44px 门控；reduced-motion 副本） ═══════════════ */
+
+/* 弹层族骨架（镜像 .settings-modal：全屏遮罩 + 居中玻璃卡；默认 opacity:0 + .is-open 显影；
+   DOM 序在 #settings-modal 之后 → 同 z 层级自然压上，不改任何既有 z-index 值） */
+.lb-modal,
+.nm-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100; /* 与 settings-modal 同 z 域（互斥保证同刻仅一弹层激活） */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 160ms ease-out; /* 与 #overlay / settings-modal 动画时长一致 */
+}
+
+.lb-modal[hidden],
+.nm-modal[hidden] {
+  display: none;
+}
+
+.lb-modal.is-open,
+.nm-modal.is-open {
+  opacity: 1;
+}
+
+/* 背板（镜像 .settings-modal__backdrop） */
+.lb-modal__backdrop,
+.nm-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 5, 8, 0.62);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/* 玻璃卡：四件套复用；宽度 min(92vw,420px)（S 竖屏 min(94vw,420px) 见文末媒体查询）；
+   高度封顶 min(80vh,560px)——榜内滚动独立于 .lb-modal__body（副本滚动条） */
+.lb-modal__card,
+.nm-modal__card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  width: min(92vw, 420px);
+  max-height: min(80vh, 560px);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--sp-5) var(--sp-6);
+}
+
+.lb-modal.is-open .lb-modal__card,
+.nm-modal.is-open .nm-modal__card {
+  animation: overlay-in 160ms ease-out; /* 复用既有关键帧，零新增 */
+}
+
+/* 榜内滚动区独立（镜像 .settings-modal__card 滚动条写法，独立选择器副本） */
+.lb-modal__body {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(154, 154, 172, 0.55) transparent;
+}
+
+.lb-modal__body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.lb-modal__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.lb-modal__body::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(154, 154, 172, 0.55);
+}
+
+.lb-modal__body::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* 头部（标题 + 关闭钮，镜像 settings-modal） */
+.lb-modal__header,
+.nm-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lb-modal__title,
+.nm-modal__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lb-modal__close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: var(--fs-lg);
+  cursor: pointer;
+}
+
+.lb-modal__close:hover,
+.lb-modal__close:focus-visible {
+  color: var(--accent);
+}
+
+/* 分段切换（role=group 双钮；aria-pressed 态沿 keycap 先例独立选择器） */
+.lb-tabs {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.lb-tab {
+  flex: 1;
+  height: 40px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.lb-tab:hover,
+.lb-tab:focus-visible {
+  border-color: var(--accent);
+}
+
+.lb-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.lb-tab[aria-pressed='true'] {
+  border-color: var(--primary);
+  color: var(--primary-hi);
+}
+
+/* 榜单列表：Top20 五列网格 名次/昵称/分数/等级/消行（DESIGN §2.2 行骨架） */
+.lb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.lb-row {
+  display: grid;
+  grid-template-columns: 3ch 1fr auto 2ch 3ch;
+  gap: var(--sp-2);
+  align-items: baseline;
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.lb-row:last-child {
+  border-bottom: none;
+}
+
+.lb-row:hover,
+.lb-row:focus-within {
+  background: color-mix(in oklch, var(--surface-2) 55%, transparent);
+}
+
+.lb-rank {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.lb-rank--top {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.lb-name {
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis; /* ≤12 字不折行 */
+  min-width: 0;
+}
+
+.lb-score,
+.lb-level,
+.lb-lines {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  text-align: right;
+}
+
+/* 状态区（加载 / 暂不可用+重试 / 暂无成绩） */
+.lb-state {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  text-align: center;
+  padding: var(--sp-4) var(--sp-2);
+}
+
+/* 设置弹层内新型组行（昵称行 / 全网榜行；组本身不写 display——D9，hidden 门控由
+   leaderboard.js 侧 JS 移除；行式对齐 .audio-controls__row 既有先例） */
+.lb-name-row,
+.lb-entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+}
+
+.lb-nickname-value {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  color: var(--muted); /* 「未设置」弱化；已设置由 ui.js 加 .is-set 转 --ink */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lb-nickname-value.is-set {
+  color: var(--ink);
+}
+
+/* 昵称弹层：label / 输入件 / 错误提示 / 操作钮 */
+.nm-label {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.nm-input {
+  height: 44px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.nm-input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.nm-input:focus-visible {
+  outline: none;
+  border-color: var(--primary-hi);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--primary) 45%, transparent);
+}
+
+.nm-error {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+
+.nm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+/* 触屏 ≥44px 门控（DESIGN §4.3：桌面 .lb-tab 40px 不达标已标注为有意；触屏档下调至达标） */
+html.has-touch .lb-tab {
+  min-height: 44px;
+}
+
+html.has-touch .lb-modal__close {
+  width: 44px;
+  height: 44px;
+}
+
+/* S 竖屏卡宽放宽（min(94vw,420px)；镜像 .settings-modal 480px 断点收纳域） */
+@media (max-width: 480px) {
+  .lb-modal__card,
+  .nm-modal__card {
+    width: min(94vw, 420px);
+    padding: var(--sp-4);
+  }
+}
+
+/* r37 弹层入场 reduce 副本（DESIGN §3.2 TECH 复核项；全局 reduce 段已有 * 兜底，
+   此处按规格补两弹层显式 animation:none，与既有 reduce 块同构） */
+@media (prefers-reduced-motion: reduce) {
+  .lb-modal.is-open .lb-modal__card,
+  .nm-modal.is-open .nm-modal__card {
+    animation: none;
+  }
+}
+
 /* ═ r34/r36 全局统计面板（#global-stats 第二卡；纯追加，既有规则体零动；r36 移除「本局统计」整卡后 #global-stats 即信息面板第二组） ═ */
 /* ① 基座行式（桌面/M/L：#panel-left 内自然排列） */
 .global-stats { display: flex; flex-direction: column; gap: var(--sp-1); }

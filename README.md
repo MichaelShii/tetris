@@ -12,6 +12,7 @@
 - [如何运行](#如何运行)
 - [项目结构](#项目结构)
 - [验收速览](#验收速览)
+- [已知取舍](#已知取舍)
 
 ---
 
@@ -35,6 +36,7 @@
 16. **消行动画（v3.1）**：消除行时播放 240ms ease-out-quart 亮度脉冲（1→1.25→0，1~4 行同步），动画期间时钟冻结、输入忽略、暂停冻结进度续播；reduced-motion 自动降级为即时消除。
 17. **多格预览队列（v3.2）**：信息面板「下一个」升级为 3 格预览队列，按出场顺序展示接下来 3 个方块；设置弹层提供「预览队列」开关（默认开启、持久化保存），关闭后仅隐藏队列显示，不影响实际出场顺序。
 18. **触屏控制（v3.3）**：触屏设备（手机/平板/触屏笔记本）自动显示 6 键虚拟按键（左移/右移/旋转/软降/硬降/Hold），逐键等效键盘：长按复用键盘同一 DAS/软降 repeat 时钟，多指互不串扰；键鼠桌面不显示触屏控件，操作体验不变。
+19. **全网排行榜（r37，联网启用）**：游戏 OVER 自动提交成绩至全网榜单（Cloudflare Workers + KV 后端），首次提交弹出昵称设置（仅一次、可在设置中修改）；榜单面板以玻璃风展示**总榜 / 周榜 Top 20**。`file://` 或断网时**静默降级**——入口隐藏、零请求、离线游玩体验不变。**Phase 1 为折中校验**（昵称清洗 + 速度上界异常拦截 + 设备/IP 限流），严格防作弊的服务端重放校验为 Phase 2（详见下方「已知取舍」）。
 
 ## 操作说明
 
@@ -70,7 +72,7 @@
 
 - **在线游玩**：[点击打开](https://michaelshii.github.io/tetris/)（GitHub Pages 托管）
 - **本地运行**：双击 `index.html`（或拖入 Chrome / Edge / Firefox 最新版），无需安装任何东西
-- **断网可用**：全部资源为本地文件，DevTools Network 面板请求数 = 0
+- **断网可用**：核心资源全部为本地文件，`file://` 与断网时全网榜自动隐藏、零网络请求，离线游玩体验不变（**联网才有全网榜**）
 - **开发/调试**：直接编辑 `game.js` / `audio.js` / `ui.js` / `style.css`，刷新页面即可，无构建步骤
 
 ## 项目结构
@@ -82,16 +84,25 @@
 ├── ui.js              ← UI 层（Canvas 渲染 / HUD / 消行脉冲 / 设置弹层 / 触屏输入通道 / 装配）
 ├── audio.js           ← Web Audio 合成音效引擎（7 类音效 + BGM + 音量/静音，零外部文件）
 ├── persist.js         ← 持久化层（localStorage 读写 + 能力探测降级内存 Map）
+├── leaderboard.js     ← 全网榜（r37：身份/提交/拉榜/降级，UMD 纯逻辑；联网启用）
+├── worker/            ← 后端（r37：Cloudflare Workers + KV，独立目录独立部署——提交/榜单/限流/CORS）
 ├── scripts/
-│   ├── verify-game.cjs      ← 核心逻辑自检（97 项，node:test）
-│   ├── verify-audio.cjs     ← 音效引擎自检（24 项）
-│   ├── verify-ui.cjs        ← UI 层自检（20 项）
-│   ├── verify-persist.cjs   ← 持久化自检（15 项）
-│   ├── verify-constants.cjs ← 版本一致性自检（2 项）
-│   ├── assembly-check.cjs   ← 装配 + 自包含审计
-│   └── qa-e2e-jsdom.cjs     ← DOM 级 E2E（354 项）
+│   ├── verify-game.cjs        ← 核心逻辑自检（97 项，node:test）
+│   ├── verify-audio.cjs       ← 音效引擎自检（24 项）
+│   ├── verify-ui.cjs          ← UI 层自检（20 项）
+│   ├── verify-persist.cjs     ← 持久化自检（15 项）
+│   ├── verify-constants.cjs   ← 版本一致性自检（2 项）
+│   ├── verify-leaderboard.cjs ← 全网榜自检（r37 新增）
+│   ├── assembly-check.cjs     ← 装配 + 自包含审计
+│   └── qa-e2e-jsdom.cjs       ← DOM 级 E2E（354 项）
 └── docs/              ← 产品文档（PRD / 设计 / 架构 / 技术方案 / QA 报告）
 ```
+
+## 已知取舍（r37 全网排行榜）
+
+- **离线无榜、联网才有全网榜**：`file://` 与断网时榜单入口隐藏、零请求，游戏闭环与本地数据不受影响；自包含（AC-08）口径同步为「离线可玩、联网才有全网榜」，assembly 自包含审计仅放行 API 域名白名单例外。
+- **Phase 1 为折中校验，非服务端重放**：服务端不重放整局，仅做昵称清洗、按等级/时长推算速度上界的异常拦截（异常分数不入榜）、每设备 20 次/10min + 每 IP 60 次/10min 限流；严格防作弊的服务端重放校验为 **Phase 2**（提交协议已携带版本号字段 `protoVer=1` 预留扩展点）。
+- **简化优先**：昵称白名单不含 emoji（误伤边界可接受，Phase 2 可扩）；弱网/限流下提交丢失静默可接受，属 Phase 1 折中边界。
 
 ## 验收速览
 
@@ -104,7 +115,7 @@
 | AC-05 | 结束与重开（出生碰撞 → GAME OVER、全量重置） | ✅ |
 | AC-06 | 计分与升级（公式钉死单测、LEVEL UP toast） | ✅ |
 | AC-07 | 视觉风格（深色底、毛玻璃、霓虹、7 色方块） | ✅ |
-| AC-08 | 自包含与离线（无 http(s) 引用） | ✅ |
+| AC-08 | 自包含与离线（离线可玩、联网才有全网榜；http(s) 仅 API 域名白名单例外） | ✅ |
 | AC-09 | 游戏音效（7 类合成、零外部文件） | ✅ |
 | AC-10 | 音量与静音（面板控件 + M 键） | ✅ |
 | AC-11 | 暂停/继续快捷键（P 双向、空格继续） | ✅ |
@@ -116,8 +127,9 @@
 | AC-17 | 7-bag 随机（Fisher-Yates 洗牌、每 7 块全覆盖） | ✅ |
 | AC-18 | 无踢墙旋转（碰撞保持原位 + wall-kick-denied） | ✅ |
 | AC-19 | 踢墙旋转开关（偏移表 + 开关持久化） | ✅ |
+| AC-20 | 全网排行榜（联网提交 + 总榜/周榜 Top20；file:///断网静默降级） | ✅ |
 
-**七套验证命令**（产品根下执行）：
+**八套验证命令**（产品根下执行）：
 
 ```bash
 node scripts/verify-game.cjs          # 97 项
@@ -125,6 +137,7 @@ node scripts/verify-audio.cjs         # 24 项
 node scripts/verify-ui.cjs            # 20 项
 node scripts/verify-persist.cjs       # 15 项
 node scripts/verify-constants.cjs     # 2 项
-node scripts/assembly-check.cjs       # 装配 + 自包含审计
+node scripts/verify-leaderboard.cjs   # 21 项
+node scripts/assembly-check.cjs       # 装配 + 自包含审计（API 白名单例外）
 node scripts/qa-e2e-jsdom.cjs         # 354 项（需 jsdom）
 ```
