@@ -69,6 +69,9 @@
 
     // 最高分默认 0（无历史时 HUD 显示 0，后续调用 saveHighScore 只增不减）
     const DEFAULT_HIGH_SCORE = 0
+    // r34 全局统计默认值（placed 累计已放置方块 / lines 累计消行 / timeMs 累计时长 ms / games 对局次数；
+    // 只增不减随入账递增，累计唯一事实收敛在 persist 层——PRD §1 数据分界②；PAYLOAD_VERSION 不变纯增量）
+    const DEFAULT_STATS = { placed: 0, lines: 0, timeMs: 0, games: 0 }
     // 五设置布尔白名单默认值（对齐 ui.js 现状：音量→audio 用 0~1，此处存布尔开关语义见说明）
     const DEFAULT_VOLUME = 0.8
     const DEFAULT_SETTINGS = {
@@ -358,9 +361,17 @@
           obj && obj.highScore,
           { type: 'integer', min: 0, max: Infinity, def: DEFAULT_HIGH_SCORE }
         )
+        // r34 全局统计：非负整数白名单清洗（负/NaN/浮点→0 或 floor；缺失/非对象 → 全 0——AC-3 旧数据兼容）
+        const st = obj && obj.stats && typeof obj.stats === 'object' ? obj.stats : {}
         const settings = obj && obj.settings && typeof obj.settings === 'object' ? obj.settings : {}
         return {
           highScore: highScore,
+          stats: {
+            placed: sanitize(st.placed, { type: 'integer', min: 0, max: Infinity, def: DEFAULT_STATS.placed }),
+            lines: sanitize(st.lines, { type: 'integer', min: 0, max: Infinity, def: DEFAULT_STATS.lines }),
+            timeMs: sanitize(st.timeMs, { type: 'integer', min: 0, max: Infinity, def: DEFAULT_STATS.timeMs }),
+            games: sanitize(st.games, { type: 'integer', min: 0, max: Infinity, def: DEFAULT_STATS.games }),
+          },
           settings: {
             volume: sanitize(settings.volume, { type: 'float', min: 0, max: 1, def: DEFAULT_SETTINGS.volume }),
             muted: sanitize(settings.muted, { type: 'boolean', def: DEFAULT_SETTINGS.muted }),
@@ -384,6 +395,12 @@
           return JSON.stringify({
             version: PAYLOAD_VERSION,
             highScore: state.highScore,
+            stats: {
+              placed: state.stats.placed,
+              lines: state.stats.lines,
+              timeMs: state.stats.timeMs,
+              games: state.stats.games,
+            },
             settings: {
               volume: state.settings.volume,
               muted: state.settings.muted,
@@ -440,9 +457,11 @@
         }
         persistedHighScore = next
         const current = load()
-        // 保留已读设置，仅覆写最高分（避免刷新设置字段）
+        // 保留已读设置与全局统计，仅覆写最高分（避免刷新设置/stats 字段——stats 为 r34 单键顶端字段，
+        // 若不带入则本写盘会整体覆盖掉已入账的全局统计，AC-2 只增不减语义被破坏）
         const merged = {
           highScore: next,
+          stats: current.stats,
           settings: current.settings,
         }
         return commit(merged)
@@ -458,7 +477,38 @@
         const current = load()
         const merged = {
           highScore: current.highScore,
+          stats: current.stats,
           settings: clean.settings,
+        }
+        return commit(merged)
+      }
+
+      /**
+       * saveStats(delta) — 全局统计只增不减累加（r34；累计唯一事实在 persist 层）。
+       * 每字段 sanitize 非负整数后叠加；空增量快速返回 true 不写盘；内存降级/失败静默成功（与 saveHighScore 同语义）。
+       * @param {{placed?:number, lines?:number, timeMs?:number, games?:number}} delta 增量（引擎 onStats 事件载荷透传）
+       * @returns {boolean} 写盘成功（含空增量快路径；dispose 后 false）
+       */
+      function saveStats(delta) {
+        if (disposed) return false
+        const d = delta && typeof delta === 'object' ? delta : {}
+        const add = {
+          placed: sanitize(d.placed, { type: 'integer', min: 0, max: Infinity, def: DEFAULT_STATS.placed }),
+          lines: sanitize(d.lines, { type: 'integer', min: 0, max: Infinity, def: DEFAULT_STATS.lines }),
+          timeMs: sanitize(d.timeMs, { type: 'integer', min: 0, max: Infinity, def: DEFAULT_STATS.timeMs }),
+          games: sanitize(d.games, { type: 'integer', min: 0, max: Infinity, def: DEFAULT_STATS.games }),
+        }
+        if (add.placed === 0 && add.lines === 0 && add.timeMs === 0 && add.games === 0) return true // 空增量：不写盘（幂等快路径）
+        const current = load() // 读当前（含旧数据兼容清洗），保持 highScore/settings 原值
+        const merged = {
+          highScore: current.highScore,
+          settings: current.settings,
+          stats: {
+            placed: current.stats.placed + add.placed,
+            lines: current.stats.lines + add.lines,
+            timeMs: current.stats.timeMs + add.timeMs,
+            games: current.stats.games + add.games,
+          },
         }
         return commit(merged)
       }
@@ -481,6 +531,7 @@
         load: load,
         saveHighScore: saveHighScore,
         saveSettings: saveSettings,
+        saveStats: saveStats, // r34：全局统计累加出口（只增不减）
         dispose: dispose,
       }
     }
@@ -494,6 +545,8 @@
       PAYLOAD_VERSION: PAYLOAD_VERSION,
       DEFAULT_HIGH_SCORE: DEFAULT_HIGH_SCORE,
       DEFAULT_SETTINGS: DEFAULT_SETTINGS,
+      // r34 全局统计默认四元组（additive 不升 PAYLOAD_VERSION；与 saveStats/load().stats 配套）
+      DEFAULT_STATS: { placed: DEFAULT_STATS.placed, lines: DEFAULT_STATS.lines, timeMs: DEFAULT_STATS.timeMs, games: DEFAULT_STATS.games },
       DOCK_SKINS: DOCK_SKINS,
       // r31 自定义按键契约（键表 / 动作序 / 规范化 / 白名单清洗——与 game.js 双声明由 verify-ui 交叉断言）
       KEY_ACTIONS: KEY_ACTIONS.slice(),

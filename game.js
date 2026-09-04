@@ -567,6 +567,9 @@
      * @param {(name: SfxEvent) => void} [options.onSfx] 音效事件发射（v2.0，AC-09）：
      *        仅"成功"动作与关键事件触发（移动/旋转/软降/硬降/消行/升级/结束），
      *        引擎只发事件名不触碰音频 API（Node 可测、零 DOM 副作用）
+     * @param {(delta: {reason:'over'|'flush', placed:number, lines:number, timeMs:number, games:number}) => void} [options.onStats]
+     *        r34 全局统计生命周期事件出口（AC-1/4/5/6）：'over'=OVER 定格全量入账（games=1 恒发一次）；
+     *        'flush'=当前局未入账时长补记（delta>0 才发，games=0）；引擎零累计事实、只发增量
      */
     function createGame(options) {
       const opts = options || {}
@@ -582,6 +585,8 @@
         onLevelUp: typeof opts.onLevelUp === 'function' ? opts.onLevelUp : null,
         onGameOver: typeof opts.onGameOver === 'function' ? opts.onGameOver : null,
         onSfx: typeof opts.onSfx === 'function' ? opts.onSfx : null,
+        // r34：全局统计入账/补记事件出口（OVER 定格 / 隐藏·卸载补记；与 onSfx 同风格——只发增量载荷不触碰持久化）
+        onStats: typeof opts.onStats === 'function' ? opts.onStats : null,
       }
 
       const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined'
@@ -632,6 +637,11 @@
       // start/restart 归零重计；0 行为变化（纯计数/累加赋值，不读取既有状态、不改返回值/emit/sfx）
       let piecesPlaced = 0
       let sessionTimeMs = 0
+      // r34（AC-4/5/6，additive）：全局统计入账幂等标记——statsAccounted（本局 OVER 是否已定格入账，
+      // start/restart 重置；重入/二次 OVER 帧拦截）+ timeFlushWatermark（本局已入账时长 ms，每次
+      // flush/over 后推进；差值=只发未入账部分，同帧双触发/多事件自然归零）。双标记职责不同不作合并。
+      let statsAccounted = false
+      let timeFlushWatermark = 0
       // r33（AC-03.5，additive）：触底锁定重置预算剩余次数——per-piece 会话内存（与 r32 计数同风格闭包，
       // 不入 state 对象）：每次方块出生重置为 LOCK_MOVE_RESET_MAX；触底成功动作/悬空清零动作各 −1（封底 0）；
       // 被拒不耗；软降/硬降/重力不耗——仅 move/rotate 成功分支读写，_debug getter 作断言锚点
@@ -640,6 +650,33 @@
       function resetLockMoveBudget() {
         lockMoveResetsRemaining = LOCK_MOVE_RESET_MAX
       }
+
+      /* ---- r34 全局统计入账/补记（纯增量；入账数据走 onStats 事件出口，不经快照——键集零追加） ---- */
+      /** 事件发射（全零增量早退；disposed/无回调早退——事件面零新 sfx，纯数据通道） */
+      function emitStats(reason, placed, lines, timeMs, games) {
+        if (disposed || !cb.onStats) return
+        if (!placed && !lines && !timeMs && !games) return
+        cb.onStats({ reason: reason, placed: placed, lines: lines, timeMs: timeMs, games: games })
+      }
+      /** OVER 定格全量入账（finishLock 出生碰撞 + lose() 双入口调用；statsAccounted 幂等防重入） */
+      function accountOver() {
+        if (disposed || statsAccounted) return
+        statsAccounted = true
+        const delta = sessionTimeMs - timeFlushWatermark
+        timeFlushWatermark = sessionTimeMs
+        emitStats('over', piecesPlaced, state.lines, delta, 1)
+      }
+      /** 补记当前局未入账时长（RUNNING 判定 + 水印差值；幂等；测试/宿主可直调——Node 无 DOM 亦可） */
+      function flushTime() {
+        if (disposed || statsAccounted || state.phase !== 'RUNNING') return
+        const delta = sessionTimeMs - timeFlushWatermark
+        if (delta <= 0) return
+        timeFlushWatermark = sessionTimeMs
+        emitStats('flush', 0, 0, delta, 0)
+      }
+      // 隐藏/卸载补记（不受 autoPauseOnBlur 门控——补记必须恒可用；pagehide 兜底双保险）
+      function onPageHide() { flushTime() }
+      function onBeforeUnload() { flushTime() }
       // 消行动画时长（r13，AC-1/AC-9）：默认 240ms（容差 160~320）；0 = 即时消除（与 reduced-motion 等价，AC-7）；
       // 强制布尔/负值兜底为默认值（对齐 wallKickEnabled 的 opts 解析风格）；构造期只读，无运行期 setter
       const animMs = typeof opts.animMs === 'number' && opts.animMs >= 0 ? opts.animMs : 240
@@ -786,6 +823,7 @@
           if (levelUp) sfx('levelUp') // 与 LEVEL UP 回调同栈（AC-09.4）
           if (cb.onGameOver) cb.onGameOver(state.score)
           sfx('gameOver') // 进入 OVER 态恰好 1 次，与遮罩回调同栈（AC-09.4）
+          accountOver() // r34：出生碰撞 OVER 入口①——定格全量入账（piecesPlaced/lines/sessionTimeMs 已定格；幂等）
           return { ok: true, locked: true, cleared: cleared, levelUp: levelUp, gameOver: true }
         }
         state.piece = p
@@ -821,6 +859,9 @@
         // r32（AC-4/5）：READY→start 新局归零（防御性——READY 期本就为 0，保证新对局从绝对零起）
         piecesPlaced = 0
         sessionTimeMs = 0
+        // r34：新会话复位两入账标记（OVER 后新局从零入账）
+        statsAccounted = false
+        timeFlushWatermark = 0
         spawnFirst()
         emit()
         if (keyboardRef) keyboardRef.reset()
@@ -848,6 +889,9 @@
         // r32（AC-4/5）：restart 任意态归零重计（与其它会话重置同批；OVER 出口必经本函数）
         piecesPlaced = 0
         sessionTimeMs = 0
+        // r34：新会话复位两入账标记（OVER 定格后经 restart 开新局，防跨局叠加）
+        statsAccounted = false
+        timeFlushWatermark = 0
         state.phase = transition(state.phase, 'restart') // 任意态 → RUNNING
         spawnFirst()
         emit()
@@ -1095,6 +1139,7 @@
         emit()
         if (cb.onGameOver) cb.onGameOver(state.score)
         sfx('gameOver') // 强制结束也发声（E-SFX-06，进入 OVER 态恰好 1 次）
+        accountOver() // r34：OVER 入口②（强制结束）——定格全量入账（与入口①互斥由 phase 状态机 + statsAccounted 兜底）
         return { ok: true }
       }
 
@@ -1122,7 +1167,10 @@
 
       /* ---- 失焦/切页自动暂停（AC-04.4；恢复焦点不自动恢复） ---- */
       function onVisibilityChange() {
-        if (typeof document !== 'undefined' && document.hidden && state.phase === 'RUNNING') togglePause()
+        if (typeof document !== 'undefined' && document.hidden && state.phase === 'RUNNING') {
+          flushTime() // r34：先补记（此刻仍 RUNNING 的已玩时长入账）再自动暂停——顺序不可反（切后台时长不丢不虚增）
+          togglePause()
+        }
       }
       function onWindowBlur() {
         if (state.phase === 'RUNNING') togglePause()
@@ -1311,6 +1359,7 @@
         softDrop: softDrop,
         hardDrop: hardDrop,
         tick: tick,
+        flushTime: flushTime, // r34：补记当前局未入账时长（Node 测试/宿主直调；幂等）
         lose: lose,
         attachKeyboard: attachKeyboard,
         detachKeyboard: detachKeyboard,
@@ -1338,6 +1387,11 @@
             document.removeEventListener('visibilitychange', onVisibilityChange)
             window.removeEventListener('blur', onWindowBlur)
           }
+          // r34：卸载补记监听对称移除（不受 autoPauseOnBlur 门控——与注册侧条件严格一致）
+          if (isBrowser) {
+            window.removeEventListener('pagehide', onPageHide)
+            window.removeEventListener('beforeunload', onBeforeUnload)
+          }
         },
         /**
          * 内部测试钩子（非对外契约，勿在生产调用）：用于确定性单测构造场景。
@@ -1360,6 +1414,11 @@
       if (autoPauseOnBlur && isBrowser) {
         document.addEventListener('visibilitychange', onVisibilityChange)
         window.addEventListener('blur', onWindowBlur)
+      }
+      // r34：隐藏/卸载补记监听——恒注册（不受 autoPauseOnBlur 门控，补记必须恒可用；dispose 对称移除）
+      if (isBrowser) {
+        window.addEventListener('pagehide', onPageHide)
+        window.addEventListener('beforeunload', onBeforeUnload)
       }
       if (keyboardOn) attachKeyboard()
       emit()
