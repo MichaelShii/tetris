@@ -194,6 +194,29 @@
     }
 
     /* ======================================================================
+     * 2c. r37 全网排行榜：设备身份 / 昵称清洗（纯函数，永不 throw）
+     *     白名单以 worker 正则为准，双端逐字同规（r37 TECH D3）：
+     *       deviceId: ^[A-Za-z0-9-]{8,64}$（UUID v4 形态：32 hex + 4 '-'，与 worker DEVICE_ID_RE 同式）
+     *       nickname: trim 后长度 1–12，首字符 [\p{L}\p{N}]、后续 [\p{L}\p{N} _\-·.]（含 CJK 任意文种）
+     *     非法 → null（调用方判定）；本文件纯逻辑无 DOM，Node 可直测。
+     * ==================================================================== */
+
+    const DEVICE_ID_RE = /^[A-Za-z0-9-]{8,64}$/
+    const NICKNAME_RE = /^[\p{L}\p{N}][\p{L}\p{N} _\-·.]{0,11}$/u
+
+    function sanitizeDeviceId(value) {
+      if (typeof value !== 'string') return null
+      return DEVICE_ID_RE.test(value) ? value : null
+    }
+
+    function sanitizeNickname(value) {
+      if (typeof value !== 'string') return null
+      const t = value.trim()
+      if (t.length === 0 || t.length > 12) return null
+      return NICKNAME_RE.test(t) ? t : null
+    }
+
+    /* ======================================================================
      * 3. 存储适配器规范化 + createStorage() — 能力探测 + 内存降级，永不 throw
      *
      * 统一存储适配器面（内部契约）：
@@ -384,6 +407,9 @@
             // r31 自定义按键：9 动作白名单清洗（非法/冲突回退默认；纯增量字段）
             keybindings: sanitizeKeybindings(settings.keybindings),
           },
+          // r37 顶层新字段（纯增量，缺失回 null）：deviceId 设备身份 / nickname 昵称缓存
+          deviceId: sanitizeDeviceId(obj && obj.deviceId),
+          nickname: sanitizeNickname(obj && obj.nickname),
         }
       }
 
@@ -412,6 +438,9 @@
               dockSkin: state.settings.dockSkin,
               keybindings: sanitizeKeybindings(state.settings.keybindings),
             },
+            // r37：顶层纯增量字段（缺失回 null，旧载荷向后兼容）
+            deviceId: state.deviceId,
+            nickname: state.nickname,
           })
         } catch (_e) {
           return null
@@ -463,6 +492,8 @@
           highScore: next,
           stats: current.stats,
           settings: current.settings,
+          deviceId: current.deviceId,
+          nickname: current.nickname,
         }
         return commit(merged)
       }
@@ -479,6 +510,8 @@
           highScore: current.highScore,
           stats: current.stats,
           settings: clean.settings,
+          deviceId: current.deviceId,
+          nickname: current.nickname,
         }
         return commit(merged)
       }
@@ -503,12 +536,54 @@
         const merged = {
           highScore: current.highScore,
           settings: current.settings,
+          deviceId: current.deviceId,
+          nickname: current.nickname,
           stats: {
             placed: current.stats.placed + add.placed,
             lines: current.stats.lines + add.lines,
             timeMs: current.stats.timeMs + add.timeMs,
             games: current.stats.games + add.games,
           },
+        }
+        return commit(merged)
+      }
+
+      /**
+       * saveDeviceId(id) — r37：设备身份持久化（UUID v4；只在清洗合法时写盘，合并保留其余载荷）。
+       * 业务侧禁止裸 setItem/getItem（memory.md 既有约定，AC-4）；清洗非法 → false 不写盘。
+       * @returns {boolean} dispose 后 false；清洗非法 false；写盘成功 true（内存降级亦称成功）
+       */
+      function saveDeviceId(id) {
+        if (disposed) return false
+        const clean = sanitizeDeviceId(id)
+        if (clean === null) return false
+        const current = load()
+        const merged = {
+          highScore: current.highScore,
+          stats: current.stats,
+          settings: current.settings,
+          deviceId: clean,
+          nickname: current.nickname,
+        }
+        return commit(merged)
+      }
+
+      /**
+       * saveNickname(name) — r37：昵称缓存持久化（白名单清洗同 worker 正则，双端同规）。
+       * 只存不校验存在性（空昵称提交由 leaderboard.js 首弹门槛裁决）；清洗非法 → false 不写盘。
+       * @returns {boolean} dispose 后 false；清洗非法 false；写盘成功 true
+       */
+      function saveNickname(name) {
+        if (disposed) return false
+        const clean = sanitizeNickname(name)
+        if (clean === null) return false
+        const current = load()
+        const merged = {
+          highScore: current.highScore,
+          stats: current.stats,
+          settings: current.settings,
+          deviceId: current.deviceId,
+          nickname: clean,
         }
         return commit(merged)
       }
@@ -532,6 +607,8 @@
         saveHighScore: saveHighScore,
         saveSettings: saveSettings,
         saveStats: saveStats, // r34：全局统计累加出口（只增不减）
+        saveDeviceId: saveDeviceId, // r37：设备身份持久化出口（清洗合法才写）
+        saveNickname: saveNickname, // r37：昵称缓存持久化出口（清洗合法才写）
         dispose: dispose,
       }
     }
@@ -555,6 +632,9 @@
       isBindableKey: isBindableKey,
       sanitizeKeybindings: sanitizeKeybindings,
       sanitize: sanitize,
+      // r37：设备身份 / 昵称清洗纯函数（与 worker 正则同式，Node 直测；leaderboard.js 同规双保险）
+      sanitizeDeviceId: sanitizeDeviceId,
+      sanitizeNickname: sanitizeNickname,
       createStorage: createStorage,
       createPersistence: createPersistence,
     }

@@ -3390,6 +3390,373 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
     }
   }
 
+  /* ---------- r37 全网排行榜（AC-1~16 Phase1：OVER 自动提交恰一次 / 载荷全字段 / 首弹门槛 /
+     弹层互斥+焦点回 #btn-settings / 面板三态+tab 零请求 / file:// 降级 0 fetch 0 报错） ---------- */
+  console.log('\n-- r37 全网排行榜（注入 leaderboard 真实装配 / OVER 提交 / 首弹 / 弹层互斥 / 面板 / file:// 降级） --')
+  {
+    /* ① 真实装配：leaderboard 注入（canFetch:true + fetchImpl spy）经 createUI({leaderboard})——
+       OVER+score>0 → fetch 恰 1 次、载荷全字段（protoVer=1 / durationMs=sessionTimeMs / deviceId/nickname 真实值） */
+    {
+      const env37 = await buildEnv()
+      const w37 = env37.window
+      w37.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+      w37.eval(fs.readFileSync(path.join(root, 'leaderboard.js'), 'utf8'))
+      const P37 = w37.TetrisPersist
+      const L37 = w37.TetrisLeaderboard
+      check('r37 UMD: window.TetrisLeaderboard.createLeaderboard 存在', typeof L37.createLeaderboard === 'function')
+      const posts37 = []
+      const fetchSpy37 = function (url, init) {
+        if (init && init.method === 'POST') posts37.push({ url: url, body: JSON.parse(init.body) })
+        return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ ok: true, proto: 1, generatedAt: Date.now(), all: [], week: [] }) } })
+      }
+      const backing37 = {}
+      const store37 = {
+        getItem: function (k) { return Object.prototype.hasOwnProperty.call(backing37, k) ? backing37[k] : null },
+        setItem: function (k, v) { backing37[k] = String(v) },
+        removeItem: function (k) { delete backing37[k] },
+      }
+      const persist37 = P37.createPersistence({ storage: store37 })
+      persist37.saveNickname('玩家甲') // 已有昵称 → OVER 直接提交（绕过首弹门槛）
+      const lb37 = L37.createLeaderboard({ persist: persist37, canFetch: true, fetchImpl: fetchSpy37 })
+      const ui37 = w37.TetrisUI.createUI({
+        autoLoop: false, rng: function () { return 0 }, sfxEngine: env37.spy, animMs: 0,
+        persist: persist37, leaderboard: lb37,
+        onGameOver: function (score, snap) { if (lb37 && snap) lb37.reportOver(snap) }, // 镜像 index.html 内联装配
+      })
+      const d37 = w37.document
+      const g37 = ui37.game
+      // 激活态：非 degraded → #lb-settings-group 可见（index.html 默认 hidden，激活才移除——DESIGN §2.1）
+      check('r37 激活态: #lb-settings-group 可见（非 degraded 移除 hidden）', d37.getElementById('lb-settings-group').hidden === false)
+      // 构造 score>0 OVER：row19 仅 col9 空 + 竖 I (x=7,rot=1,y=16) 补缺 → 消 1 行 100 分；tick 1s → sessionTimeMs=1000
+      g37.start()
+      const dbg37 = g37._debug
+      const board37 = Array.from({ length: 20 }, function () { return new Array(10).fill(null) })
+      for (let c = 0; c < 9; c++) board37[19][c] = 'T'
+      dbg37.setBoard(board37)
+      dbg37.setPiece({ type: 'I', rot: 1, x: 7, y: 16 })
+      g37.softDrop()
+      for (let i = 0; i < 4; i++) g37.tick(250)
+      g37.lose() // OVER → reportOver(snap)
+      await sleep(20) // fetch 微任务落地（posts37 在 reportOver 内异步填充）
+      const s37 = g37.getSnapshot()
+      check('r37 OVER 提交: POST 恰 1 次（引擎 onGameOver 每局一次 → reportOver 恰一次）', posts37.length === 1, String(posts37.length))
+      check('r37 载荷: protoVer===1（D2 钉名）', posts37[0] && posts37[0].body.protoVer === 1)
+      check('r37 载荷: durationMs===sessionTimeMs（D4，OVER 定格帧）',
+        posts37[0] && posts37[0].body.durationMs === s37.sessionTimeMs && s37.sessionTimeMs === 1000,
+        'durationMs=' + (posts37[0] ? posts37[0].body.durationMs : 'none') + ' sessionTimeMs=' + s37.sessionTimeMs)
+      check('r37 载荷: score/level/lines 全字段真实值（100/1/1）',
+        posts37[0] && posts37[0].body.score === s37.score && posts37[0].body.level === s37.level && posts37[0].body.lines === s37.lines,
+        JSON.stringify(posts37[0] && posts37[0].body))
+      check('r37 载荷: deviceId 真实 UUID（persist 落盘同一值）',
+        posts37[0] && posts37[0].body.deviceId === persist37.load().deviceId && /^[A-Za-z0-9-]{8,64}$/.test(posts37[0].body.deviceId))
+      check('r37 载荷: nickname 真实值（persist 回读）', posts37[0] && posts37[0].body.nickname === '玩家甲')
+      check('r37 提交后 persist: deviceId/nickname 顶层键落盘（同读回）',
+        persist37.load().deviceId !== null && persist37.load().nickname === '玩家甲')
+      ui37.dispose()
+      env37.handle.dispose()
+    }
+
+    /* ② 昵称首弹门槛：无昵称 OVER → #nickname-modal 开、input 空；非法 → #nm-error 显不关闭；
+       合法确定 → persist 落盘 + POST 载荷带昵称；取消 → 不上榜、无 fetch */
+    {
+      const env37b = await buildEnv()
+      const w37b = env37b.window
+      w37b.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+      w37b.eval(fs.readFileSync(path.join(root, 'leaderboard.js'), 'utf8'))
+      const P37b = w37b.TetrisPersist
+      const L37b = w37b.TetrisLeaderboard
+      const mkLb37b = function (backing) {
+        const store = {
+          getItem: function (k) { return Object.prototype.hasOwnProperty.call(backing, k) ? backing[k] : null },
+          setItem: function (k, v) { backing[k] = String(v) },
+          removeItem: function (k) { delete backing[k] },
+        }
+        const persist = P37b.createPersistence({ storage: store })
+        const posts = []
+        const lb = L37b.createLeaderboard({ persist: persist, canFetch: true, fetchImpl: function (url, init) {
+          if (init && init.method === 'POST') posts.push(JSON.parse(init.body))
+          return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ ok: true, proto: 1, generatedAt: Date.now(), all: [], week: [] }) } })
+        } })
+        return { persist: persist, lb: lb, posts: posts }
+      }
+      const mkUI37b = function (lb, persist) {
+        return w37b.TetrisUI.createUI({
+          autoLoop: false, rng: function () { return 0 }, sfxEngine: env37b.spy, animMs: 0,
+          persist: persist, leaderboard: lb,
+          onGameOver: function (score, snap) { if (lb && snap) lb.reportOver(snap) }, // 镜像 index.html 内联装配
+        })
+      }
+      // （a）首弹确认路径：无昵称 OVER → 弹窗开 → 非法不关 → 合法确定 → 落盘 + POST
+      {
+        const a = mkLb37b({})
+        const uiA = mkUI37b(a.lb, a.persist)
+        const dA = w37b.document
+        const gA = uiA.game
+        const nmModalA = dA.getElementById('nickname-modal')
+        const nmInputA = dA.getElementById('nm-input')
+        const nmErrorA = dA.getElementById('nm-error')
+        gA.start()
+        dbgClearLine37b(gA) // row19 缺 col9 + 竖 I → 消 1 行 score>0
+        gA.softDrop()
+        gA.lose()
+        check('r37 首弹: 无昵称 OVER → #nickname-modal 打开、input 空',
+          nmModalA.hidden === false && nmInputA.value === '',
+          'hidden=' + nmModalA.hidden + ' value=' + JSON.stringify(nmInputA.value))
+        check('r37 首弹: 未确认前 0 次 POST（首弹门槛持态）', a.posts.length === 0)
+        // 非法（空）→ #nm-error role=alert 显示 + 不关闭
+        nmInputA.value = '   '
+        nmInputA.dispatchEvent(new w37b.Event('input', { bubbles: true }))
+        dA.getElementById('nm-confirm').click()
+        check('r37 首弹: 非法(空) → #nm-error 显示且弹层不关闭',
+          nmErrorA.hidden === false && nmModalA.hidden === false && nmErrorA.textContent.indexOf('昵称不能为空') !== -1,
+          nmErrorA.textContent)
+        // 合法确定 → persist 落盘 + POST 载荷带昵称（确认=持久化+续提）
+        nmInputA.value = '玩家乙'
+        nmInputA.dispatchEvent(new w37b.Event('input', { bubbles: true }))
+        dA.getElementById('nm-confirm').click()
+        await sleep(200) // 关弹层 160ms 复位
+        check('r37 首弹: 合法确定 → persist tetris.nickname 落盘', a.persist.load().nickname === '玩家乙',
+          String(a.persist.load().nickname))
+        check('r37 首弹: 合法确定 → POST 恰 1 次且载荷带昵称',
+          a.posts.length === 1 && a.posts[0].nickname === '玩家乙', JSON.stringify(a.posts))
+        check('r37 首弹: 确认后弹层关闭', nmModalA.hidden === true)
+        uiA.dispose()
+      }
+      // （b）修改昵称：设置「修改」预填 → 确定 → 即时持久化（仅持久化不续提）→ 下一局提交带新昵称
+      {
+        const b = mkLb37b({})
+        b.persist.saveNickname('旧昵称')
+        const uiB = mkUI37b(b.lb, b.persist)
+        const dB = w37b.document
+        // 设置「修改」：开设置 → 点修改 → 昵称弹窗预填当前昵称
+        dB.getElementById('btn-settings').click()
+        dB.getElementById('btn-edit-nickname').click()
+        const nmInputB = dB.getElementById('nm-input')
+        check('r37 修改: 设置「修改」→ 预填当前昵称', nmInputB.value === '旧昵称', JSON.stringify(nmInputB.value))
+        await sleep(200) // 设置弹层 closeSettingsModal 160ms 复位（弹层互斥后 hidden）
+        check('r37 修改: 弹层互斥——设置已关（先关设置再开昵称弹层）', dB.getElementById('settings-modal').hidden === true)
+        nmInputB.value = '新昵称'
+        nmInputB.dispatchEvent(new w37b.Event('input', { bubbles: true }))
+        dB.getElementById('nm-confirm').click()
+        await sleep(200)
+        check('r37 修改: 确认 → 即时持久化（仅持久化不续提——无待提交）', b.persist.load().nickname === '新昵称',
+          String(b.persist.load().nickname))
+        check('r37 修改: 仅持久化路径 0 次 POST（设置改昵称不续提当前局）', b.posts.length === 0, String(b.posts.length))
+        // 下一局 OVER 提交带新昵称
+        const gB = uiB.game
+        gB.start()
+        dbgClearLine37b(gB)
+        gB.softDrop()
+        gB.lose()
+        await sleep(20)
+        check('r37 修改: 下一局 OVER 提交带新昵称', b.posts.length === 1 && b.posts[0].nickname === '新昵称',
+          JSON.stringify(b.posts))
+        uiB.dispose()
+      }
+      // （c）取消 → 不上榜、无 fetch、静默（下局再弹）
+      {
+        const c = mkLb37b({})
+        const uiC = mkUI37b(c.lb, c.persist)
+        const dC = w37b.document
+        const gC = uiC.game
+        const nmModalC = dC.getElementById('nickname-modal')
+        gC.start()
+        dbgClearLine37b(gC)
+        gC.softDrop()
+        gC.lose()
+        check('r37 取消: 无昵称 OVER → 首弹再弹', nmModalC.hidden === false)
+        dC.getElementById('nm-cancel').click()
+        await sleep(200)
+        check('r37 取消: 取消 → 静默清待提交 + 弹层关闭 + 0 次 fetch/POST',
+          nmModalC.hidden === true && c.posts.length === 0,
+          'posts=' + c.posts.length)
+        uiC.dispose()
+      }
+      env37b.handle.dispose()
+      function dbgClearLine37b(g) {
+        const dbg = g._debug
+        const b = Array.from({ length: 20 }, function () { return new Array(10).fill(null) })
+        for (let c = 0; c < 9; c++) b[19][c] = 'T'
+        dbg.setBoard(b)
+        dbg.setPiece({ type: 'I', rot: 1, x: 7, y: 16 })
+      }
+    }
+
+    /* ③ 弹层互斥 + 榜单面板（打开即拉取加载→列表 / tab 切换零请求 / 错误+重试 / Esc 焦点回 #btn-settings） */
+    {
+      const env37d = await buildEnv()
+      const w37d = env37d.window
+      w37d.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+      w37d.eval(fs.readFileSync(path.join(root, 'leaderboard.js'), 'utf8'))
+      const P37d = w37d.TetrisPersist
+      const L37d = w37d.TetrisLeaderboard
+      const backing37d = {}
+      const store37d = {
+        getItem: function (k) { return Object.prototype.hasOwnProperty.call(backing37d, k) ? backing37d[k] : null },
+        setItem: function (k, v) { backing37d[k] = String(v) },
+        removeItem: function (k) { delete backing37d[k] },
+      }
+      const persist37d = P37d.createPersistence({ storage: store37d })
+      persist37d.saveNickname('玩家甲')
+      const all37d = [
+        { rank: 1, nickname: '甲', score: 12000, level: 8, lines: 60 },
+        { rank: 2, nickname: '乙', score: 9000, level: 6, lines: 45 },
+        { rank: 3, nickname: '丙', score: 5000, level: 4, lines: 30 },
+      ]
+      const week37d = [{ rank: 1, nickname: '丁', score: 3000, level: 3, lines: 12 }]
+      let gets37d = 0
+      const fetchSpy37d = function (url, init) {
+        if (init && init.method === 'POST') return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ ok: true, proto: 1, generatedAt: Date.now(), all: [], week: [] }) } })
+        gets37d++
+        return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ ok: true, proto: 1, generatedAt: Date.now(), all: all37d, week: week37d }) } })
+      }
+      const lb37d = L37d.createLeaderboard({ persist: persist37d, canFetch: true, fetchImpl: fetchSpy37d })
+      const ui37d = w37d.TetrisUI.createUI({
+        autoLoop: false, rng: function () { return 0 }, sfxEngine: env37d.spy, animMs: 0,
+        persist: persist37d, leaderboard: lb37d,
+      })
+      const d37d = w37d.document
+      const settingsModal37d = d37d.getElementById('settings-modal')
+      const lbModal37d = d37d.getElementById('leaderboard-modal')
+      // 从设置打开排行榜：先开设置 → 点「查看榜单」→ 设置关 + 榜开（弹层互斥）
+      d37d.getElementById('btn-settings').click()
+      check('r37 互斥: 设置弹层先打开', settingsModal37d.hidden === false)
+      d37d.getElementById('btn-open-leaderboard').click()
+      await sleep(220) // 设置 close 160ms + 榜开 rAF
+      check('r37 互斥: 点查看榜单 → 设置已关（互斥）+ 榜单打开',
+        settingsModal37d.hidden === true && lbModal37d.hidden === false,
+        'settings=' + settingsModal37d.hidden + ' lb=' + lbModal37d.hidden)
+      check('r37 面板: 打开即拉取（GET 1 次）', gets37d === 1, String(gets37d))
+      await sleep(20) // fetch 结果落地
+      check('r37 面板: 总榜 Top3 行渲染（名次/昵称/分数/等级/消行）',
+        d37d.querySelectorAll('#lb-list .lb-row').length === 3 &&
+        d37d.getElementById('lb-list').textContent.indexOf('12000') !== -1 &&
+        d37d.getElementById('lb-list').textContent.indexOf('甲') !== -1,
+        String(d37d.querySelectorAll('#lb-list .lb-row').length))
+      check('r37 面板: #lb-state 隐藏（有数据）', d37d.getElementById('lb-state').hidden === true)
+      // tab 切换（周榜）→ aria-pressed 互斥 + 重渲染零请求
+      const tabWeek37d = d37d.querySelector('.lb-tab[data-view="weekly"]')
+      tabWeek37d.click()
+      await sleep(10)
+      check('r37 tab: 周榜 aria-pressed 切换 + 行渲染', tabWeek37d.getAttribute('aria-pressed') === 'true' &&
+        d37d.querySelector('.lb-tab[data-view="total"]').getAttribute('aria-pressed') === 'false' &&
+        d37d.querySelectorAll('#lb-list .lb-row').length === 1,
+        String(d37d.querySelectorAll('#lb-list .lb-row').length))
+      check('r37 tab: 切换零请求（GET 仍 1 次，缓存重渲染）', gets37d === 1, String(gets37d))
+      // Esc 关榜 → 焦点回 #btn-settings（D8）
+      d37d.dispatchEvent(new w37d.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      await sleep(200)
+      check('r37 Esc: 关榜后焦点统一回 #btn-settings（D8）',
+        d37d.getElementById('leaderboard-modal').hidden === true &&
+        w37d.document.activeElement && w37d.document.activeElement.id === 'btn-settings',
+        w37d.document.activeElement ? w37d.document.activeElement.id : 'none')
+      // 错误态 + 重试
+      const env37e = await buildEnv()
+      const w37e = env37e.window
+      w37e.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+      w37e.eval(fs.readFileSync(path.join(root, 'leaderboard.js'), 'utf8'))
+      const P37e = w37e.TetrisPersist
+      const L37e = w37e.TetrisLeaderboard
+      const backing37e = {}
+      const store37e = {
+        getItem: function (k) { return Object.prototype.hasOwnProperty.call(backing37e, k) ? backing37e[k] : null },
+        setItem: function (k, v) { backing37e[k] = String(v) },
+        removeItem: function (k) { delete backing37e[k] },
+      }
+      const persist37e = P37e.createPersistence({ storage: store37e })
+      persist37e.saveNickname('玩家甲')
+      let gets37e = 0
+      const fetchSpy37e = function (url, init) {
+        gets37e++
+        if (gets37e === 1) return Promise.reject(new Error('mock down'))
+        return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve({ ok: true, proto: 1, generatedAt: Date.now(), all: all37d, week: week37d }) } })
+      }
+      const lb37e = L37e.createLeaderboard({ persist: persist37e, canFetch: true, fetchImpl: fetchSpy37e })
+      const ui37e = w37e.TetrisUI.createUI({
+        autoLoop: false, rng: function () { return 0 }, sfxEngine: env37e.spy, animMs: 0,
+        persist: persist37e, leaderboard: lb37e,
+      })
+      const d37e = w37e.document
+      d37e.getElementById('btn-settings').click()
+      d37e.getElementById('btn-open-leaderboard').click()
+      await sleep(30)
+      check('r37 错误态: 拉取失败 → #lb-state「暂不可用」+ 重试钮', d37e.getElementById('lb-state').hidden === false &&
+        d37e.getElementById('lb-state').textContent.indexOf('暂不可用') !== -1 &&
+        d37e.getElementById('lb-state').querySelector('button') !== null,
+        d37e.getElementById('lb-state').textContent.trim())
+      d37e.getElementById('lb-state').querySelector('button').click() // 重试
+      await sleep(30)
+      check('r37 错误态: 重试成功 → 列表渲染（重新拉取）',
+        gets37e === 2 && d37e.querySelectorAll('#lb-list .lb-row').length === 3, 'gets=' + gets37e)
+      ui37d.dispose()
+      ui37e.dispose()
+      env37d.handle.dispose()
+      env37e.handle.dispose()
+    }
+
+    /* ④ file:// 降级（AC-8/16）：真实 index.html 管线 → degraded → 设置组/弹层 hidden 不可达、0 fetch、完整游玩零报错 */
+    {
+      const errs37 = []
+      const vc37 = new VirtualConsole()
+      vc37.on('jsdomError', function (e) { errs37.push(String(e && e.message || e)) })
+      let fetchCount37 = 0
+      const domF37 = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {
+        url: 'file://' + path.join(root, 'index.html').replace(/\\/g, '/'),
+        runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc37,
+        beforeParse: function (win) {
+          win.fetch = function () { fetchCount37++; return Promise.reject(new Error('disconnected')) }
+        },
+      })
+      const wf37 = domF37.window
+      wf37.HTMLCanvasElement.prototype.getContext = function () {
+        const noop = function () {}
+        return { setTransform: noop, clearRect: noop, fillRect: noop, beginPath: noop, moveTo: noop, lineTo: noop, stroke: noop, closePath: noop, arcTo: noop, fill: noop, drawImage: noop, save: noop, restore: noop, set globalAlpha(v) {}, set lineWidth(v) {}, set fillStyle(v) {}, set strokeStyle(v) {} }
+      }
+      await new Promise(function (r) {
+        if (wf37.document.readyState === 'complete') r()
+        else wf37.addEventListener('load', r)
+      })
+      await sleep(200)
+      const df37 = wf37.document
+      check('r37 file://: degraded → #lb-settings-group 保持 hidden（无入口，AC-8）',
+        df37.getElementById('lb-settings-group').hidden === true)
+      check('r37 file://: 两弹层不可达（hidden 不在 Tab 序/读屏树）',
+        df37.getElementById('leaderboard-modal').hidden === true && df37.getElementById('nickname-modal').hidden === true)
+      check('r37 file://: 0 次 fetch（degraded 停摆，可观测断言）', fetchCount37 === 0, 'fetch=' + fetchCount37)
+      check('r37 file://: 游玩链路零报错——自动装配完成（window.__tetris 存在）',
+        !!wf37.__tetris && typeof wf37.__tetris.dispose === 'function')
+      check('r37 file://: 全程无 jsdomError（离线全程 0 报错）', errs37.length === 0,
+        errs37.length ? errs37.join(' | ') : 'none')
+      // 完整游玩：开始 → OVER → 重开（离线，无排行榜入口干扰）
+      if (wf37.__tetris && wf37.__tetris.game && typeof wf37.__tetris.game.start === 'function') {
+        const gF = wf37.__tetris.game
+        gF.start() // READY → RUNNING
+        gF.lose() // OVER
+        gF.restart() // → RUNNING（r32 语义：任意态 → RUNNING + spawnFirst）
+        check('r37 file://: 完整游玩（开始→OVER→重开）零报错', errs37.length === 0 && gF.getSnapshot().phase === 'RUNNING',
+          'errs=' + String(errs37.length) + ' phase=' + gF.getSnapshot().phase)
+      } else {
+        check('r37 file://: 完整游玩（开始→OVER→重开）零报错', false, 'no auto-boot handle')
+      }
+      try { if (wf37.__tetris) wf37.__tetris.dispose() } catch (e) { /* 清理 */ }
+    }
+
+    /* ⑤ 源码级：12 装配锚点 + 三处同源 API_BASE + persist 增量出口 */
+    {
+      const h37 = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+      const lbFile37 = fs.readFileSync(path.join(root, 'leaderboard.js'), 'utf8')
+      const p37 = fs.readFileSync(path.join(root, 'persist.js'), 'utf8')
+      const anchors37 = ['lb-settings-group', 'lb-nickname-value', 'btn-edit-nickname', 'btn-open-leaderboard',
+        'leaderboard-modal', 'lb-list', 'lb-state', 'nickname-modal', 'nm-input', 'nm-error', 'nm-confirm', 'nm-cancel']
+      check('r37 源码级: index.html 含 12 装配锚点（must()×12 清单同源）',
+        anchors37.every(function (s) { return h37.indexOf('id="' + s + '"') !== -1 }))
+      check('r37 源码级: leaderboard.js 含 API_BASE 唯一登记 + degraded 标记（0 fetch 停摆）',
+        /API_BASE\s*=/.test(lbFile37) && /\bdegraded\b/.test(lbFile37))
+      check('r37 源码级: persist.js 含 saveDeviceId/saveNickname + 清洗出口（双端同规）',
+        /saveDeviceId\b/.test(p37) && /saveNickname\b/.test(p37) && /sanitizeDeviceId\b/.test(p37) && /sanitizeNickname\b/.test(p37))
+    }
+  }
+
   // 汇总附加项
   console.log('\n== 最终结果 ==')
   console.log('通过 ' + pass + ' / ' + (pass + fail))

@@ -5,11 +5,11 @@
 
 ## 团队约定与技术栈
 
-- **形态**：零构建自包含静态 Web 应用（双击 `index.html` 即玩，离线可用）；UMD 模块 `game.js`（引擎）/ `ui.js`（装配+渲染）/ `audio.js`（音效+BGM）/ `persist.js`（持久化），index.html 内联装配。
+- **形态**：零构建自包含静态 Web 应用（双击 `index.html` 即玩，离线可用）；UMD 模块 `game.js`（引擎）/ `ui.js`（装配+渲染）/ `audio.js`（音效+BGM）/ `persist.js`（持久化）/ `leaderboard.js`（全网榜，r37 新增：仅联网启用、file:///断网静默降级），index.html 内联装配；后端（Cloudflare Workers + KV，r37 起）在独立目录独立部署，产品根保持零构建扁平纯 JS。
 - **视觉**：科技玻璃风（DESIGN §5 token）；信息面板开关控件统一交互模式（幽灵块 AC-13 / BGM AC-15 / 踢墙 AC-19 对齐）。
 - **布局（2026-08-28 r17 起）**：响应式三档断点 —— S 竖屏单列 <600px（含 <600px 且高<宽的横屏变体，底部固定触控操作区、safe-area-inset 避让）/ M 平板 600–1023px 多列 / L 桌面 ≥1024px 保持基线；触控区仅 `has-touch` 设备显示；断点实现纯 CSS 媒体查询，布局改动只落 `index.html`/`style.css`/`ui.js`，不触达引擎状态（详见 r17 任务夹 PRD）。
-- **持久化**：`persist.js` 是唯一事实来源（localStorage 键 `tetris.*` 前缀，能力探测失败降级内存 Map 绝不 throw）；业务侧仅消费 `load/saveHighScore/saveSettings/saveStats`（saveStats 为 r34 全局统计新增出口），禁止直接 setItem/getItem。**数据分界（r34 约定）**：局内状态（得分/等级/消行/本局方块数/本局时长）是会话内存——restart/OVER 归零、不入持久化；全局统计四项（累计方块/累计消行/累计时长毫秒/对局次数）与 highScore 同级持久化（同键增量，PAYLOAD_VERSION 不变），OVER 定格入账 + 隐藏/卸载补记，幂等只记一次。
-- **验证**：七套脚本 = `verify-game` / `verify-audio` / `verify-ui` / `verify-persist` / `verify-constants` / `assembly-check` / `qa-e2e-jsdom`；回归出口标准 = 七套全绿、不加后门。
+- **持久化**：`persist.js` 是唯一事实来源（localStorage 键 `tetris.*` 前缀，能力探测失败降级内存 Map 绝不 throw）；业务侧仅消费 `load/saveHighScore/saveSettings/saveStats`（saveStats 为 r34 全局统计新增出口；r37 起 +`saveDeviceId`/`saveNickname`，键 `tetris.deviceId`=UUIDv4 / `tetris.nickname`=昵称缓存，首次提交弹窗一次、设置可改），禁止直接 setItem/getItem。**数据分界（r34 约定）**：局内状态（得分/等级/消行/本局方块数/本局时长）是会话内存——restart/OVER 归零、不入持久化；全局统计四项（累计方块/累计消行/累计时长毫秒/对局次数）与 highScore 同级持久化（同键增量，PAYLOAD_VERSION 不变），OVER 定格入账 + 隐藏/卸载补记，幂等只记一次。
+- **验证**：八套脚本 = 既有七套（`verify-game` / `verify-audio` / `verify-ui` / `verify-persist` / `verify-constants` / `assembly-check` / `qa-e2e-jsdom`）+ `verify-leaderboard`（r37 新增，Node mock fetch 测提交/身份/限流/降级）；回归出口标准 = 八套全绿、不加后门。r37 起 assembly-check 自包含（AC-08）审计由「0 http(s) 引用」改为「仅 API 域名白名单例外」（AC-08 口径升格『离线可玩、联网才有全网榜』）。
 - **版本号语义（2026-08-25 起）**：模块头部 `VERSION` 是**发布版本**——仅对外发版时统一升位；流水线迭代不碰代码头版本，文档迭代以任务夹为单位（不再使用全局递增版本号管理文档）。
 - **工程指令**：分支/提交类要求由 PRD「工程约束」小节承载，开发先执行动作再写码。
 - **输入（r16 起，r21 收窄）**：触屏为新增输入通道——触屏键合成键盘事件复走 game.js 既有 held/DAS/软降 repeat 时钟与 keyAction 语义（零新速率常量、引擎零改动），`html.has-touch` 纯 CSS 显隐。**r21 起 has-touch 判定 = `matchMedia('(pointer: coarse)')` 主指针粗指针**（真手机/平板）——触屏笔记本/触屏显示器 PC（主指针为鼠标）不再显示触控键（用户裁定，取代 r16 全能力检测；混合设备用键鼠游玩无损）；横屏侧轨键 `z-index:1` 修复 `::after` 玻璃轨遮键（r16 既有缺陷）。已知权衡（QA D1，验收接受）：触屏与键盘同键交错共享 held 槽，任一通道 keyup 会冲掉另一通道长按 repeat——「逐键等效回放器」设计的必要推论，非缺陷、不改动。
@@ -59,6 +59,7 @@
 - **OBS-12-2（P3 观察）**：`ghostY` 对 NaN/小数/undefined rot 归一不收敛会抛错（合法流程 rot 恒整数 0–3 不触发）；健壮性迭代可在归一前加 `Math.trunc` 校验。
 - **设置弹层打开期间恢复键窗口（req-12 遗留，P3）**：req-12 打开弹层自动暂停后，弹层打开期间 window 键表的 P/空格（PAUSED=恢复）仍生效——弹层保持打开而游戏被恢复 RUNNING。E2E 仅覆盖「关闭后按空格 → RUNNING」恢复路径；是否在弹层打开期吞掉恢复键待下一需求裁定（当前按最小改动保持现状，验收 ✅ 通过）。
 - **QA-13-01（r13 遗留，P3 观察）**：game.js `animMs` 引擎默认值(240)与 ui.js `ANIM_MS`(240)无跨模块一致性断言（对比 VERSION 有 verify-constants 钳制）；因 ui `createUI` 恒显式传 animMs 风险已钳制，建议后续测试增强轮统一补跨模块常量一致性断言。
+- **全网排行榜 Phase 2（r37 预留，未实施）**：服务端重放校验防作弊（复用 game.js 在服务端重放整局，校验分数/消行/时长自洽）；r37 已预留提交协议版本号字段（protocolVersion=1）与速度上界 anomaly 不入榜为扩展点；Phase 2 启动时另立需求。
 
 ## 说明
 

@@ -331,26 +331,96 @@
             <button type="button" id="kb-reset" class="btn btn--secondary">恢复默认按键</button>
           </div>
         </div>
+        <!-- r37 联网排行榜组（纯追加于按键设置组后、body 末尾；默认 hidden——激活判定含运行时协议/
+             fetch 探测，必须由 leaderboard.js 侧 JS 门控 hidden，不写任何 display 规则（D9）） -->
+        <div class="settings-group settings-group--leaderboard" id="lb-settings-group" hidden>
+          <h3 class="settings-group__title">联网排行榜</h3>
+          <div class="settings-group__content">
+            <div class="lb-name-row" role="group" aria-label="昵称设置">
+              <span class="stat__label">昵称</span>
+              <output id="lb-nickname-value" class="lb-nickname-value" aria-live="polite">未设置</output>
+              <button type="button" id="btn-edit-nickname" class="btn btn--secondary">修改</button>
+            </div>
+            <div class="lb-entry-row" role="group" aria-label="打开全网排行榜">
+              <span class="stat__label">全网榜</span>
+              <button type="button" id="btn-open-leaderboard" class="btn btn--secondary" aria-label="打开全网排行榜">查看榜单</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- 本地脚本（顺序：持久化层 → 音效引擎 → 核心逻辑 → UI 层 → 装配根；经典脚本，file:// 安全，AC-08；
+  <!-- r37 全网排行榜弹层（纯追加：settings-modal 之后、脚本之前入 DOM——与设置弹层同 z 域、
+       DOM 序在后自然压上；同族玻璃卡，默认 hidden，由 leaderboard.js 激活态 + 弹层互斥控制） -->
+  <div id="leaderboard-modal" class="lb-modal" hidden>
+    <div class="lb-modal__backdrop"></div>
+    <div class="lb-modal__card" role="dialog" aria-modal="true" aria-label="全网排行榜">
+      <div class="lb-modal__header">
+        <h2 class="lb-modal__title">全网排行榜</h2>
+        <button type="button" class="lb-modal__close" aria-label="关闭排行榜">×</button>
+      </div>
+      <div class="lb-modal__body">
+        <div class="lb-tabs" role="group" aria-label="榜单视图">
+          <button type="button" class="lb-tab" data-view="total" aria-pressed="true">总榜</button>
+          <button type="button" class="lb-tab" data-view="weekly" aria-pressed="false">周榜</button>
+        </div>
+        <ol id="lb-list" class="lb-list"></ol>
+        <div id="lb-state" class="lb-state" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- r37 昵称弹层（OVER 首弹门槛 + 设置内修改共用同一组件；默认 hidden） -->
+  <div id="nickname-modal" class="nm-modal" hidden>
+    <div class="nm-modal__backdrop"></div>
+    <div class="nm-modal__card" role="dialog" aria-modal="true" aria-labelledby="nm-title">
+      <div class="nm-modal__header">
+        <h2 id="nm-title" class="nm-modal__title">设置昵称</h2>
+      </div>
+      <div class="nm-modal__body">
+        <label for="nm-input" class="nm-label">昵称（1–12 字符，字母数字或中文）</label>
+        <input id="nm-input" class="nm-input" type="text" maxlength="12" autocomplete="off" spellcheck="false">
+        <p id="nm-error" class="nm-error" role="alert" hidden></p>
+        <div class="nm-actions">
+          <button type="button" id="nm-cancel" class="btn btn--secondary">取消</button>
+          <button type="button" id="nm-confirm" class="btn btn--primary">确定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本地脚本（顺序：持久化层 → 音效引擎 → 核心逻辑 → UI 层 → 排行榜 → 装配根；经典脚本，file:// 安全，AC-08；
        persist.js 为可选依赖，缺席即等效旧版，createUI 不启用持久化，见 TECHNICAL §2.5/v2.6 修订） -->
   <script src="./persist.js"></script>
   <script src="./audio.js"></script>
   <script src="./game.js"></script>
   <script src="./ui.js"></script>
+  <!-- r37 排行榜纯逻辑层（本地相对引用，非 http——AC-1；ui.js 之后、内联装配之前：
+       装配序 persist → audio → game → ui → leaderboard → 内联装配，assembly-check §6 断言锁序） -->
+  <script src="./leaderboard.js"></script>
   <script>
     // 装配根（等价 TECHNICAL §3.6 main.ts）：创建游戏与 UI，驱动完整游玩闭环
     // persist 为可选依赖：window.TetrisPersist 缺失（未加载 persist.js）时不传，createUI 内部不启用持久化（向后兼容）
+    // r37：leaderboard 为可选依赖（联网排行榜）——TetrisLeaderboard 缺失或 persist 缺席 → lbHandle=null，
+    //       createUI 不装配排行榜组件（旧版/离线零影响）；onGameOver 透传 OVER 定格快照供 reportOver 决策树
     ;(function () {
       'use strict'
       try {
         var persistHandle = (typeof window !== 'undefined' && window.TetrisPersist)
           ? window.TetrisPersist.createPersistence()
           : undefined
-        window.TetrisUI.createUI({ persist: persistHandle })
+        var lbHandle = null
+        if (typeof window !== 'undefined' && window.TetrisLeaderboard && persistHandle) {
+          lbHandle = window.TetrisLeaderboard.createLeaderboard({ persist: persistHandle })
+        }
+        window.TetrisUI.createUI({
+          persist: persistHandle,
+          leaderboard: lbHandle,
+          onGameOver: function (score, snap) {
+            if (lbHandle && snap) lbHandle.reportOver(snap)
+          }
+        })
       } catch (err) {
         console.error('[tetris] 装配失败：', err)
       }

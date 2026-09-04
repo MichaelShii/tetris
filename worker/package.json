@@ -1,0 +1,18 @@
+{
+  "name": "tetris-leaderboard-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "俄罗斯方块 全网排行榜 API（Phase 1 折中校验版）— Cloudflare Workers + KV，纯 JS ESM 零运行时依赖",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test/smoke.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
