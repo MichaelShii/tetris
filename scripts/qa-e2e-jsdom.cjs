@@ -2959,7 +2959,7 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
    jsdom 无布局几何 → 面板样式断言留在 verify-ui 源码层；本段证明装配/数值/防刷屏契约。-------- */
   console.log('\n-- r32 会话统计面板（真实装配数值等价 / announce 防刷屏计数 / 归零定格 / 源码级隔离） --')
   {
-    /* ① file:// 自动装配页：独立面板就位、初始三值、.stat-grid 内 .stat 仍恰 4（r17 断言原样保留） */
+    /* ① file:// 自动装配页：独立面板就位、初始二值（r35 删 #ss-lines 行）、.stat-grid 内 .stat 仍恰 4（r17 断言原样保留） */
     {
       const errs32 = []
       const vc32 = new VirtualConsole()
@@ -2981,9 +2981,8 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       await sleep(120)
       check('r32 file://: 自动装配页含 #session-stats 独立面板（非脚本注入）', !!wf32.document.querySelector('#session-stats'),
         wf32.document.querySelector('#session-stats') ? 'panel ok' : 'missing')
-      check('r32 file://: 初始三值 0 / 0 / 00:00',
+      check('r32 file://: 初始二值 0 / 00:00（r35 删 #ss-lines 行，本局消行唯一于冻结卡 #lines）',
         wf32.document.getElementById('ss-placed-value').textContent === '0' &&
-        wf32.document.getElementById('ss-lines-value').textContent === '0' &&
         wf32.document.getElementById('ss-time-value').textContent === '00:00')
       const gridF32 = wf32.document.querySelector('.stat-grid')
       check('r32 file://: .stat-grid 内 .stat 仍恰 4（r17 基线原样保留，未塞新块）',
@@ -3000,20 +2999,19 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       const g32 = env32.game
       const handle32 = env32.handle
 
-      check('r32 初始: 三值 0/0/00:00，announce 为空', $32('#ss-placed-value').textContent === '0' &&
-        $32('#ss-lines-value').textContent === '0' && $32('#ss-time-value').textContent === '00:00' &&
-        $32('#session-announce').textContent === '')
+      check('r32 初始: 二值 0/00:00，announce 为空（r35 去重）', $32('#ss-placed-value').textContent === '0' &&
+        $32('#ss-time-value').textContent === '00:00' && $32('#session-announce').textContent === '')
       g32.start()
       check('r32 start: →RUNNING 播报「计时开始」', $32('#session-announce').textContent === '计时开始')
-      check('r32 start: 未落定仍 0/0/00:00', $32('#ss-placed-value').textContent === '0' &&
+      check('r32 start: 未落定仍 0/00:00', $32('#ss-placed-value').textContent === '0' &&
         $32('#ss-time-value').textContent === '00:00')
 
       // 落定数值等价：engine hardDrop ×3 → 面板 placed 同文
       for (let i = 0; i < 3; i++) g32.hardDrop()
       check('r32 落定等价: 硬降 ×3 → #ss-placed-value === "3"（引擎计数唯一源镜像）',
         $32('#ss-placed-value').textContent === '3', $32('#ss-placed-value').textContent)
-      check('r32 消行同源: 未消行 #ss-lines-value === #lines === "0"',
-        $32('#ss-lines-value').textContent === $32('#lines').textContent && $32('#ss-lines-value').textContent === '0')
+      check('r32 消行唯一: 未消行 #lines === "0"（r35 删 #ss-lines 行后本局消行唯一于冻结卡）',
+        $32('#lines').textContent === '0')
 
       // 构造 1 行清行：row19 缺 col5 + 竖 I（x3）补缺 → 消 1 行，面板播行数与 #lines 同文
       const bd32 = []
@@ -3023,9 +3021,8 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       g32._debug.setNext('T')
       g32._debug.setPiece({ type: 'I', rot: 1, x: 3, y: 16 })
       g32.hardDrop()
-      check('r32 消行同源: 消 1 行后 #ss-lines-value === #lines === "1"（镜像同一快照字段）',
-        $32('#ss-lines-value').textContent === '1' && $32('#ss-lines-value').textContent === $32('#lines').textContent,
-        $32('#ss-lines-value').textContent + '/' + $32('#lines').textContent)
+      check('r32 消行唯一: 消 1 行后 #lines === "1"（唯一事实源，同引擎快照字段）',
+        $32('#lines').textContent === '1', $32('#lines').textContent)
       check('r32 落定等价: 4 次落定 → placed "4"', $32('#ss-placed-value').textContent === '4')
 
       // 防刷屏（装配路径）：连续 10 秒刻 tick（无状态跳变）→ announce 文本零变更；时长照常走表
@@ -3040,9 +3037,8 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
 
       // 归零 + 时长停表/定格（确定性 tick 驱动，无墙体时钟）
       g32.restart()
-      check('r32 归零 DOM: restart 后三值回 0/0/00:00',
-        $32('#ss-placed-value').textContent === '0' && $32('#ss-lines-value').textContent === '0' &&
-        $32('#ss-time-value').textContent === '00:00')
+      check('r32 归零 DOM: restart 后二值回 0/00:00',
+        $32('#ss-placed-value').textContent === '0' && $32('#ss-time-value').textContent === '00:00')
       g32.tick(250); g32.tick(250); g32.tick(250); g32.tick(250)
       check('r32 时长 UI: tick(250)×4 → "00:01"', $32('#ss-time-value').textContent === '00:01',
         $32('#ss-time-value').textContent)
@@ -3074,11 +3070,10 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
         return el
       }
       const placed33 = mkEl('0')
-      const lines33 = mkEl('0')
       const time33 = mkEl('00:00')
       const announce33 = mkEl('')
       const ss33 = w33.TetrisUI.createSessionStats({
-        placed: placed33, lines: lines33, time: time33, announce: announce33,
+        placed: placed33, time: time33, announce: announce33,
       })
       ss33.update({ phase: 'READY', piecesPlaced: 0, sessionTimeMs: 0, lines: 0 })
       check('r32 写入计数: READY 不播报、0 次', ss33.getAnnounceWrites() === 0 && announce33.textContent === '')
@@ -3227,7 +3222,7 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
      （v2.6 持久化先例承继）；jsdom 无布局几何 → 样式断言留在 verify-ui 源码层；本段证明装配/入账/补记/恢复/幂等。-------- */
   console.log('\n-- r34 全局统计持久化（真实装配入账/补记 / 刷新恢复 / 幂等 / 暂停不计 / 组件 / 源码级） --')
   {
-    /* ① file:// 自动装配页：第三卡就位、初始五值、.stat/.session-stat 基线不扰动 */
+    /* ① file:// 自动装配页：第三卡就位、初始四值（r35 删 #gs-hi 行）、.stat/.session-stat 基线不扰动 */
     {
       const errs34 = []
       const vc34 = new VirtualConsole()
@@ -3250,16 +3245,15 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       const df34 = wf34.document
       check('r34 file://: 自动装配页含 #global-stats 独立面板（非脚本注入）', !!df34.querySelector('#global-stats'),
         df34.querySelector('#global-stats') ? 'panel ok' : 'missing')
-      check('r34 file://: 初始五值 0/0/0/00:00/0',
-        df34.getElementById('gs-hi-value').textContent === '0' &&
+      check('r34 file://: 初始四值 0/0/00:00/0（r35 删 #gs-hi 行，最高分唯一于 #hi-score）',
         df34.getElementById('gs-placed-value').textContent === '0' &&
         df34.getElementById('gs-lines-value').textContent === '0' &&
         df34.getElementById('gs-time-value').textContent === '00:00' &&
         df34.getElementById('gs-games-value').textContent === '0')
       const gridF34 = df34.querySelector('.stat-grid')
-      check('r34 file://: .stat-grid 内 .stat 仍恰 4（r17 基线）+ .session-stat 仍恰 3（r32 基线）',
+      check('r34 file://: .stat-grid 内 .stat 仍恰 4（r17 基线）+ .session-stat 恰 2（r35 去重后基线）',
         gridF34 !== null && gridF34.querySelectorAll('.stat').length === 4 &&
-        df34.querySelectorAll('.session-stat').length === 3,
+        df34.querySelectorAll('.session-stat').length === 2,
         gridF34 ? String(gridF34.querySelectorAll('.stat').length) : 'no grid')
     }
 
@@ -3295,8 +3289,8 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       const gA = a.ui.game
       const $A = window.document
       const gsvA = function (id) { return $A.getElementById(id).textContent }
-      check('r34 初始镜像: 五值 0/0/0/00:00/0（空库存 persist 载荷全 0）',
-        gsvA('gs-hi-value') === '0' && gsvA('gs-placed-value') === '0' && gsvA('gs-lines-value') === '0' &&
+      check('r34 初始镜像: 四值 0/0/00:00/0（空库存 persist 载荷全 0；r35 删 hi 镜像）',
+        gsvA('gs-placed-value') === '0' && gsvA('gs-lines-value') === '0' &&
         gsvA('gs-time-value') === '00:00' && gsvA('gs-games-value') === '0')
       gA.start()
       for (let i = 0; i < 3; i++) gA.hardDrop()
@@ -3308,22 +3302,23 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       check('r34 OVER 入账: backing stats 定格 {placed:3, lines:0, timeMs:1000, games:1}',
         (function () { const s = statsRawR34(sA); return s && s.placed === 3 && s.lines === 0 && s.timeMs === 1000 && s.games === 1 })(),
         JSON.stringify(statsRawR34(sA)))
-      check('r34 OVER 后 hi 行不变 "0"（未破纪录 → 同源镜像不动）', gsvA('gs-hi-value') === '0')
+      check('r34 OVER 后 #hi-score 不变 "0"（未破纪录 → 单通道不动；r35 全局卡 hi 行已删）',
+        $A.getElementById('hi-score').textContent === '0')
       a.ui.dispose()
 
-      // 破纪录同源：预置 saveHighScore(120) → 初值高分行 "120"；OVER 后不变（与 #hi-score 同一变量 persistedHighScore）
+      // 破纪录单通道：预置 saveHighScore(120) → #hi-score "120"；OVER 后不变（r35 删 #gs-hi 行，最高分唯一于 r17 冻结卡）
       const sB = mkStoreR34()
       const persistB = R34.createPersistence({ storage: sB.store })
       persistB.saveHighScore(120)
       const b = mkUIR34(sB.store)
       const gB = b.ui.game
-      check('r34 破纪录同源: 预置 saveHighScore(120) → 初值高分行 "120"（#gs-hi-value === #hi-score === 120）',
-        $A.getElementById('gs-hi-value').textContent === '120' && $A.getElementById('hi-score').textContent === '120',
-        $A.getElementById('gs-hi-value').textContent + '/' + $A.getElementById('hi-score').textContent)
+      check('r34 破纪录单通道: 预置 saveHighScore(120) → #hi-score "120"（最高分唯一镜像点）',
+        $A.getElementById('hi-score').textContent === '120',
+        $A.getElementById('hi-score').textContent)
       gB.start()
       gB.lose() // 0 分不破纪录
-      check('r34 破纪录同源: OVER 后高分行不变 "120"（同源镜像，未受入账流程影响）',
-        $A.getElementById('gs-hi-value').textContent === '120' && $A.getElementById('hi-score').textContent === '120')
+      check('r34 破纪录单通道: OVER 后 #hi-score 不变 "120"（单通道，未受入账流程影响）',
+        $A.getElementById('hi-score').textContent === '120')
       b.ui.dispose()
     }
 
@@ -3404,7 +3399,6 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
         el.textContent = init
         return el
       }
-      const hiEl = mkO('0')
       const placedEl = mkO('0')
       const linesEl = mkO('0')
       const timeEl = mkO('00:00')
@@ -3412,14 +3406,14 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       const wrap = w36.document.createElement('div')
       wrap.appendChild(placedEl)
       const gs36 = w36.TetrisUI.createGlobalStats({
-        hi: hiEl, placed: placedEl, lines: linesEl, time: timeEl, games: gamesEl,
+        placed: placedEl, lines: linesEl, time: timeEl, games: gamesEl,
       })
-      gs36.update({ hi: 120 }) // 部分载荷：仅 hi
-      check('r34 组件: 部分载荷更新（仅 hi）→ hi "120" 其余原值', hiEl.textContent === '120' && placedEl.textContent === '0' &&
+      gs36.update({ placed: 120 }) // 部分载荷：仅 placed（r35 去 hi，四点部分载荷同机制）
+      check('r34 组件: 部分载荷更新（仅 placed）→ placed "120" 其余原值', placedEl.textContent === '120' &&
         linesEl.textContent === '0' && timeEl.textContent === '00:00' && gamesEl.textContent === '0')
       gs36.update({ placed: 5, lines: 7, timeMs: 60000, games: 2 })
       check('r34 组件: 全量更新 → 5/7/01:00/2（timeMs 走 formatSessionTime）', placedEl.textContent === '5' &&
-        linesEl.textContent === '7' && timeEl.textContent === '01:00' && gamesEl.textContent === '2' && hiEl.textContent === '120')
+        linesEl.textContent === '7' && timeEl.textContent === '01:00' && gamesEl.textContent === '2')
       gs36.update({ placed: 5, lines: 7, timeMs: 60000, games: 2 })
       check('r34 组件: 同值更新不写（文本变更才写）', placedEl.textContent === '5')
       gs36.update({ placed: 6 })
@@ -3430,7 +3424,7 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
       env36.handle.dispose()
     }
 
-    /* ⑦ 源码级隔离：面板不落行式底栏/双轨、不触 TOUCH_KEYS；六锚点装配契约 */
+    /* ⑦ 源码级隔离：面板不落行式底栏/双轨、不触 TOUCH_KEYS；五锚点装配契约（r35 删 #gs-hi-value） */
     {
       const css34 = fs.readFileSync(path.join(root, 'style.css'), 'utf8')
       const html34 = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
@@ -3439,9 +3433,69 @@ rng=0 → bag 顺序 [O,T,S,Z,J,L,I]（Fisher-Yates 恒定 rand → 确定性序
         tcOpen34 !== -1 && html34.slice(tcOpen34).indexOf('global-') === -1)
       check('r34 源码级: css 无 `.touchpad .global-*` 交叉规则（触控区零触及）', !/\.touchpad[^{}]*\.global-/.test(css34))
       check('r34 源码级: css 无 `.global-* .tkey` 交叉规则（面板不引用触屏键）', !/\.global-[^{}]*\.tkey/.test(css34))
-      const sixG34 = ['global-stats', 'gs-hi-value', 'gs-placed-value', 'gs-lines-value', 'gs-time-value', 'gs-games-value']
-      check('r34 源码级: index.html 含 #global-stats 六锚点（must()×5 + 容器装配契约）',
-        sixG34.every(function (s) { return html34.indexOf('id="' + s + '"') !== -1 }))
+      const fiveG34 = ['global-stats', 'gs-placed-value', 'gs-lines-value', 'gs-time-value', 'gs-games-value']
+      check('r34 源码级: index.html 含 #global-stats 五锚点（must()×4 + 容器装配契约；r35 删 #gs-hi-value）',
+        fiveG34.every(function (s) { return html34.indexOf('id="' + s + '"') !== -1 }))
+    }
+  }
+
+  /* ---------- r35 统计面板去重收口（纯展示面：整节点删除 #gs-hi/#ss-lines 两行，删除非隐藏——
+     querySelector null 正面证明，拦截「改为隐藏/注释」绕过；最高分唯一 r17 冻结卡 #hi-score、
+     本局消行唯一 #lines；入账/补记/刷新/幂等数据通道零改动——r34 §4.3 全套断言继续在真实装配面
+     全绿即为行为不变证据，本段补 DOM 删除、单通道唯一与面板收敛的正面证明） ---------- */
+  console.log('\n-- r35 面板去重（DOM 删除证明 / 单通道唯一 / 面板收敛 / 数据通道行为不变） --')
+  {
+    // ① 真实装配（autoLoop:false）+ 源码级：整节点删除证明 / 单通道唯一 / 面板收敛
+    {
+      const env35 = await buildEnv()
+      const d35 = env35.doc
+      const h35 = fs.readFileSync(path.join(root, 'index.html'), 'utf8')
+      const u35 = fs.readFileSync(path.join(root, 'ui.js'), 'utf8')
+      check('r35 DOM 删除证明: #gs-hi / #gs-hi-value 均不存在（querySelector null，拦截隐藏绕过）',
+        d35.querySelector('#gs-hi') === null && d35.querySelector('#gs-hi-value') === null)
+      check('r35 DOM 删除证明: #ss-lines / #ss-lines-value 均不存在（querySelector null，拦截隐藏绕过）',
+        d35.querySelector('#ss-lines') === null && d35.querySelector('#ss-lines-value') === null)
+      check('r35 单通道唯一: #hi-score 存在（最高分唯一，r17 冻结卡）+ #lines 存在（本局消行唯一）',
+        !!d35.querySelector('#hi-score') && !!d35.querySelector('#lines'))
+      check('r35 面板收敛: #global-stats 恰 4 行 .global-stat + #session-stats 恰 2 行 .session-stat',
+        d35.querySelectorAll('#global-stats .global-stat').length === 4 &&
+        d35.querySelectorAll('#session-stats .session-stat').length === 2,
+        String(d35.querySelectorAll('#global-stats .global-stat').length) + '/' +
+        String(d35.querySelectorAll('#session-stats .session-stat').length))
+      check('r35 源码级: index.html 全文无 id="gs-hi" / id="ss-lines" 残留（indexOf===-1）',
+        h35.indexOf('id="gs-hi"') === -1 && h35.indexOf('id="ss-lines"') === -1)
+      check('r35 源码级: ui.js 无 gs-hi 装配残留且 must 装配恰 4 个 #gs- 锚点（无 hi 镜像）',
+        u35.indexOf('gs-hi') === -1 && u35.split("must('#gs-").length - 1 === 4)
+      env35.handle.dispose()
+    }
+    // ② 数据通道行为不变：persist 背书真实装配 OVER 入账 → 面板四项更新；未破纪录 #hi-score 单通道不动
+    {
+      window.eval(fs.readFileSync(path.join(root, 'persist.js'), 'utf8'))
+      const R35 = window.TetrisPersist
+      const backing35 = {}
+      const store35 = {
+        getItem: function (k) { return Object.prototype.hasOwnProperty.call(backing35, k) ? backing35[k] : null },
+        setItem: function (k, v) { backing35[k] = String(v) },
+        removeItem: function (k) { delete backing35[k] },
+      }
+      const persist35 = R35.createPersistence({ storage: store35 })
+      const ui35 = window.TetrisUI.createUI({
+        autoLoop: false, rng: function () { return 0 }, sfxEngine: spy, animMs: 0, persist: persist35,
+      })
+      const g35 = ui35.game
+      const dd35 = window.document
+      const gsv35 = function (id) { return dd35.getElementById(id).textContent }
+      g35.start()
+      for (let i = 0; i < 3; i++) g35.hardDrop()
+      for (let i = 0; i < 4; i++) g35.tick(250)
+      g35.lose()
+      check('r35 行为不变: OVER 入账 → 面板四项 3/0/00:01/1（同一 onStats→saveStats→load 数据通道）',
+        gsv35('gs-placed-value') === '3' && gsv35('gs-lines-value') === '0' &&
+        gsv35('gs-time-value') === '00:01' && gsv35('gs-games-value') === '1',
+        gsv35('gs-placed-value') + '/' + gsv35('gs-lines-value') + '/' + gsv35('gs-time-value') + '/' + gsv35('gs-games-value'))
+      check('r35 行为不变: OVER 后 #hi-score 仍 "0"（未破纪录 → 单通道不受入账影响）',
+        dd35.getElementById('hi-score').textContent === '0', dd35.getElementById('hi-score').textContent)
+      ui35.dispose()
     }
   }
 

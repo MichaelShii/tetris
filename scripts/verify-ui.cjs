@@ -1140,15 +1140,14 @@ test('r31: style.css 按键设置组（keycap/状态类 + has-touch 门控 + 动
  * 矩阵 / style.css 源扫描；r24~r31 既有断言期望零改动）
  * ════════════════════════════════════════════════════════════════════════ */
 
-test('r32: index.html #session-stats 节点契约（role=group + 3× session-stat + aria 防刷屏）', () => {
+test('r32: index.html #session-stats 节点契约（role=group + 2× session-stat + aria 防刷屏；r35 去重删 #ss-lines 行）', () => {
   // 节点存在性 + role/aria（AC-14：时长 output 无 aria-live 源码级证明）
   assert.match(htmlR24, /<div id="session-stats"[^>]*role="group"[^>]*aria-label="本局统计"/,
     '#session-stats 容器 role=group + aria-label=本局统计')
-  assert.equal(htmlR24.split('class="session-stat"').length - 1, 3, '恰 3 个 .session-stat 行（不含 __label/__value/__announce）')
+  assert.equal(htmlR24.split('class="session-stat"').length - 1, 2, '恰 2 个 .session-stat 行（不含 __label/__value/__announce；r35 删 #ss-lines）')
   assert.match(htmlR24, /id="ss-placed-value"[^>]*aria-live="polite"[^>]*aria-label="已放置方块数"/,
     '已放置：aria-live=polite + aria-label')
-  assert.match(htmlR24, /id="ss-lines-value"[^>]*aria-live="polite"[^>]*aria-label="消行总数"/,
-    '消行：aria-live=polite + aria-label')
+  // r35：消行总数唯一于冻结卡 #lines（#ss-lines 行已整节点删除，见文末 §r35 删除证明）
   const timeOpen = htmlR24.indexOf('id="ss-time-value"')
   const timeTag = htmlR24.slice(timeOpen, htmlR24.indexOf('>', timeOpen) + 1)
   assert.ok(timeOpen !== -1 && timeTag.indexOf('aria-live') === -1, '时长 #ss-time-value 无 aria-live（AC-14 防读屏刷屏源码级）')
@@ -1218,24 +1217,24 @@ test('r32: style.css 源扫描（@keyframes 零新增 / 卡化列表不动 / S �
 
 /* ════════════════════════════════════════════════════════════════════════
  * r34 全局统计面板（§4.2 纯追加：index.html 节点契约 / 位置隔离 / style.css
- * 源扫描；r32 及更早断言期望零改动——.stat 恰 4、.session-stat 恰 3、areas 子串、
- * order 10/12/20、卡化列表行全部原样穿过）
+ * 源扫描；r35 去重收口原地改写计数面——.stat 恰 4、.session-stat 3→2、
+ * .global-stat 5→4，areas 子串、order 10/12/13/20、卡化列表行全部原样穿过）
  * ════════════════════════════════════════════════════════════════════════ */
 
-test('r34: index.html #global-stats 节点契约（role=group + 恰 5 行 .global-stat + 五 aria-label 完整名 + 初值 0/0/0/00:00/0）', () => {
+test('r34: index.html #global-stats 节点契约（role=group + 恰 4 行 .global-stat + 四 aria-label 完整名 + 初值 0/0/00:00/0；r35 删 #gs-hi）', () => {
   assert.match(htmlR24, /<div id="global-stats"[^>]*role="group"[^>]*aria-label="全局统计"/,
     '#global-stats 容器 role=group + aria-label=全局统计')
-  assert.equal(htmlR24.split('class="global-stat"').length - 1, 5, '恰 5 行 .global-stat（不含 __label/__value）')
-  const five = [
-    ['gs-hi-value', '最高分'], ['gs-placed-value', '累计已放置方块数'], ['gs-lines-value', '累计消行总数'],
+  assert.equal(htmlR24.split('class="global-stat"').length - 1, 4, '恰 4 行 .global-stat（不含 __label/__value；r35 删 #gs-hi）')
+  const four = [
+    ['gs-placed-value', '累计已放置方块数'], ['gs-lines-value', '累计消行总数'],
     ['gs-time-value', '累计游戏时长'], ['gs-games-value', '对局次数'],
   ]
-  for (const [id, label] of five) {
+  for (const [id, label] of four) {
     assert.match(htmlR24, new RegExp('id="' + id + '"[^>]*aria-live="polite"[^>]*aria-label="' + label + '"'),
       id + ' aria-live=polite + aria-label=' + label)
   }
-  // 初值 0/0/0/00:00/0（装配时由 persist 载荷覆写，DESIGN §2.1 原样）
-  for (const id of ['gs-hi-value', 'gs-placed-value', 'gs-lines-value', 'gs-games-value']) {
+  // 初值 0/0/00:00/0（装配时由 persist 载荷覆写，DESIGN §2.1 原样；最高分唯一于 #hi-score）
+  for (const id of ['gs-placed-value', 'gs-lines-value', 'gs-games-value']) {
     assert.match(htmlR24, new RegExp('<output id="' + id + '"[^>]*>0</output>'), id + ' 初值 0')
   }
   assert.match(htmlR24, /<output id="gs-time-value"[^>]*>00:00<\/output>/, 'gs-time-value 初值 00:00')
@@ -1249,9 +1248,9 @@ test('r34: index.html 位置与隔离（session-stats 闭合 < #global-stats < .
   const sessionClose = htmlR24.indexOf('</div>', sessionOpen) // #session-stats 内第一个 </div> 即其闭合
   assert.ok(sessionClose < globalOpen && globalOpen < holdOpen,
     '位置序：#session-stats 闭合 < #global-stats 开 < .hold-well 开（纯追加挂载点）')
-  // 隔离：全文 .stat 仍恰 4（r17）、.session-stat 仍恰 3（r32）——global-stat 不落两冻结卡计数面
+  // 隔离：全文 .stat 仍恰 4（r17）、.session-stat 仍恰 2（r35 去重）——global-stat 不落两冻结卡计数面
   assert.equal(htmlR24.split('class="stat"').length - 1, 4, '全文 class="stat" 仍恰 4（r17 基线，global-stat 不干扰精确串）')
-  assert.equal(htmlR24.split('class="session-stat"').length - 1, 3, '全文 class="session-stat" 仍恰 3（r32 基线）')
+  assert.equal(htmlR24.split('class="session-stat"').length - 1, 2, '全文 class="session-stat" 仍恰 2（r35 去重后基线）')
   const frag = htmlR24.slice(globalOpen, holdOpen)
   assert.equal(frag.split('class="stat"').length - 1, 0, 'global 卡片段零 .stat（计数面零交集）')
   assert.equal(frag.split('class="session-stat"').length - 1, 0, 'global 卡片段零 .session-stat（本局两卡冻结）')
@@ -1283,4 +1282,27 @@ test('r34: style.css 源扫描（stat-flash 复用 / 文末块零关键帧 / S �
   for (const needle of ['padding-right: 112px', 'gap: var(--sp-5)', '.touchpad', '.tkey', 'data-action']) {
     assert.ok(r34Slice.indexOf(needle) === -1, 'r34 新片段不含既有正文：' + needle)
   }
+})
+
+/* ════════════════════════════════════════════════════════════════════════
+ * r35 统计面板去重收口（纯展示面：整节点删除 #gs-hi 与 #ss-lines 两行，删除非
+ * 隐藏——本段用 indexOf===-1 证明 id 已彻底移除，拦截「改为隐藏/注释而非删除」
+ * 的绕过；最高分唯一单通道 #hi-score、本局消行唯一 #lines）
+ * ════════════════════════════════════════════════════════════════════════ */
+
+test('r35: #gs-hi 整节点删除证明（id 不存在 == 删除非隐藏，拦截隐藏绕过）', () => {
+  assert.equal(htmlR24.indexOf('id="gs-hi"'), -1, '#gs-hi 容器 id 已移除（若仅隐藏 id 仍在，此处失败）')
+  assert.equal(htmlR24.indexOf('id="gs-hi-value"'), -1, '#gs-hi-value 输出已移除：全局卡最高分镜像删除')
+  assert.ok(htmlR24.indexOf('id="hi-score"') !== -1, '#hi-score 保留：最高分唯一单通道（r17 冻结 + aria-live=polite）')
+})
+
+test('r35: #ss-lines 整节点删除证明（id 不存在 == 删除非隐藏，拦截隐藏绕过）', () => {
+  assert.equal(htmlR24.indexOf('id="ss-lines"'), -1, '#ss-lines 容器 id 已移除（若仅隐藏 id 仍在，此处失败）')
+  assert.equal(htmlR24.indexOf('id="ss-lines-value"'), -1, '#ss-lines-value 输出已移除：本局消行镜像删除')
+  assert.ok(htmlR24.indexOf('id="lines"') !== -1, '#lines 保留：本局消行唯一（冻结卡，aria-live=polite）')
+})
+
+test('r35: 面板计数收敛（全局卡 5→4、本局卡 3→2，与 r32/r34 计数断言同源）', () => {
+  assert.equal(htmlR24.split('class="global-stat"').length - 1, 4, '.global-stat 恰 4（gs-placed/gs-lines/gs-time/gs-games）')
+  assert.equal(htmlR24.split('class="session-stat"').length - 1, 2, '.session-stat 恰 2（ss-placed/ss-time）')
 })

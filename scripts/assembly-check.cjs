@@ -53,7 +53,7 @@ const sel = ['#board','#next-well','#board-frame','#overlay','#feedback-toast',
   '#preview-queue-control','#btn-preview-queue', // r15：多格预览队列开关（纯显示层）
   '#stat-hi','#hi-score',      // v2.6：HUD 最高分元素（持久化回读钩子，AC-16）
   '#btn-settings','#settings-modal','.settings-modal__card','.settings-modal__close', // v3.0：设置弹层（AC-01~06）
-  '#global-stats','#gs-hi-value','#gs-placed-value','#gs-lines-value','#gs-time-value','#gs-games-value'] // r34：全局统计面板六锚点（ui.js must()×5 + 容器）
+  '#global-stats','#gs-placed-value','#gs-lines-value','#gs-time-value','#gs-games-value'] // r34：全局统计面板五锚点（ui.js must()×4 + 容器；r35 删 #gs-hi-value）
 for (const s of sel) {
   if (s.includes(' ')) {
     const [pid, cls] = s.split(' ')

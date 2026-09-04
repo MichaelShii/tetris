@@ -1342,11 +1342,10 @@
 
     /**
      * r32：会话统计只读渲染组件（签名平行 createHud）→ { update, dispose, getAnnounceWrites }。
-     * els: { placed, lines, time, announce }——#ss-placed-value / #ss-lines-value /
-     *   #ss-time-value / #session-announce（createUI 内 must() 装配，缺失即抛错）。
+     * els: { placed, time, announce }——#ss-placed-value / #ss-time-value / #session-announce
+     *   （createUI 内 must() 装配，缺失即抛错；r35 删 #ss-lines 行，本局消行唯一于冻结卡 #lines）。
      * 只读快照渲染（数据面单一计数源在引擎，AC-2）：
      *   - 已放置：s.piecesPlaced 文本变更才写 + 行级 .is-flashing 闪动（120ms，复用 stat-flash）；
-     *   - 消行总数：s.lines 直接镜像（与 #stat-lines 同源恒等，AC-3）；
      *   - 时长：formatSessionTime(s.sessionTimeMs) 文本变更才写，**不 flash、不播报**（每秒静默）；
      *   - 播报（AC-14 防刷屏）：#session-announce 仅 phase 跳变写一次文本（状态机驱动、
      *     非值变化驱动）——→RUNNING「计时开始」/ →PAUSED「已暂停，对局时长 …」/
@@ -1388,12 +1387,6 @@
           setText(els.placed, placedText)
           flash(els.placed.parentElement)
         }
-        // 消行总数：s.lines 快照直接镜像（无第二计数源，AC-3 同源恒等）
-        const linesText = String(typeof s.lines === 'number' ? s.lines : 0)
-        if (els.lines.textContent !== linesText) {
-          setText(els.lines, linesText)
-          flash(els.lines.parentElement)
-        }
         // 时长：文本变更才写；不 flash、不写 announce（每秒静默，AC-14）
         setText(els.time, formatSessionTime(s.sessionTimeMs))
         // 播报：仅 phase 跳变（状态机驱动，非值变化驱动）；READY 不播报；首帧写入不播报
@@ -1419,10 +1412,10 @@
 
     /**
      * r34：全局统计只读渲染组件（签名平行 createSessionStats）→ { update, dispose }。
-     * els: { hi, placed, lines, time, games }——#gs-hi-value / #gs-placed-value / #gs-lines-value /
-     *   #gs-time-value / #gs-games-value（createUI 内 must()×5 装配，缺失即抛错）。
+     * els: { placed, lines, time, games }——#gs-placed-value / #gs-lines-value /
+     *   #gs-time-value / #gs-games-value（createUI 内 must()×4 装配，缺失即抛错）。
      * 只读镜像 persist 载荷（禁独立累计，AC-4 漂移红线）：update(payload) 接受**部分**载荷
-     *   { hi?, placed?, lines?, timeMs?, games? }，缺省字段跳过；值文本变更才写 + 行级 .is-flashing
+     *   { placed?, lines?, timeMs?, games? }，缺省字段跳过；值文本变更才写 + 行级 .is-flashing
      *   闪动（120ms，复用 stat-flash）；timeMs 经 formatSessionTime（mm:ss / ≥1h hh:mm:ss，与 r32 同函数）。
      * flash 小段与 createHud/createSessionStats 刻意重复（≤8 行，不抽公共 helper——抽离须改既有组件，
      * 违反既有逻辑零改红线；r32 已接受此受控重复，承继同款理由）。
@@ -1455,7 +1448,6 @@
 
       function update(p) {
         if (!p || typeof p !== 'object') return
-        if (typeof p.hi === 'number') setNum(els.hi, p.hi)
         if (typeof p.placed === 'number') setNum(els.placed, p.placed)
         if (typeof p.lines === 'number') setNum(els.lines, p.lines)
         if (typeof p.timeMs === 'number') setNum(els.time, formatSessionTime(p.timeMs))
@@ -1544,14 +1536,12 @@
          piecesPlaced/sessionTimeMs，绝不独立累计（AC-2 单一计数源红线）。 ---- */
       const sessionStats = createSessionStats({
         placed: must('#ss-placed-value'),
-        lines: must('#ss-lines-value'),
         time: must('#ss-time-value'),
         announce: must('#session-announce'),
       })
-      /* ---- r34 全局统计面板（只读镜像 persist 载荷；挂载点 #global-stats 与 must()×5 契约同批交付——
+      /* ---- r34 全局统计面板（只读镜像 persist 载荷；挂载点 #global-stats 与 must()×4 契约同批交付——
          缺失即抛错；零交互控件/零事件监听，数据唯一事实在 persist 层，AC-4 禁 UI 独立累计） ---- */
       const globalStats = createGlobalStats({
-        hi: must('#gs-hi-value'),
         placed: must('#gs-placed-value'),
         lines: must('#gs-lines-value'),
         time: must('#gs-time-value'),
@@ -1938,8 +1928,8 @@
           ? opts.persist
           : null
       let persistedHighScore = 0
-      // r34 全局统计只读镜像（唯一覆写点：load 恢复初值 / onStats 全量读回 / 破纪录 hi 同源；绝不独立累计，AC-4）
-      const statsUi = { hi: 0, placed: 0, lines: 0, timeMs: 0, games: 0 }
+      // r34 全局统计只读镜像（唯一覆写点：load 恢复初值 / onStats 全量读回；绝不独立累计，AC-4）
+      const statsUi = { placed: 0, lines: 0, timeMs: 0, games: 0 }
       // 可选 HUD 最高分元素（#hi-score）：装配根未提供则该钩子为空——回读为 no-op、向后兼容
       const hiScoreEl = persist ? root.querySelector('#hi-score') : null
 
@@ -1998,7 +1988,6 @@
           }
         }
         // r34 全局统计：初始镜像 = persist 载荷（只读；缺省 0/00:00；禁 UI 独立累计，AC-4 漂移红线）
-        statsUi.hi = persistedHighScore
         const gs = loaded && loaded.stats && typeof loaded.stats === 'object' ? loaded.stats : null
         if (gs) {
           if (typeof gs.placed === 'number') statsUi.placed = gs.placed
@@ -2119,10 +2108,7 @@
           if (persist && typeof persist.saveHighScore === 'function' && s.score > persistedHighScore) {
             persistedHighScore = s.score
             try { persist.saveHighScore(s.score) } catch (e) { /* 契约不 throw，兜底不中断 */ }
-            updateHiScoreEl()
-            // r34：破纪录时点同源恒等（与 #hi-score 同一变量 persistedHighScore）刷新全局最高分行
-            statsUi.hi = persistedHighScore
-            globalStats.update({ hi: persistedHighScore })
+            updateHiScoreEl() // r35：最高分单通道唯一于 #hi-score（全局卡 hi 行已删，破纪录不再镜像）
           }
           if (typeof opts.onSnapshot === 'function') opts.onSnapshot(s)
         },
@@ -2144,7 +2130,6 @@
             try {
               persist.saveStats(delta)
               const st = persist.load()
-              statsUi.hi = st.highScore
               statsUi.placed = st.stats.placed
               statsUi.lines = st.stats.lines
               statsUi.timeMs = st.stats.timeMs
