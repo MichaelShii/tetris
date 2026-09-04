@@ -104,7 +104,7 @@
         score: snap.score,
         level: snap.level,
         lines: snap.lines,
-        durationMs: snap.sessionTimeMs,
+        durationMs: Math.round(Number(snap.sessionTimeMs)), // 毫秒计时取整（worker 计数域整型契约；performance.now 差值可带小数，r37b）
         deviceId: deviceId,
       }
     }

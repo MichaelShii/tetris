@@ -98,6 +98,12 @@ test('buildPayload: 全字段且 protoVer===1 / durationMs=sessionTimeMs（D4）
   assert.equal(p.deviceId, 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789ab')
 })
 
+test('buildPayload: 浮点时长取整发送（r37b：performance.now 差值 → 整数字节）', () => {
+  const p = L.buildPayload({ score: 100, level: 1, lines: 1, sessionTimeMs: 31458.101999999984 }, 'a1b2c3d4-e5f6-4a7b-8c9d-0123456789ab', '玩家甲')
+  assert.ok(p !== null)
+  assert.equal(p.durationMs, 31458)
+})
+
 test('buildPayload: 缺键 / 非法入参 → null', () => {
   assert.equal(L.buildPayload(null, 'id', 'n'), null)
   assert.equal(L.buildPayload({}, 'id', 'n'), null)

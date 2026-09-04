@@ -104,6 +104,14 @@ console.log('== 3. 清洗 / 上界拒绝 ==')
   const implausible = await post(env, { ...VALID, score: 999_999_999, level: 50, durationMs: 1000 })
   ok('虚构分 400 implausible_score', implausible.status === 400 && (await implausible.json()).error.code === 'implausible_score')
 
+  // r37b：真实对局时长是 performance.now 浮点差值——必须放行，否则真机提交全被 400 误拒
+  const floatMs = await post(env, { ...VALID, score: 100, level: 1, lines: 1, durationMs: 31458.101999999984 })
+  ok('小数时长 200（浮点测量值放行，r37b）', floatMs.status === 200)
+
+  // 计数/版本域仍须整数：小数分不得通过
+  const floatScore = await post(env, { ...VALID, score: 123.5 })
+  ok('小数分数仍 400 bad_request（计数域须整数）', floatScore.status === 400 && (await floatScore.json()).error.code === 'bad_request')
+
   const badProto = await post(env, { ...VALID, protoVer: 2 })
   ok('protoVer=2 暂拒(Phase2 预留)', badProto.status === 400)
 }

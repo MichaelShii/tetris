@@ -46,6 +46,12 @@ export function parseSubmit(body) {
     protoVer: body.protoVer,
   }
   for (const [k, [lo, hi]] of Object.entries(BOUNDS)) {
+    // durationMs 为计时测量值（performance.now 差值，可为小数）：仅要求有限且界内；
+    // score/level/lines/protoVer 为计数/版本，仍须整数（r37b 修复：真机时长 31458.10… 曾被整型校验 400 误拒）
+    if (k === 'durationMs') {
+      if (!Number.isFinite(fields[k]) || fields[k] < lo || fields[k] > hi) return { ok: false, code: 'bad_request' }
+      continue
+    }
     if (!intIn(fields[k], [lo, hi])) return { ok: false, code: 'bad_request' }
   }
   if (fields.protoVer > PROTO_VER) return { ok: false, code: 'bad_request' } // 预留：Phase 2 前拒绝更高协议
