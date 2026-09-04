@@ -80,7 +80,7 @@ console.log('== 5. 自包含（AC-08；r37：追加 leaderboard.js，http(s) 仅
 const lbSrc = fs.readFileSync(path.join(root, 'leaderboard.js'), 'utf8')
 const all = html + fs.readFileSync(path.join(root, 'ui.js'),'utf8') + fs.readFileSync(path.join(root, 'game.js'),'utf8') + fs.readFileSync(path.join(root, 'audio.js'),'utf8') + fs.readFileSync(path.join(root, 'persist.js'),'utf8') + lbSrc + css
 // r37（ARCHITECTURE §6.5）：唯一例外 = leaderboard.js API_BASE 域名（白名单负断言，其余 http(s) 仍拒）
-const API_HOST = 'leaderboard-api.michaelshii.workers.dev'
+const API_HOST = 'leaderboard-api.michaelshi28.workers.dev'
 const httpRe = new RegExp('https?://(?!' + escapeRegExp(API_HOST) + ')', 'i')
 if (httpRe.test(all)) bad('发现 http(s) 引用（仅 API 域名白名单例外除外）'); else ok('无 http(s) 引用（leaderboard-api 白名单例外）')
 for (const m of html.matchAll(/(?:src|href)\s*=\s*["']([^"']+)["']/g)) {

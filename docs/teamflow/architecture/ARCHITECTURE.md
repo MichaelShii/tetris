@@ -175,7 +175,7 @@ products/tetris/
 
 ### 6.5 API 域名唯一登记点
 
-`API_BASE`（前端 `leaderboard.js` 常量）与 assembly-check 白名单、worker README 三处统一写 **`https://leaderboard-api.michaelshii.workers.dev`**（wrangler `name = "tetris-leaderboard-api"` 部署后的默认 workers.dev 域名；部署后如改自定义域名需三处同步，并保持 CORS 白名单仅 `michaelshii.github.io`）。alpha 阶段未部署时该常量为占位符，**不允许**在未部署前上线正式页。
+`API_BASE`（前端 `leaderboard.js` 常量）与 assembly-check 白名单、worker README 三处统一写 **`https://leaderboard-api.michaelshi28.workers.dev`**（wrangler `name = "tetris-leaderboard-api"` 部署后的默认 workers.dev 域名；部署后如改自定义域名需三处同步，并保持 CORS 白名单仅 `michaelshii.github.io`）。alpha 阶段未部署时该常量为占位符，**不允许**在未部署前上线正式页。
 
 ### 6.6 CI（可选，本周不建）
 

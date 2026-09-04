@@ -34,7 +34,7 @@
      *    三处同源，改域名须三处同步——PRD §6 风险④）
      * ==================================================================== */
     const PROTOCOL_VERSION = 1
-    const API_BASE = 'https://leaderboard-api.michaelshii.workers.dev'
+    const API_BASE = 'https://leaderboard-api.michaelshi28.workers.dev'
     const SUBMIT_BACKOFF_MS = 1500 // POST 失败退避（至多 1 次重试）
     const FETCH_TIMEOUT_MS = 8000 // fetch 超时（AbortController）
 

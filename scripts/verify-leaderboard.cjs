@@ -79,7 +79,7 @@ test('leaderboard: 导出契约齐全（createLeaderboard/纯函数/常量）', 
   assert.equal(typeof L.buildPayload, 'function')
   assert.equal(typeof L.generateDeviceId, 'function')
   assert.equal(typeof L.API_BASE, 'string')
-  assert.equal(L.API_BASE, 'https://leaderboard-api.michaelshii.workers.dev') // 三处同源登记点
+  assert.equal(L.API_BASE, 'https://leaderboard-api.michaelshi28.workers.dev') // 三处同源登记点
   assert.equal(L.PROTOCOL_VERSION, 1) // D2：载荷字段钉名 protoVer=1
 })
 
