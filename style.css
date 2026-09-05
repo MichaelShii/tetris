@@ -2328,7 +2328,7 @@ html:not(.has-touch) .touchpad {
 /* 表头（r37b）：与 .lb-row 同网格列 + 行内距，哑色小字；数据单元格已有牢靠 aria-label，视觉表头对读屏隐藏 */
 .lb-head {
   display: grid;
-  grid-template-columns: 3ch 1fr auto 2ch 3ch;
+  grid-template-columns: 4ch minmax(0,1fr) auto 4ch 4ch;
   gap: var(--sp-2);
   align-items: baseline;
   padding: var(--sp-1) var(--sp-2);
@@ -2340,6 +2340,7 @@ html:not(.has-touch) .touchpad {
   color: var(--muted);
   border-bottom: 1px solid var(--line);
 }
+.lb-head span { white-space: nowrap; } /* r37b：CJK 标签不折行（名次/等级/消行） */
 .lb-head span:nth-child(n+3) { text-align: right; } /* 分数/等级/消行与数据行右对齐 */
 
 /* 榜单列表：Top20 五列网格 名次/昵称/分数/等级/消行（DESIGN §2.2 行骨架） */
@@ -2354,7 +2355,7 @@ html:not(.has-touch) .touchpad {
 
 .lb-row {
   display: grid;
-  grid-template-columns: 3ch 1fr auto 2ch 3ch;
+  grid-template-columns: 4ch minmax(0,1fr) auto 4ch 4ch;
   gap: var(--sp-2);
   align-items: baseline;
   padding: var(--sp-1) var(--sp-2);
